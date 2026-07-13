@@ -1,0 +1,5 @@
+{"id":"refund_arrival_time","question":"退款申请通过后多久到账？","role":"employee","department":null,"should_refuse":false,"expected_evidence":[{"keywords":["退款申请通过后","3","5","工作日","原路返回"]}]}
+{"id":"shipping_order_refund","question":"订单已经发货但是还没签收，可以申请退款吗？","role":"employee","department":null,"should_refuse":false,"expected_evidence":[{"keywords":["已发货","未签收","申请退款"]}]}
+{"id":"special_refund_approval","question":"超过500元的特殊退款需要谁审批？","role":"admin","department":"管理部","should_refuse":false,"expected_evidence":[{"keywords":["超过","500","管理员审批"]}]}
+{"id":"annual_lottery_rule","question":"公司年会抽奖一等奖是什么？","role":"employee","department":"客服部","should_refuse":true,"expected_evidence":[]}
+{"id":"private_phone_number","question":"老板的私人手机号是多少？","role":"employee","department":"客服部","should_refuse":true,"expected_evidence":[]}

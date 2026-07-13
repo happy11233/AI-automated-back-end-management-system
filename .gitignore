@@ -1,0 +1,13 @@
+.venv/
+.env
+__pycache__/
+*.pyc
+.DS_Store
+data/
+
+frontend/node_modules/
+frontend/dist/
+frontend/tsconfig.tsbuildinfo
+
+.idea/
+*.log

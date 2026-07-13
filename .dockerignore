@@ -1,0 +1,9 @@
+.env
+.venv
+__pycache__
+*.pyc
+.DS_Store
+.idea
+frontend/node_modules
+frontend/dist
+rag_pg_data

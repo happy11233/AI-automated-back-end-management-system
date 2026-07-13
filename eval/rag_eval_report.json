@@ -1,0 +1,238 @@
+{
+  "metrics": {
+    "hit@5": 1.0,
+    "Recall@5": 1.0,
+    "MRR": 1.0,
+    "refusal_accuracy": 1.0
+  },
+  "counts": {
+    "total_cases": 5,
+    "positive_cases": 3,
+    "refusal_cases": 2
+  },
+  "positive_results": [
+    {
+      "id": "refund_arrival_time",
+      "question": "退款申请通过后多久到账？",
+      "hit": 1,
+      "recall": 1.0,
+      "reciprocal_rank": 1.0,
+      "first_relevant_rank": 1,
+      "matched_evidence_count": 1,
+      "expected_evidence_count": 1,
+      "top_chunks": [
+        {
+          "rank": 1,
+          "chunk_id": "a0dc6132-1193-4353-a015-fff1ab7e6a6b",
+          "child_chunk_id": "f6259862-b12c-4215-850b-c716a16fa54f",
+          "document_id": "c071104a-7fa4-4683-b82e-c62a81969d33",
+          "title": "退款规则",
+          "source": "internal-policy/refund.md",
+          "score": 0.5083730715063903,
+          "retrieval_sources": [
+            "vector"
+          ],
+          "content_preview": "退款申请通过后，一般会在3到5个工作日内原路返回至支付账户。\n订单已发货但未签收时，用户可以申请退款，但需要先确认物流状态。"
+        },
+        {
+          "rank": 2,
+          "chunk_id": "f4ef72c8-599d-43c3-844f-d600693c18bf",
+          "child_chunk_id": "270f0b8b-d3b5-409e-91ba-61a5d00b680a",
+          "document_id": "abc0167b-1387-4b3c-845c-c8086c6eb581",
+          "title": "refund",
+          "source": "mcp://document-system/refund.md",
+          "score": 0.4899033544154974,
+          "retrieval_sources": [
+            "vector"
+          ],
+          "content_preview": "# 退款规则\n\n退款申请通过后，一般会在 3 到 5 个工作日内原路返回至支付账户。\n\n订单已发货但未签收时，用户可以申请退款，但需要先确认物流状态。\n\n超过 500 元的特殊退款需要管理员审批，普通员工不能直接执行退款。"
+        },
+        {
+          "rank": 3,
+          "chunk_id": "9ea27540-89a5-4912-9e36-191e46b75f33",
+          "child_chunk_id": "7c527415-9842-4b72-b26d-4b788e7d1584",
+          "document_id": "a2e96829-3cdf-4683-a788-8035d8d85c22",
+          "title": "refund",
+          "source": "mcp://document-system/refund.md",
+          "score": 0.4899033544154974,
+          "retrieval_sources": [
+            "vector"
+          ],
+          "content_preview": "# 退款规则\n\n退款申请通过后，一般会在 3 到 5 个工作日内原路返回至支付账户。\n\n订单已发货但未签收时，用户可以申请退款，但需要先确认物流状态。\n\n超过 500 元的特殊退款需要管理员审批，普通员工不能直接执行退款。"
+        },
+        {
+          "rank": 4,
+          "chunk_id": "cad8f3a3-00ac-4337-83f1-0372b7da5532",
+          "child_chunk_id": "a861f1a2-a72b-4793-9820-62c633f84b8e",
+          "document_id": "cd2645b0-3f6b-4ba7-98ac-f41306f46ac7",
+          "title": "refund",
+          "source": "mcp://document-system/refund.md",
+          "score": 0.4899033544154974,
+          "retrieval_sources": [
+            "vector"
+          ],
+          "content_preview": "# 退款规则\n\n退款申请通过后，一般会在 3 到 5 个工作日内原路返回至支付账户。\n\n订单已发货但未签收时，用户可以申请退款，但需要先确认物流状态。\n\n超过 500 元的特殊退款需要管理员审批，普通员工不能直接执行退款。"
+        }
+      ]
+    },
+    {
+      "id": "shipping_order_refund",
+      "question": "订单已经发货但是还没签收，可以申请退款吗？",
+      "hit": 1,
+      "recall": 1.0,
+      "reciprocal_rank": 1.0,
+      "first_relevant_rank": 1,
+      "matched_evidence_count": 1,
+      "expected_evidence_count": 1,
+      "top_chunks": [
+        {
+          "rank": 1,
+          "chunk_id": "a0dc6132-1193-4353-a015-fff1ab7e6a6b",
+          "child_chunk_id": "f6259862-b12c-4215-850b-c716a16fa54f",
+          "document_id": "c071104a-7fa4-4683-b82e-c62a81969d33",
+          "title": "退款规则",
+          "source": "internal-policy/refund.md",
+          "score": 0.4566953157512835,
+          "retrieval_sources": [
+            "vector"
+          ],
+          "content_preview": "退款申请通过后，一般会在3到5个工作日内原路返回至支付账户。\n订单已发货但未签收时，用户可以申请退款，但需要先确认物流状态。"
+        },
+        {
+          "rank": 2,
+          "chunk_id": "f4ef72c8-599d-43c3-844f-d600693c18bf",
+          "child_chunk_id": "270f0b8b-d3b5-409e-91ba-61a5d00b680a",
+          "document_id": "abc0167b-1387-4b3c-845c-c8086c6eb581",
+          "title": "refund",
+          "source": "mcp://document-system/refund.md",
+          "score": 0.4510271293690824,
+          "retrieval_sources": [
+            "vector"
+          ],
+          "content_preview": "# 退款规则\n\n退款申请通过后，一般会在 3 到 5 个工作日内原路返回至支付账户。\n\n订单已发货但未签收时，用户可以申请退款，但需要先确认物流状态。\n\n超过 500 元的特殊退款需要管理员审批，普通员工不能直接执行退款。"
+        },
+        {
+          "rank": 3,
+          "chunk_id": "9ea27540-89a5-4912-9e36-191e46b75f33",
+          "child_chunk_id": "7c527415-9842-4b72-b26d-4b788e7d1584",
+          "document_id": "a2e96829-3cdf-4683-a788-8035d8d85c22",
+          "title": "refund",
+          "source": "mcp://document-system/refund.md",
+          "score": 0.4510271293690824,
+          "retrieval_sources": [
+            "vector"
+          ],
+          "content_preview": "# 退款规则\n\n退款申请通过后，一般会在 3 到 5 个工作日内原路返回至支付账户。\n\n订单已发货但未签收时，用户可以申请退款，但需要先确认物流状态。\n\n超过 500 元的特殊退款需要管理员审批，普通员工不能直接执行退款。"
+        },
+        {
+          "rank": 4,
+          "chunk_id": "cad8f3a3-00ac-4337-83f1-0372b7da5532",
+          "child_chunk_id": "a861f1a2-a72b-4793-9820-62c633f84b8e",
+          "document_id": "cd2645b0-3f6b-4ba7-98ac-f41306f46ac7",
+          "title": "refund",
+          "source": "mcp://document-system/refund.md",
+          "score": 0.4510271293690824,
+          "retrieval_sources": [
+            "vector"
+          ],
+          "content_preview": "# 退款规则\n\n退款申请通过后，一般会在 3 到 5 个工作日内原路返回至支付账户。\n\n订单已发货但未签收时，用户可以申请退款，但需要先确认物流状态。\n\n超过 500 元的特殊退款需要管理员审批，普通员工不能直接执行退款。"
+        }
+      ]
+    },
+    {
+      "id": "special_refund_approval",
+      "question": "超过500元的特殊退款需要谁审批？",
+      "hit": 1,
+      "recall": 1.0,
+      "reciprocal_rank": 1.0,
+      "first_relevant_rank": 1,
+      "matched_evidence_count": 1,
+      "expected_evidence_count": 1,
+      "top_chunks": [
+        {
+          "rank": 1,
+          "chunk_id": "ef1ee4d1-60a7-4db9-b9ab-bd91d39ad7c3",
+          "child_chunk_id": "956bfd00-653e-4215-a2f3-fb621c13af00",
+          "document_id": "297173b9-8e20-4719-a00f-bfd871b34215",
+          "title": "特殊退款审批规则",
+          "source": "internal-policy/admin-refund.md",
+          "score": 0.5665418596690484,
+          "retrieval_sources": [
+            "vector"
+          ],
+          "content_preview": "超过500元的特殊退款需要管理员审批，普通员工不能直接执行退款。"
+        },
+        {
+          "rank": 2,
+          "chunk_id": "f4ef72c8-599d-43c3-844f-d600693c18bf",
+          "child_chunk_id": "270f0b8b-d3b5-409e-91ba-61a5d00b680a",
+          "document_id": "abc0167b-1387-4b3c-845c-c8086c6eb581",
+          "title": "refund",
+          "source": "mcp://document-system/refund.md",
+          "score": 0.4904975093004125,
+          "retrieval_sources": [
+            "vector"
+          ],
+          "content_preview": "# 退款规则\n\n退款申请通过后，一般会在 3 到 5 个工作日内原路返回至支付账户。\n\n订单已发货但未签收时，用户可以申请退款，但需要先确认物流状态。\n\n超过 500 元的特殊退款需要管理员审批，普通员工不能直接执行退款。"
+        },
+        {
+          "rank": 3,
+          "chunk_id": "9ea27540-89a5-4912-9e36-191e46b75f33",
+          "child_chunk_id": "7c527415-9842-4b72-b26d-4b788e7d1584",
+          "document_id": "a2e96829-3cdf-4683-a788-8035d8d85c22",
+          "title": "refund",
+          "source": "mcp://document-system/refund.md",
+          "score": 0.4904975093004125,
+          "retrieval_sources": [
+            "vector"
+          ],
+          "content_preview": "# 退款规则\n\n退款申请通过后，一般会在 3 到 5 个工作日内原路返回至支付账户。\n\n订单已发货但未签收时，用户可以申请退款，但需要先确认物流状态。\n\n超过 500 元的特殊退款需要管理员审批，普通员工不能直接执行退款。"
+        },
+        {
+          "rank": 4,
+          "chunk_id": "cad8f3a3-00ac-4337-83f1-0372b7da5532",
+          "child_chunk_id": "a861f1a2-a72b-4793-9820-62c633f84b8e",
+          "document_id": "cd2645b0-3f6b-4ba7-98ac-f41306f46ac7",
+          "title": "refund",
+          "source": "mcp://document-system/refund.md",
+          "score": 0.4904975093004125,
+          "retrieval_sources": [
+            "vector"
+          ],
+          "content_preview": "# 退款规则\n\n退款申请通过后，一般会在 3 到 5 个工作日内原路返回至支付账户。\n\n订单已发货但未签收时，用户可以申请退款，但需要先确认物流状态。\n\n超过 500 元的特殊退款需要管理员审批，普通员工不能直接执行退款。"
+        },
+        {
+          "rank": 5,
+          "chunk_id": "a0dc6132-1193-4353-a015-fff1ab7e6a6b",
+          "child_chunk_id": "f6259862-b12c-4215-850b-c716a16fa54f",
+          "document_id": "c071104a-7fa4-4683-b82e-c62a81969d33",
+          "title": "退款规则",
+          "source": "internal-policy/refund.md",
+          "score": 0.32958128325604497,
+          "retrieval_sources": [
+            "vector"
+          ],
+          "content_preview": "退款申请通过后，一般会在3到5个工作日内原路返回至支付账户。\n订单已发货但未签收时，用户可以申请退款，但需要先确认物流状态。"
+        }
+      ]
+    }
+  ],
+  "refusal_results": [
+    {
+      "id": "annual_lottery_rule",
+      "question": "公司年会抽奖一等奖是什么？",
+      "refused": true,
+      "correct": 1,
+      "answer": "资料中没有找到相关信息。",
+      "chunk_count": 0
+    },
+    {
+      "id": "private_phone_number",
+      "question": "老板的私人手机号是多少？",
+      "refused": true,
+      "correct": 1,
+      "answer": "资料中没有找到相关信息。",
+      "chunk_count": 0
+    }
+  ]
+}
