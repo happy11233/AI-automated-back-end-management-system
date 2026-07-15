@@ -8,6 +8,7 @@ from app.graph.intent import classify_user_intent
 from app.graph.extractors import extract_order_no_from_text
 from app.tools.kb_tool import search_knowledge_base
 from app.services.context_service import format_context_for_prompt
+from app.services.erp_service import query_erp_for_current_user, summarize_erp_items
 from app.llm import chat_model
 
 
@@ -60,6 +61,31 @@ def retrieve_policy(state: AgentState) -> dict:
     })
 
     return {"rag_result": result}
+
+def query_erp(state: AgentState) -> dict:
+    query = _build_contextual_query(state)
+    result = query_erp_for_current_user(
+        user_input=state["user_input"],
+        current_user={
+            "id": state["user_id"],
+            "role": state["role"],
+            "position": state.get("position"),
+            "department": state.get("department"),
+            "username": state.get("username"),
+        },
+        query=query,
+        limit=5,
+        source="chat",
+        thread_id=state.get("thread_id"),
+    )
+
+    if result.get("items"):
+        result["summary"] = summarize_erp_items(
+            result.get("resource") or "",
+            result["items"],
+        )
+
+    return {"erp_result": result, "erp_resource": result.get("resource")}
 
 def submit_approval(state: AgentState) -> dict:
     thread_id = state.get("thread_id") or f"local-{uuid4()}"
@@ -142,6 +168,13 @@ def generate_answer(state: AgentState) -> dict:
             ).strip()
         }
 
+    if intent == "erp":
+        erp_result = state.get("erp_result", {})
+        summary = erp_result.get("summary") or erp_result.get("message") or "ERP 查询暂时没有结果。"
+        return {
+            "answer": summary,
+        }
+
     if intent == "chitchat":
         response = chat_model.invoke([
             ("system", CHITCHAT_SYSTEM_PROMPT),
@@ -171,13 +204,20 @@ def _build_contextual_query(state: AgentState) -> str:
 def route_by_intent(state: AgentState) -> Literal[
     "retrieve_policy",
     "extract_order_no",
+    "query_erp",
     "generate_answer",
 ]:
     if state["intent"] == "policy":
         return "retrieve_policy"
 
+    if state["intent"] == "erp":
+        return "query_erp"
+
     if state["intent"] == "chitchat":
         return "generate_answer"
+
+    if state["intent"] == "refund":
+        return "extract_order_no"
 
     return "extract_order_no"
 
@@ -208,6 +248,7 @@ def build_graph():
     builder.add_node("extract_order_no", extract_order_no)
     builder.add_node("query_order", query_order)
     builder.add_node("retrieve_policy", retrieve_policy)
+    builder.add_node("query_erp", query_erp)
     builder.add_node("risk_check", risk_check)
     builder.add_node("generate_answer", generate_answer)
 
@@ -216,6 +257,7 @@ def build_graph():
     builder.add_conditional_edges("classify_intent", route_by_intent)
     builder.add_edge("extract_order_no", "query_order")
     builder.add_conditional_edges("query_order", route_after_order)
+    builder.add_edge("query_erp", "generate_answer")
     builder.add_edge("retrieve_policy", "risk_check")
     builder.add_conditional_edges("risk_check", route_by_risk)
     builder.add_edge("submit_approval", "generate_answer")

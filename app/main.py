@@ -17,8 +17,12 @@ from app.db import close_pool, open_pool
 from app.graph.workflow import graph
 from app.llm import chat as run_llm_chat, chat_model
 from app.api.approvals import router as approvals_router
+from app.api.automation import router as automation_router
+from app.api.erp import router as erp_router
 from app.api.refunds import router as refunds_router
 from app.api.threads import router as threads_router
+from app.api.users import router as users_router
+from app.permissions import ensure_chat_allowed_for_position
 from app.rag.ingest import ingest_documents
 from app.rag.loaders import (
     EmptyDocumentError,
@@ -29,6 +33,7 @@ from app.services.context_service import (
     build_context_bundle,
     update_context_after_turn,
 )
+from app.services.erp_service import query_erp_for_current_user, summarize_erp_items
 from app.services.logging_service import (ensure_chat_thread,save_chat_message,write_audit_log,)
 from app.services.mcp_service import (
     create_external_ticket,
@@ -64,9 +69,12 @@ app.add_middleware(
 )
 app.include_router(auth_router)
 app.include_router(approvals_router)
+app.include_router(automation_router)
 app.include_router(audit_logs_router)
+app.include_router(erp_router)
 app.include_router(refunds_router)
 app.include_router(threads_router)
+app.include_router(users_router)
 
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 
@@ -80,6 +88,7 @@ class ChatResponse(BaseModel):
     answer: str
     intent: str | None = None
     risk_level: str | None = None
+    erp_references: list[dict] = Field(default_factory=list)
     approval_result: dict | None = None
 
 
@@ -96,6 +105,14 @@ class AgentChatRequest(BaseModel):
 class AgentChatResponse(BaseModel):
     thread_id: str
     answer: str
+
+
+class ChatIntentResponse(BaseModel):
+    thread_id: str
+    answer: str
+    intent: str | None = None
+    risk_level: str | None = None
+    approval_result: dict | None = None
 
 
 class PublicLLMMessage(BaseModel):
@@ -134,6 +151,15 @@ def chunk_text(text: str, size: int = 12):
 
     for index in range(0, len(text), size):
         yield text[index:index + size]
+
+
+def erp_references_from_result(result: dict) -> list[dict]:
+    erp_result = result.get("erp_result")
+    if not isinstance(erp_result, dict):
+        return []
+
+    references = erp_result.get("references")
+    return references if isinstance(references, list) else []
 
 
 @app.get("/health")
@@ -280,6 +306,7 @@ def get_mcp_ticket(
 
 @app.post("/chat", response_model=ChatResponse)
 def chat(request: ChatRequest,current_user: dict = Depends(get_current_user),):
+    ensure_chat_allowed_for_position(current_user, request.message)
     thread_id = request.thread_id or f"thread-{uuid4()}"
     ensure_chat_thread(thread_id, current_user["id"], title=request.message[:50])
     context_bundle = build_context_bundle(
@@ -299,8 +326,11 @@ def chat(request: ChatRequest,current_user: dict = Depends(get_current_user),):
         "user_id": current_user["id"],
         "role": current_user["role"],
         "department": current_user.get("department"),
+        "position": current_user.get("position"),
+        "username": current_user.get("username"),
         "context": context_bundle,
     })
+    erp_references = erp_references_from_result(result)
     save_chat_message(
         thread_id=result.get("thread_id", thread_id),
         user_id=current_user["id"],
@@ -310,6 +340,12 @@ def chat(request: ChatRequest,current_user: dict = Depends(get_current_user),):
             "intent": result.get("intent"),
             "risk_level": result.get("risk_level"),
             "order_no": result.get("order_no"),
+            "position": current_user.get("position"),
+            "erp_resource": result.get("erp_resource"),
+            "erp_status": (result.get("erp_result") or {}).get("status")
+            if isinstance(result.get("erp_result"), dict)
+            else None,
+            "erp_references": erp_references,
             "approval_result": result.get("approval_result"),
         },
     )
@@ -329,6 +365,9 @@ def chat(request: ChatRequest,current_user: dict = Depends(get_current_user),):
             "intent": result.get("intent"),
             "risk_level": result.get("risk_level"),
             "order_no": result.get("order_no"),
+            "position": current_user.get("position"),
+            "erp_resource": result.get("erp_resource"),
+            "erp_reference_count": len(erp_references),
             "context_summary_used": bool(context_bundle.get("summary", {}).get("summary")),
             "recent_message_count": len(context_bundle.get("recent_messages", [])),
         },
@@ -339,6 +378,7 @@ def chat(request: ChatRequest,current_user: dict = Depends(get_current_user),):
         "answer": result.get("answer", ""),
         "intent": result.get("intent"),
         "risk_level": result.get("risk_level"),
+        "erp_references": erp_references,
         "approval_result": result.get("approval_result"),
     }
 
@@ -348,6 +388,7 @@ def chat_stream(
     request: ChatRequest,
     current_user: dict = Depends(get_current_user),
 ):
+    ensure_chat_allowed_for_position(current_user, request.message)
     thread_id = request.thread_id or f"thread-{uuid4()}"
     ensure_chat_thread(thread_id, current_user["id"], title=request.message[:50])
     context_bundle = build_context_bundle(
@@ -371,6 +412,8 @@ def chat_stream(
         "user_id": current_user["id"],
         "role": current_user["role"],
         "department": current_user.get("department"),
+        "position": current_user.get("position"),
+        "username": current_user.get("username"),
         "context": context_bundle,
     }
 
@@ -402,6 +445,7 @@ def chat_stream(
 
             final_thread_id = result_state.get("thread_id", thread_id)
             answer = result_state.get("answer", "")
+            erp_references = erp_references_from_result(result_state)
 
             for chunk in chunk_text(answer):
                 yield format_sse(
@@ -423,6 +467,12 @@ def chat_stream(
                     "intent": result_state.get("intent"),
                     "risk_level": result_state.get("risk_level"),
                     "order_no": result_state.get("order_no"),
+                    "position": current_user.get("position"),
+                    "erp_resource": result_state.get("erp_resource"),
+                    "erp_status": (result_state.get("erp_result") or {}).get("status")
+                    if isinstance(result_state.get("erp_result"), dict)
+                    else None,
+                    "erp_references": erp_references,
                     "approval_result": result_state.get("approval_result"),
                 },
             )
@@ -441,6 +491,12 @@ def chat_stream(
                     "intent": result_state.get("intent"),
                     "risk_level": result_state.get("risk_level"),
                     "order_no": result_state.get("order_no"),
+                    "position": current_user.get("position"),
+                    "erp_resource": result_state.get("erp_resource"),
+                    "erp_status": (result_state.get("erp_result") or {}).get("status")
+                    if isinstance(result_state.get("erp_result"), dict)
+                    else None,
+                    "erp_reference_count": len(erp_references),
                     "context_summary_used": bool(context_bundle.get("summary", {}).get("summary")),
                     "recent_message_count": len(context_bundle.get("recent_messages", [])),
                 },
@@ -453,6 +509,8 @@ def chat_stream(
                     "answer": answer,
                     "intent": result_state.get("intent"),
                     "risk_level": result_state.get("risk_level"),
+                    "erp_resource": result_state.get("erp_resource"),
+                    "erp_references": erp_references,
                     "approval_result": result_state.get("approval_result"),
                 },
             )
@@ -479,6 +537,7 @@ def agent_chat(
     request: AgentChatRequest,
     current_user: dict = Depends(get_current_user),
 ):
+    ensure_chat_allowed_for_position(current_user, request.message)
     thread_id = request.thread_id or f"agent-thread-{uuid4()}"
 
     ensure_chat_thread(
@@ -603,6 +662,10 @@ async def upload_document(
             "content_type": file.content_type,
             "visibility": visibility,
             "department": department,
+            "content_hash": result.get("content_hash"),
+            "version": result.get("version"),
+            "status": result.get("status"),
+            "update_action": result.get("update_action"),
             "parent_chunk_count": result.get("parent_chunk_count"),
             "chunk_count": result["chunk_count"],
             "username": current_user["username"],

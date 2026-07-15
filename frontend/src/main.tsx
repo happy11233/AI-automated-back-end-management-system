@@ -1,6 +1,7 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
+  ApiOutlined,
   AuditOutlined,
   CheckCircleOutlined,
   CloudUploadOutlined,
@@ -29,10 +30,13 @@ import {
   Empty,
   Form,
   Input,
+  InputNumber,
   Dropdown,
   Modal,
   Radio,
   Row,
+  Segmented,
+  Select,
   Space,
   Table,
   Tag,
@@ -52,19 +56,42 @@ import {
 import "./styles.css";
 import {
   login,
+  createUser,
+  generateAutomation,
+  isAuthExpiredError,
+  transformFinanceExcel,
+  getErpDashboardOverview,
+  getErpDiagnostics,
+  getErpRecordDetail,
+  getErpScopes,
+  getErpStatus,
+  listAutomationTasks,
   sendPublicLLMChatStream,
   sendChatStream,
   uploadDocument,
   listApprovals,
   listAuditLogs,
   listRefunds,
+  listUsers,
   getThreadMessages,
+  queryErp,
   reviewApproval as reviewApprovalApi,
   type ApprovalItem,
   type AuditLogItem,
+  type AutomationTaskItem,
+  type ErpDashboardOverviewResponse,
+  type ErpDiagnosticsResponse,
+  type ErpQueryResponse,
+  type ErpRecordDetailResponse,
+  type ErpReference,
+  type ErpResourceItem,
+  type ErpStatusResponse,
+  type Position,
   type PublicLLMMessage,
   type RefundItem,
   type ThreadMessageItem,
+  type UserCreatePayload,
+  type UserItem,
 } from "./api";
 import { Contact } from "./portal/components/Contact";
 import { Hero } from "./portal/components/Hero";
@@ -80,8 +107,17 @@ type Role = "admin" | "employee";
 type ChatRoute = "refund_workflow" | "order_agent" | "knowledge_rag";
 type View =
   | "dashboard"
+  | "automation"
+  | "automation_operations"
+  | "automation_customer_service"
+  | "automation_finance"
+  | "erp"
+  | "erp_query"
+  | "erp_resources"
+  | "erp_diagnostics"
   | "chat"
   | "documents"
+  | "users"
   | "approvals"
   | "refunds"
   | "audit"
@@ -93,6 +129,8 @@ type NavItem = {
   name: string;
   icon: React.ReactNode;
   roles: Role[];
+  positions?: Position[];
+  children?: NavItem[];
 };
 
 type ChatMessage = {
@@ -102,6 +140,7 @@ type ChatMessage = {
   content: string;
   createdAt: string;
   route?: ChatRoute;
+  erpReferences?: ErpReference[];
 };
 
 type PublicLLMChatMessage = PublicLLMMessage & {
@@ -134,30 +173,168 @@ type AuditLog = {
   resourceType: string;
   resourceId: string;
   actor: string;
+  position: string;
   createdAt: string;
+};
+
+type UserRecord = {
+  id: string;
+  username: string;
+  role: Role;
+  department: string;
+  position: Position | null;
+  capabilities: string[];
+  erpScopes: string[];
+  createdAt: string;
+};
+
+type AutomationTaskRecord = AutomationTaskItem & {
+  inputText: string;
+  output: string;
+};
+
+type NewUserForm = {
+  username: string;
+  password: string;
+  role: Role;
+  position: Position | null;
+  department: string;
+};
+
+type DashboardMarket = "all" | "us" | "de" | "jp";
+type DashboardDateRange = "all" | "today" | "7d" | "30d";
+type DashboardStore = "all" | "us_store" | "de_store" | "jp_store";
+
+const positionConfigs: Record<Position, { label: string; department: string; capabilities: string[]; erpScopes: string[] }> = {
+  operations: {
+    label: "运营",
+    department: "运营部",
+    capabilities: ["生成 Listing", "生成标题", "生成五点描述", "生成关键词", "生成促销文案", "竞品分析"],
+    erpScopes: ["Item", "Item Price", "Sales Order", "Sales Invoice summary"],
+  },
+  customer_service: {
+    label: "客服",
+    department: "客服部",
+    capabilities: ["智能客服", "自动回复", "退款售后话术", "多语言客服翻译"],
+    erpScopes: ["Customer", "Sales Order", "Delivery Note", "Issue", "Return request"],
+  },
+  finance: {
+    label: "财务",
+    department: "财务部",
+    capabilities: ["分析财务报表", "统计工资", "上传 Excel 后按财务要求生成新 Excel 表"],
+    erpScopes: ["GL Entry", "Payment Entry", "Salary Slip", "Sales Invoice", "Purchase Invoice"],
+  },
 };
 
 const navItems: NavItem[] = [
   { path: "/dashboard", id: "dashboard", name: "概览", icon: <DatabaseOutlined />, roles: ["admin", "employee"] },
+  {
+    path: "/automation",
+    id: "automation",
+    name: "岗位应用",
+    icon: <RobotOutlined />,
+    roles: ["admin", "employee"],
+    children: [
+      {
+        path: "/automation/operations",
+        id: "automation_operations",
+        name: "运营 AI 自动化",
+        icon: <RobotOutlined />,
+        roles: ["admin", "employee"],
+        positions: ["operations"],
+      },
+      {
+        path: "/automation/customer-service",
+        id: "automation_customer_service",
+        name: "客服 AI 自动化",
+        icon: <MessageOutlined />,
+        roles: ["admin", "employee"],
+        positions: ["customer_service"],
+      },
+      {
+        path: "/automation/finance",
+        id: "automation_finance",
+        name: "财务 AI 自动化",
+        icon: <CloudUploadOutlined />,
+        roles: ["admin", "employee"],
+        positions: ["finance"],
+      },
+    ],
+  },
+  {
+    path: "/erp",
+    id: "erp",
+    name: "ERP 查询",
+    icon: <ApiOutlined />,
+    roles: ["admin", "employee"],
+    children: [
+      {
+        path: "/erp/query",
+        id: "erp_query",
+        name: "ERP 连接查询",
+        icon: <SearchOutlined />,
+        roles: ["admin", "employee"],
+      },
+      {
+        path: "/erp/resources",
+        id: "erp_resources",
+        name: "ERP 资源列表",
+        icon: <DatabaseOutlined />,
+        roles: ["admin", "employee"],
+      },
+      {
+        path: "/erp/diagnostics",
+        id: "erp_diagnostics",
+        name: "ERP 管理诊断",
+        icon: <AuditOutlined />,
+        roles: ["admin"],
+      },
+    ],
+  },
   { path: "/chat", id: "chat", name: "客服对话", icon: <MessageOutlined />, roles: ["admin", "employee"] },
   { path: "/documents", id: "documents", name: "知识库", icon: <FileTextOutlined />, roles: ["admin"] },
+  { path: "/users", id: "users", name: "用户管理", icon: <SafetyCertificateOutlined />, roles: ["admin"] },
   { path: "/approvals", id: "approvals", name: "审批", icon: <CheckCircleOutlined />, roles: ["admin"] },
   { path: "/refunds", id: "refunds", name: "退款流水", icon: <HistoryOutlined />, roles: ["admin"] },
   { path: "/audit", id: "audit", name: "审计日志", icon: <AuditOutlined />, roles: ["admin"] },
   { path: "/threads", id: "threads", name: "会话详情", icon: <RobotOutlined />, roles: ["admin", "employee"] },
 ];
 
+const dashboardMarketOptions: Array<{ label: string; value: DashboardMarket }> = [
+  { label: "全部", value: "all" },
+  { label: "美国", value: "us" },
+  { label: "德国", value: "de" },
+  { label: "日本", value: "jp" },
+];
+
+const dashboardDateRangeOptions: Array<{ label: string; value: DashboardDateRange }> = [
+  { label: "全部时间", value: "all" },
+  { label: "今天", value: "today" },
+  { label: "近7天", value: "7d" },
+  { label: "近30天", value: "30d" },
+];
+
+const dashboardStoreOptions: Array<{ label: string; value: DashboardStore }> = [
+  { label: "全部店铺", value: "all" },
+  { label: "US Store", value: "us_store" },
+  { label: "DE Store", value: "de_store" },
+  { label: "JP Store", value: "jp_store" },
+];
+
 function App() {
   const [language, setLanguage] = useState<Language>("zh");
-  const [activeView, setActiveView] = useState<View>("dashboard");
+  const [activeView, setActiveView] = useState<View>(() => viewFromPath(window.location.pathname));
   const [role, setRole] = useState<Role>(readStoredRole);
+  const [position, setPosition] = useState<Position | null>(readStoredPosition);
   const [username, setUsername] = useState(localStorage.getItem("username") ?? "");
   const [password, setPassword] = useState("");
   const [token, setToken] = useState(localStorage.getItem("access_token") ?? "");
   const [statusMessage, setStatusMessage] = useState("系统就绪");
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const [isLoginErrorOpen, setIsLoginErrorOpen] = useState(false);
+  const [isSessionExpiredOpen, setIsSessionExpiredOpen] = useState(false);
   const [isPublicLLMOpen, setIsPublicLLMOpen] = useState(false);
+  const [lastForbiddenPath, setLastForbiddenPath] = useState("");
   const [publicLLMInput, setPublicLLMInput] = useState("");
   const [publicLLMMessages, setPublicLLMMessages] = useState<PublicLLMChatMessage[]>([
     {
@@ -176,6 +353,41 @@ function App() {
   const [approvals, setApprovals] = useState<Approval[]>([]);
   const [refunds, setRefunds] = useState<Refund[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
+  const [auditActionFilter, setAuditActionFilter] = useState("");
+  const [auditResourceFilter, setAuditResourceFilter] = useState("");
+  const [auditPositionFilter, setAuditPositionFilter] = useState<Position | "all">("all");
+  const [users, setUsers] = useState<UserRecord[]>([]);
+  const [automationTasks, setAutomationTasks] = useState<AutomationTaskRecord[]>([]);
+  const [erpResources, setErpResources] = useState<ErpResourceItem[]>([]);
+  const [erpStatus, setErpStatus] = useState<ErpStatusResponse | null>(null);
+  const [erpDiagnostics, setErpDiagnostics] = useState<ErpDiagnosticsResponse | null>(null);
+  const [erpDashboardOverview, setErpDashboardOverview] = useState<ErpDashboardOverviewResponse | null>(null);
+  const [erpDashboardMarket, setErpDashboardMarket] = useState<DashboardMarket>("all");
+  const [erpDashboardDateRange, setErpDashboardDateRange] = useState<DashboardDateRange>("all");
+  const [erpDashboardStore, setErpDashboardStore] = useState<DashboardStore>("all");
+  const [erpRecordDetail, setErpRecordDetail] = useState<ErpRecordDetailResponse | null>(null);
+  const [isErpRecordDetailOpen, setIsErpRecordDetailOpen] = useState(false);
+  const [isErpRecordDetailLoading, setIsErpRecordDetailLoading] = useState(false);
+  const [selectedErpResource, setSelectedErpResource] = useState("");
+  const [erpQueryText, setErpQueryText] = useState("");
+  const [erpFiltersText, setErpFiltersText] = useState("{}");
+  const [erpLimit, setErpLimit] = useState(10);
+  const [erpQueryResult, setErpQueryResult] = useState<ErpQueryResponse | null>(null);
+  const [isErpLoading, setIsErpLoading] = useState(false);
+  const [newUser, setNewUser] = useState<NewUserForm>({
+    username: "",
+    password: "",
+    role: "employee",
+    position: "customer_service",
+    department: "",
+  });
+  const [isCreatingUser, setIsCreatingUser] = useState(false);
+  const [automationLoadingTaskId, setAutomationLoadingTaskId] = useState("");
+  const [financeExcelFile, setFinanceExcelFile] = useState<File | null>(null);
+  const [financeExcelInstruction, setFinanceExcelInstruction] = useState(
+    "请整理财务表格，生成数值汇总，标记需要人工复核的异常。",
+  );
+  const [isTransformingFinanceExcel, setIsTransformingFinanceExcel] = useState(false);
 
   const [documentFile, setDocumentFile] = useState<File | null>(null);
   const [documentVisibility, setDocumentVisibility] = useState<Role>("employee");
@@ -189,8 +401,12 @@ function App() {
   const pendingCount = approvals.filter((item) => item.status === "pending").length;
   const succeededRefunds = refunds.filter((item) => item.status === "succeeded").length;
   const visibleNavItems = useMemo(
-    () => navItems.filter((item) => item.roles.includes(role)),
-    [role],
+    () => visibleNavigationForUser(role, position),
+    [position, role],
+  );
+  const flatVisibleNavItems = useMemo(
+    () => flattenNavItems(visibleNavItems),
+    [visibleNavItems],
   );
   const route = useMemo(
     () => ({
@@ -199,8 +415,52 @@ function App() {
     }),
     [visibleNavItems],
   );
-  const safeActiveView = visibleNavItems.some((item) => item.id === activeView) ? activeView : "dashboard";
-  const currentPath = visibleNavItems.find((item) => item.id === safeActiveView)?.path || "/dashboard";
+  const safeActiveView = flatVisibleNavItems.some((item) => item.id === activeView) ? activeView : "dashboard";
+  const currentPath = flatVisibleNavItems.find((item) => item.id === safeActiveView)?.path || "/dashboard";
+
+  useEffect(() => {
+    function handlePopState() {
+      setActiveView(viewFromPath(window.location.pathname));
+    }
+
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
+
+  useEffect(() => {
+    function handleAuthExpired(event: Event) {
+      const detail = event instanceof CustomEvent ? event.detail : null;
+      const text = typeof detail?.message === "string" && detail.message
+        ? detail.message
+        : "登录失效，需要重新登录";
+
+      clearAuthenticatedState({ publicHome: true });
+      setStatusMessage(text);
+      setIsSessionExpiredOpen(true);
+    }
+
+    window.addEventListener("company-rag-auth-expired", handleAuthExpired);
+    return () => window.removeEventListener("company-rag-auth-expired", handleAuthExpired);
+  }, []);
+
+  useEffect(() => {
+    if (!flatVisibleNavItems.some((item) => item.id === activeView)) {
+      const forbiddenPath = window.location.pathname;
+      if (forbiddenPath !== lastForbiddenPath) {
+        const text = "当前账号没有权限访问该页面，已返回概览。";
+        setLastForbiddenPath(forbiddenPath);
+        setStatusMessage(text);
+        message.warning(text);
+      }
+      navigateToView("dashboard", { replace: true });
+    }
+  }, [activeView, flatVisibleNavItems, lastForbiddenPath]);
+
+  useEffect(() => {
+    if (!isErpView(safeActiveView) && statusMessage.startsWith("ERP 查询")) {
+      setStatusMessage("系统就绪");
+    }
+  }, [safeActiveView, statusMessage]);
 
   const stats = useMemo(
     () => [
@@ -212,26 +472,60 @@ function App() {
     [auditLogs.length, messages.length, pendingCount, succeededRefunds],
   );
 
+  useEffect(() => {
+    const storedToken = localStorage.getItem("access_token");
+
+    if (!storedToken) {
+      return;
+    }
+
+    void refreshAutomationTasks(storedToken, position || undefined);
+    void refreshErpScopes(storedToken, role);
+    void refreshErpDashboardOverview(storedToken, erpDashboardMarket, erpDashboardDateRange, erpDashboardStore);
+
+    if (role === "admin") {
+      void refreshAdminData(storedToken);
+      void refreshUsers(storedToken);
+    }
+  }, []);
+
   async function handleLogin() {
     try {
       setIsLoginErrorOpen(false);
       const result = await login(username, password);
       localStorage.setItem("access_token", result.access_token);
-      localStorage.setItem("username", username);
+      localStorage.setItem("username", result.username || username);
       setToken(result.access_token);
+      setUsername(result.username || username);
 
-      const nextRole = readRoleFromToken(result.access_token);
+      const nextRole = result.role || readRoleFromToken(result.access_token);
+      const nextPosition = result.position || readPositionFromToken(result.access_token);
       localStorage.setItem("role", nextRole);
+      if (nextPosition) {
+        localStorage.setItem("position", nextPosition);
+      } else {
+        localStorage.removeItem("position");
+      }
       setRole(nextRole);
+      setPosition(nextPosition);
       if (!canRoleAccessView(nextRole, activeView)) {
-        setActiveView("dashboard");
+        const text = "当前账号没有权限访问该页面，已返回概览。";
+        setLastForbiddenPath(window.location.pathname);
+        setStatusMessage(text);
+        message.warning(text);
+        navigateToView("dashboard", { replace: true });
       }
       setStatusMessage(`已登录：${username}`);
       message.success("登录成功");
 
       if (nextRole === "admin") {
         await refreshAdminData(result.access_token);
+        await refreshUsers(result.access_token);
       }
+
+      await refreshAutomationTasks(result.access_token, nextPosition || undefined);
+      await refreshErpScopes(result.access_token, nextRole);
+      await refreshErpDashboardOverview(result.access_token, erpDashboardMarket, erpDashboardDateRange, erpDashboardStore);
 
       setIsLoginModalOpen(false);
     } catch (error) {
@@ -247,18 +541,45 @@ function App() {
     }
   }
 
-  function handleLogout() {
+  function clearAuthenticatedState(options: { publicHome?: boolean } = {}) {
     localStorage.removeItem("access_token");
     localStorage.removeItem("username");
     localStorage.removeItem("role");
+    localStorage.removeItem("position");
     setToken("");
     setRole("employee");
+    setPosition(null);
+    setLastForbiddenPath("");
     setMessages([]);
     setApprovals([]);
     setRefunds([]);
     setAuditLogs([]);
+    setUsers([]);
+    setAutomationTasks([]);
+    setFinanceExcelFile(null);
+    setErpResources([]);
+    setErpStatus(null);
+    setErpDiagnostics(null);
+    setErpDashboardOverview(null);
+    setErpDashboardMarket("all");
+    setErpDashboardDateRange("all");
+    setErpDashboardStore("all");
+    setErpRecordDetail(null);
+    setIsErpRecordDetailOpen(false);
+    setSelectedErpResource("");
+    setErpQueryResult(null);
     setThreadSummary("");
     setThreadStateText("");
+    if (options.publicHome) {
+      window.history.replaceState(null, "", "/");
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    } else {
+      navigateToView("dashboard", { replace: true });
+    }
+  }
+
+  function handleLogout() {
+    clearAuthenticatedState();
     setStatusMessage("已退出登录");
     message.success("已退出登录");
   }
@@ -271,21 +592,414 @@ function App() {
     }
 
     try {
-      const [approvalResult, refundResult, auditResult] = await Promise.all([
+      const [approvalResult, refundResult, auditResult, userResult] = await Promise.all([
         listApprovals(activeToken),
         listRefunds(activeToken),
-        listAuditLogs(activeToken),
+        listAuditLogs(activeToken, {
+          action: auditActionFilter,
+          resource_type: auditResourceFilter,
+          position: auditPositionFilter,
+          limit: 80,
+        }),
+        listUsers(activeToken),
       ]);
 
       setApprovals(approvalResult.items.map(mapApproval));
       setRefunds(refundResult.items.map(mapRefund));
       setAuditLogs(auditResult.items.map(mapAuditLog));
+      setUsers(userResult.items.map(mapUser));
       setStatusMessage("后台数据已刷新");
       message.success("后台数据已刷新");
     } catch (error) {
+      if (isAuthExpiredError(error)) {
+        return;
+      }
       const text = error instanceof Error ? error.message : "刷新失败";
       setStatusMessage(text);
       message.error(text);
+    }
+  }
+
+  async function refreshAuditLogs(activeToken = token) {
+    if (!activeToken) {
+      setStatusMessage("请先登录管理员账号");
+      message.warning("请先登录管理员账号");
+      return;
+    }
+
+    try {
+      const result = await listAuditLogs(activeToken, {
+        action: auditActionFilter,
+        resource_type: auditResourceFilter,
+        position: auditPositionFilter,
+        limit: 80,
+      });
+      setAuditLogs(result.items.map(mapAuditLog));
+      setStatusMessage("审计日志已刷新");
+      message.success("审计日志已刷新");
+    } catch (error) {
+      if (isAuthExpiredError(error)) {
+        return;
+      }
+      const text = error instanceof Error ? error.message : "审计日志刷新失败";
+      setStatusMessage(text);
+      message.error(text);
+    }
+  }
+
+  async function refreshUsers(activeToken = token) {
+    if (!activeToken) {
+      setStatusMessage("请先登录管理员账号");
+      message.warning("请先登录管理员账号");
+      return;
+    }
+
+    try {
+      const result = await listUsers(activeToken);
+      setUsers(result.items.map(mapUser));
+      setStatusMessage("用户列表已刷新");
+      message.success("用户列表已刷新");
+    } catch (error) {
+      if (isAuthExpiredError(error)) {
+        return;
+      }
+      const text = error instanceof Error ? error.message : "用户列表刷新失败";
+      setStatusMessage(text);
+      message.error(text);
+    }
+  }
+
+  async function refreshAutomationTasks(activeToken = token, forcedPosition?: Position | undefined) {
+    if (!activeToken) {
+      return;
+    }
+
+    try {
+      const result = await listAutomationTasks(activeToken);
+      if (forcedPosition && result.position !== forcedPosition && role !== "admin") {
+        return;
+      }
+
+      setAutomationTasks((current) => mergeAutomationTasks(result.items, current));
+    } catch (error) {
+      if (isAuthExpiredError(error)) {
+        return;
+      }
+      const text = error instanceof Error ? error.message : "岗位任务加载失败";
+      setStatusMessage(text);
+      message.error(text);
+    }
+  }
+
+  async function refreshErpScopes(activeToken = token, activeRole = role) {
+    if (!activeToken) {
+      return;
+    }
+
+    try {
+      const [scopeResult, statusResult] = await Promise.all([
+        getErpScopes(activeToken),
+        getErpStatus(activeToken),
+      ]);
+      setErpResources(scopeResult.resources);
+      setErpStatus(statusResult);
+      if (activeRole === "admin") {
+        try {
+          setErpDiagnostics(await getErpDiagnostics(activeToken));
+        } catch {
+          setErpDiagnostics(null);
+        }
+      } else {
+        setErpDiagnostics(null);
+      }
+      setSelectedErpResource((current) => {
+        if (current && scopeResult.resources.some((item) => item.resource === current)) {
+          return current;
+        }
+
+        return scopeResult.resources[0]?.resource || "";
+      });
+    } catch (error) {
+      if (isAuthExpiredError(error)) {
+        return;
+      }
+      const text = error instanceof Error ? error.message : "ERP 权限加载失败";
+      setStatusMessage(text);
+      message.error(text);
+    }
+  }
+
+  async function refreshErpDashboardOverview(
+    activeToken = token,
+    market = erpDashboardMarket,
+    dateRange = erpDashboardDateRange,
+    store = erpDashboardStore,
+  ) {
+    if (!activeToken) {
+      setErpDashboardOverview(null);
+      return;
+    }
+
+    try {
+      setErpDashboardOverview(await getErpDashboardOverview(activeToken, market, dateRange, store));
+    } catch (error) {
+      if (isAuthExpiredError(error)) {
+        return;
+      }
+      setErpDashboardOverview(null);
+      const text = error instanceof Error ? error.message : "岗位数据概览加载失败";
+      setStatusMessage(text);
+      message.error(text);
+    }
+  }
+
+  function handleDashboardMarketChange(value: DashboardMarket) {
+    setErpDashboardMarket(value);
+    void refreshErpDashboardOverview(token, value, erpDashboardDateRange, erpDashboardStore);
+  }
+
+  function handleDashboardDateRangeChange(value: DashboardDateRange) {
+    setErpDashboardDateRange(value);
+    void refreshErpDashboardOverview(token, erpDashboardMarket, value, erpDashboardStore);
+  }
+
+  function handleDashboardStoreChange(value: DashboardStore) {
+    setErpDashboardStore(value);
+    void refreshErpDashboardOverview(token, erpDashboardMarket, erpDashboardDateRange, value);
+  }
+
+  async function handleOpenErpRecordDetail(resource: string, item: Record<string, unknown>) {
+    if (!token) {
+      setStatusMessage("请先登录");
+      message.warning("请先登录");
+      return;
+    }
+
+    const recordId = overviewRecordId(item);
+    if (!recordId) {
+      setStatusMessage("该 ERP 记录缺少可查询 ID");
+      message.warning("该 ERP 记录缺少可查询 ID");
+      return;
+    }
+
+    setIsErpRecordDetailOpen(true);
+    setIsErpRecordDetailLoading(true);
+    setErpRecordDetail(null);
+
+    try {
+      const result = await getErpRecordDetail(token, resource, recordId);
+      setErpRecordDetail(result);
+      setStatusMessage(result.message);
+    } catch (error) {
+      if (isAuthExpiredError(error)) {
+        return;
+      }
+      const text = error instanceof Error ? error.message : "ERP 记录详情加载失败";
+      setErpRecordDetail(null);
+      setStatusMessage(text);
+      message.error(text);
+    } finally {
+      setIsErpRecordDetailLoading(false);
+    }
+  }
+
+  async function handleErpQuery() {
+    if (!token) {
+      setStatusMessage("请先登录");
+      message.warning("请先登录");
+      return;
+    }
+
+    if (!selectedErpResource) {
+      setStatusMessage("请选择 ERP 资源");
+      message.warning("请选择 ERP 资源");
+      return;
+    }
+
+    let filters: Record<string, unknown> | unknown[] | null = null;
+    const trimmedFilters = erpFiltersText.trim();
+
+    if (trimmedFilters && trimmedFilters !== "{}") {
+      try {
+        const parsed = JSON.parse(trimmedFilters) as unknown;
+        if (!Array.isArray(parsed) && (typeof parsed !== "object" || parsed === null)) {
+          throw new Error("filters 必须是 JSON 对象或数组");
+        }
+        filters = parsed as Record<string, unknown> | unknown[];
+      } catch (error) {
+        const text = error instanceof Error ? error.message : "filters JSON 格式错误";
+        setStatusMessage(text);
+        message.error(text);
+        return;
+      }
+    }
+
+    setIsErpLoading(true);
+    setStatusMessage("正在查询 ERP");
+
+    try {
+      const result = await queryErp(token, {
+        resource: selectedErpResource,
+        query: erpQueryText.trim() || undefined,
+        filters,
+        limit: erpLimit,
+      });
+      setErpQueryResult(result);
+      setStatusMessage(result.ok ? "ERP 查询完成" : "ERP 查询未返回可用数据");
+      if (result.ok) {
+        message.success("ERP 查询完成");
+      } else {
+        message.warning(result.message || "ERP 未返回可用数据");
+      }
+    } catch (error) {
+      if (isAuthExpiredError(error)) {
+        return;
+      }
+      const text = error instanceof Error ? error.message : "ERP 查询失败";
+      const failedResource = erpResources.find((item) => item.resource === selectedErpResource);
+      setErpQueryResult({
+        ok: false,
+        configured: Boolean(erpStatus?.configured),
+        status: "error",
+        provider: erpStatus?.provider || "erpnext",
+        provider_label: erpStatus?.provider_label || "ERP",
+        resource: selectedErpResource,
+        resource_label: failedResource?.label || selectedErpResource,
+        provider_resource: failedResource?.provider_refs[erpStatus?.provider || "erpnext"] || selectedErpResource,
+        message: text,
+        items: [],
+        raw: null,
+      });
+      setStatusMessage("ERP 查询失败");
+      message.error("ERP 查询失败，请查看连接结果");
+    } finally {
+      setIsErpLoading(false);
+    }
+  }
+
+  async function handleGenerateAutomation(taskId: string, inputText: string) {
+    if (!token) {
+      setStatusMessage("请先登录");
+      message.warning("请先登录");
+      return;
+    }
+
+    if (!inputText.trim()) {
+      setStatusMessage("请输入任务内容");
+      message.warning("请输入任务内容");
+      return;
+    }
+
+    setAutomationLoadingTaskId(taskId);
+
+    try {
+      const result = await generateAutomation(token, taskId, inputText);
+      setAutomationTasks((current) =>
+        current.map((item) =>
+          item.task_id === taskId
+            ? {
+                ...item,
+                inputText,
+                output: result.answer,
+              }
+            : item,
+        ),
+      );
+      setStatusMessage(`${result.position_label}任务生成完成`);
+      message.success("生成完成");
+    } catch (error) {
+      if (isAuthExpiredError(error)) {
+        return;
+      }
+      const text = error instanceof Error ? error.message : "生成失败";
+      setStatusMessage(text);
+      message.error(text);
+    } finally {
+      setAutomationLoadingTaskId("");
+    }
+  }
+
+  async function handleTransformFinanceExcel() {
+    if (!token) {
+      setStatusMessage("请先登录");
+      message.warning("请先登录");
+      return;
+    }
+
+    if (!financeExcelFile) {
+      setStatusMessage("请选择 Excel 文件");
+      message.warning("请选择 Excel 文件");
+      return;
+    }
+
+    setIsTransformingFinanceExcel(true);
+    setStatusMessage("正在生成财务 Excel");
+
+    try {
+      const result = await transformFinanceExcel(
+        token,
+        financeExcelFile,
+        financeExcelInstruction,
+      );
+      downloadBlob(result.blob, result.filename);
+      setStatusMessage("财务 Excel 已生成并开始下载");
+      message.success("财务 Excel 已生成");
+    } catch (error) {
+      if (isAuthExpiredError(error)) {
+        return;
+      }
+      const text = error instanceof Error ? error.message : "财务 Excel 生成失败";
+      setStatusMessage(text);
+      message.error(text);
+    } finally {
+      setIsTransformingFinanceExcel(false);
+    }
+  }
+
+  async function handleCreateUser() {
+    if (!token) {
+      setStatusMessage("请先登录管理员账号");
+      message.warning("请先登录管理员账号");
+      return;
+    }
+
+    const payload: UserCreatePayload = {
+      username: newUser.username.trim(),
+      password: newUser.password,
+      role: newUser.role,
+      position: newUser.role === "employee" ? newUser.position : null,
+      department: newUser.department.trim() || null,
+    };
+
+    if (!payload.username || !payload.password) {
+      setStatusMessage("请输入用户名和密码");
+      message.warning("请输入用户名和密码");
+      return;
+    }
+
+    setIsCreatingUser(true);
+
+    try {
+      const result = await createUser(token, payload);
+      setUsers((current) => [mapUser(result.item), ...current]);
+      setNewUser({
+        username: "",
+        password: "",
+        role: "employee",
+        position: "customer_service",
+        department: "",
+      });
+      setStatusMessage("用户创建成功");
+      message.success("用户创建成功");
+    } catch (error) {
+      if (isAuthExpiredError(error)) {
+        return;
+      }
+      const text = error instanceof Error ? error.message : "创建用户失败";
+      setStatusMessage(text);
+      message.error(text);
+    } finally {
+      setIsCreatingUser(false);
     }
   }
 
@@ -368,6 +1082,7 @@ function App() {
                     content: item.content || payload.answer || "",
                     createdAt: "刚刚",
                     route: routeFromIntent(payload.intent ?? null, payload.risk_level ?? null),
+                    erpReferences: payload.erp_references || [],
                   }
                 : item,
             ),
@@ -384,6 +1099,9 @@ function App() {
         await refreshAdminData();
       }
     } catch (error) {
+      if (isAuthExpiredError(error)) {
+        return;
+      }
       setMessages((current) =>
         current.map((item) =>
           item.id === assistantMessageId && !item.content
@@ -490,6 +1208,9 @@ function App() {
       setStatusMessage(text);
       message.success(text);
     } catch (error) {
+      if (isAuthExpiredError(error)) {
+        return;
+      }
       const text = error instanceof Error ? error.message : "审批失败";
       setStatusMessage(text);
       message.error(text);
@@ -522,6 +1243,9 @@ function App() {
         await refreshAdminData();
       }
     } catch (error) {
+      if (isAuthExpiredError(error)) {
+        return;
+      }
       const text = error instanceof Error ? error.message : "上传失败";
       setStatusMessage(text);
       message.error(text);
@@ -554,6 +1278,9 @@ function App() {
       setStatusMessage("会话已加载");
       message.success("会话已加载");
     } catch (error) {
+      if (isAuthExpiredError(error)) {
+        return;
+      }
       const text = error instanceof Error ? error.message : "查询会话失败";
       setStatusMessage(text);
       message.error(text);
@@ -601,6 +1328,14 @@ function App() {
             open={isLoginErrorOpen}
             onClose={() => setIsLoginErrorOpen(false)}
           />
+          <SessionExpiredModal
+            open={isSessionExpiredOpen}
+            onLogin={() => {
+              setIsSessionExpiredOpen(false);
+              setIsLoginModalOpen(true);
+            }}
+            onClose={() => setIsSessionExpiredOpen(false)}
+          />
         </AntApp>
       </ConfigProvider>
     );
@@ -632,10 +1367,10 @@ function App() {
                 className="menuButton"
                 type="button"
                 onClick={() => {
-                  const matched = visibleNavItems.find((nav) => nav.path === item.path);
-                  if (matched) {
-                    setActiveView(matched.id);
-                  }
+                  const matched = flatVisibleNavItems.find((nav) => nav.path === item.path);
+      if (matched) {
+        navigateToView(resolveNavTargetView(matched, role, position));
+      }
                 }}
               >
                 {dom}
@@ -657,6 +1392,7 @@ function App() {
                 <UserMenu
                   username={username}
                   role={role}
+                  position={position}
                   token={token}
                   openLogin={() => setIsLoginModalOpen(true)}
                   logout={handleLogout}
@@ -674,7 +1410,7 @@ function App() {
           >
             <PageContainer
               title={titleForView(safeActiveView)}
-              subTitle={pageSubtitle(role)}
+              subTitle={pageSubtitle(role, position)}
               extra={[
                 <Text key="status" type="secondary">
                   {statusMessage}
@@ -688,6 +1424,64 @@ function App() {
                     approvals={approvals}
                     refunds={refunds}
                     role={role}
+                    position={position}
+                    erpOverview={erpDashboardOverview}
+                    erpDashboardMarket={erpDashboardMarket}
+                    setErpDashboardMarket={handleDashboardMarketChange}
+                    erpDashboardDateRange={erpDashboardDateRange}
+                    setErpDashboardDateRange={handleDashboardDateRangeChange}
+                    erpDashboardStore={erpDashboardStore}
+                    setErpDashboardStore={handleDashboardStoreChange}
+                    refreshErpOverview={() => refreshErpDashboardOverview()}
+                    onOpenRecordDetail={handleOpenErpRecordDetail}
+                    onNavigate={navigateToView}
+                  />
+                )}
+                {isAutomationView(safeActiveView) && (
+                  <AutomationPanel
+                    role={role}
+                    position={position}
+                    selectedPosition={automationPositionFromView(safeActiveView, role, position)}
+                    tasks={automationTasks}
+                    financeExcelFile={financeExcelFile}
+                    setFinanceExcelFile={setFinanceExcelFile}
+                    financeExcelInstruction={financeExcelInstruction}
+                    setFinanceExcelInstruction={setFinanceExcelInstruction}
+                    isTransformingFinanceExcel={isTransformingFinanceExcel}
+                    onGenerate={handleGenerateAutomation}
+                    onTransformFinanceExcel={handleTransformFinanceExcel}
+                    onInputChange={(taskId, value) =>
+                      setAutomationTasks((current) =>
+                        current.map((item) =>
+                          item.task_id === taskId
+                            ? { ...item, inputText: value }
+                            : item,
+                        ),
+                      )
+                    }
+                    loadingTaskId={automationLoadingTaskId}
+                  />
+                )}
+                {isErpView(safeActiveView) && (
+                  <ErpPanel
+                    role={role}
+                    position={position}
+                    activeView={safeActiveView}
+                    status={erpStatus}
+                    diagnostics={erpDiagnostics}
+                    resources={erpResources}
+                    selectedResource={selectedErpResource}
+                    setSelectedResource={setSelectedErpResource}
+                    queryText={erpQueryText}
+                    setQueryText={setErpQueryText}
+                    filtersText={erpFiltersText}
+                    setFiltersText={setErpFiltersText}
+                    limit={erpLimit}
+                    setLimit={setErpLimit}
+                    result={erpQueryResult}
+                    isLoading={isErpLoading}
+                    onRefresh={() => refreshErpScopes()}
+                    onQuery={handleErpQuery}
                   />
                 )}
                 {safeActiveView === "chat" && (
@@ -699,6 +1493,7 @@ function App() {
                     sendMessage={sendMessage}
                     messages={messages}
                     isLoading={isChatLoading}
+                    position={position}
                   />
                 )}
                 {safeActiveView === "documents" && role === "admin" && (
@@ -714,11 +1509,32 @@ function App() {
                     isUploading={isUploading}
                   />
                 )}
+                {safeActiveView === "users" && role === "admin" && (
+                  <UsersPanel
+                    users={users}
+                    newUser={newUser}
+                    setNewUser={setNewUser}
+                    createUser={handleCreateUser}
+                    refreshUsers={() => refreshUsers()}
+                    isCreating={isCreatingUser}
+                  />
+                )}
                 {safeActiveView === "approvals" && role === "admin" && (
                   <ApprovalsPanel approvals={approvals} reviewApproval={reviewApproval} role={role} />
                 )}
                 {safeActiveView === "refunds" && role === "admin" && <RefundsPanel refunds={refunds} />}
-                {safeActiveView === "audit" && role === "admin" && <AuditPanel logs={auditLogs} />}
+                {safeActiveView === "audit" && role === "admin" && (
+                  <AuditPanel
+                    logs={auditLogs}
+                    actionFilter={auditActionFilter}
+                    setActionFilter={setAuditActionFilter}
+                    resourceFilter={auditResourceFilter}
+                    setResourceFilter={setAuditResourceFilter}
+                    positionFilter={auditPositionFilter}
+                    setPositionFilter={setAuditPositionFilter}
+                    refreshLogs={() => refreshAuditLogs()}
+                  />
+                )}
                 {safeActiveView === "threads" && (
                   <ThreadsPanel
                     threadFilter={threadFilter}
@@ -743,6 +1559,20 @@ function App() {
             <LoginErrorModal
               open={isLoginErrorOpen}
               onClose={() => setIsLoginErrorOpen(false)}
+            />
+            <SessionExpiredModal
+              open={isSessionExpiredOpen}
+              onLogin={() => {
+                setIsSessionExpiredOpen(false);
+                setIsLoginModalOpen(true);
+              }}
+              onClose={() => setIsSessionExpiredOpen(false)}
+            />
+            <ErpRecordDetailModal
+              open={isErpRecordDetailOpen}
+              loading={isErpRecordDetailLoading}
+              detail={erpRecordDetail}
+              onClose={() => setIsErpRecordDetailOpen(false)}
             />
           </ProLayout>
         </AntApp>
@@ -836,6 +1666,7 @@ function PublicLLMChatWidget(props: {
 function UserMenu(props: {
   username: string;
   role: Role;
+  position: Position | null;
   token: string;
   openLogin: () => void;
   logout: () => void;
@@ -869,6 +1700,7 @@ function UserMenu(props: {
           </Avatar>
           <Text>{props.username}</Text>
           <Tag color={props.role === "admin" ? "blue" : "green"}>{roleLabel(props.role)}</Tag>
+          {props.position ? <Tag color="purple">{positionLabel(props.position)}</Tag> : null}
           <DownOutlined />
         </Space>
       </Button>
@@ -935,20 +1767,67 @@ function LoginErrorModal(props: {
   );
 }
 
+function SessionExpiredModal(props: {
+  open: boolean;
+  onLogin: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <Modal
+      open={props.open}
+      title="登录失效"
+      onCancel={props.onClose}
+      footer={[
+        <Button key="close" onClick={props.onClose}>
+          稍后登录
+        </Button>,
+        <Button key="login" type="primary" onClick={props.onLogin}>
+          重新登录
+        </Button>,
+      ]}
+    >
+      <Paragraph style={{ marginBottom: 0 }}>登录失效，需要重新登录。</Paragraph>
+    </Modal>
+  );
+}
+
 function Dashboard({
   stats,
   approvals,
   refunds,
   role,
+  position,
+  erpOverview,
+  erpDashboardMarket,
+  setErpDashboardMarket,
+  erpDashboardDateRange,
+  setErpDashboardDateRange,
+  erpDashboardStore,
+  setErpDashboardStore,
+  refreshErpOverview,
+  onOpenRecordDetail,
+  onNavigate,
 }: {
   stats: Array<{ title: string; value: number; suffix: string }>;
   approvals: Approval[];
   refunds: Refund[];
   role: Role;
+  position: Position | null;
+  erpOverview: ErpDashboardOverviewResponse | null;
+  erpDashboardMarket: DashboardMarket;
+  setErpDashboardMarket: (value: DashboardMarket) => void;
+  erpDashboardDateRange: DashboardDateRange;
+  setErpDashboardDateRange: (value: DashboardDateRange) => void;
+  erpDashboardStore: DashboardStore;
+  setErpDashboardStore: (value: DashboardStore) => void;
+  refreshErpOverview: () => void;
+  onOpenRecordDetail: (resource: string, item: Record<string, unknown>) => void;
+  onNavigate: (view: View) => void;
 }) {
   const visibleStats = role === "admin"
     ? stats
     : stats.filter((item) => item.title === "会话消息");
+  const shortcuts = dashboardShortcuts(role, position);
 
   return (
     <Space direction="vertical" size={16} className="pageStack">
@@ -964,6 +1843,148 @@ function Dashboard({
           />
         ))}
       </StatisticCard.Group>
+
+      <ProCard
+        title={role === "admin" ? "管理员快捷入口" : "岗位快捷入口"}
+        subTitle={role === "admin" ? "常用后台维护和诊断" : position ? `${positionLabel(position)}常用功能` : "未绑定岗位"}
+        bordered
+      >
+        <Row gutter={[12, 12]}>
+          {shortcuts.map((item) => (
+            <Col xs={24} md={12} xl={8} key={item.view}>
+              <Card size="small" className="contextCard dashboardShortcutCard">
+                <Space direction="vertical" size={8} style={{ width: "100%" }}>
+                  <Space>
+                    {item.icon}
+                    <Text strong>{item.title}</Text>
+                  </Space>
+                  <Paragraph type="secondary" style={{ marginBottom: 0 }}>
+                    {item.description}
+                  </Paragraph>
+                  <Button
+                    aria-label={`打开 ${item.title}`}
+                    type="primary"
+                    onClick={() => onNavigate(item.view)}
+                  >
+                    打开
+                  </Button>
+                </Space>
+              </Card>
+            </Col>
+          ))}
+        </Row>
+      </ProCard>
+
+      <ProCard
+        title={role === "admin" ? "平台数据概览" : "岗位数据概览"}
+        subTitle={erpOverview?.message || "从 ERP 权限范围内加载关键数据"}
+        bordered
+        extra={
+          <Space size={8} wrap>
+            <Segmented<DashboardMarket>
+              size="small"
+              value={erpDashboardMarket}
+              options={dashboardMarketOptions}
+              onChange={setErpDashboardMarket}
+            />
+            <Segmented<DashboardDateRange>
+              size="small"
+              value={erpDashboardDateRange}
+              options={dashboardDateRangeOptions}
+              onChange={setErpDashboardDateRange}
+            />
+            <Segmented<DashboardStore>
+              size="small"
+              value={erpDashboardStore}
+              options={dashboardStoreOptions}
+              onChange={setErpDashboardStore}
+            />
+            <Button size="small" icon={<ReloadOutlined />} onClick={refreshErpOverview}>
+              刷新
+            </Button>
+          </Space>
+        }
+      >
+        {erpOverview ? (
+          <Space direction="vertical" size={16} className="pageStack">
+            <Space size={8} wrap>
+              <Text strong>{erpOverview.title}</Text>
+              <Tag color="blue">{erpOverview.market_label}</Tag>
+              <Tag color="geekblue">{erpOverview.store_label}</Tag>
+              <Tag color="cyan">{erpOverview.date_range_label}</Tag>
+            </Space>
+            <StatisticCard.Group direction="row">
+              {erpOverview.metrics.map((item) => (
+                <StatisticCard
+                  key={item.title}
+                  statistic={{
+                    title: item.title,
+                    value: item.value,
+                    suffix: item.suffix,
+                    status: metricStatus(item.status),
+                    description: item.description,
+                  }}
+                />
+              ))}
+            </StatisticCard.Group>
+
+            {erpOverview.sections.length ? (
+              <Row gutter={[12, 12]}>
+                {erpOverview.sections.map((section) => (
+                  <Col xs={24} xl={8} key={section.resource}>
+                    <Card
+                      size="small"
+                      className="contextCard dashboardOverviewCard"
+                      title={
+                        <Space size={6}>
+                          <Text>{section.title}</Text>
+                          <Tag color={section.ok ? "green" : "gold"}>{section.status}</Tag>
+                        </Space>
+                      }
+                    >
+                      <Space direction="vertical" size={8} style={{ width: "100%" }}>
+                        <Paragraph type="secondary" style={{ marginBottom: 0 }}>
+                          {section.message}
+                        </Paragraph>
+                        <Space size={[6, 6]} wrap>
+                          <Tag color="blue">匹配 {section.total_count} 条</Tag>
+                          {section.amount_total !== null && section.amount_total !== undefined ? (
+                            <Tag color="green">
+                              {section.amount_label || "金额合计"} {formatAmount(section.amount_total)}
+                            </Tag>
+                          ) : null}
+                        </Space>
+                        {section.items.length ? (
+                          section.items.slice(0, 3).map((item, index) => (
+                            <div className="compactRecord" key={`${section.resource}-${index}`}>
+                              <div className="compactRecordHeader">
+                                <Text strong>{overviewPrimaryText(item)}</Text>
+                                <Button
+                                  size="small"
+                                  type="link"
+                                  aria-label={`查看 ${section.title} ERP 详情`}
+                                  onClick={() => onOpenRecordDetail(section.resource, item)}
+                                >
+                                  详情
+                                </Button>
+                              </div>
+                              <Text type="secondary">{overviewSecondaryText(item)}</Text>
+                            </div>
+                          ))
+                        ) : (
+                          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无记录" />
+                        )}
+                      </Space>
+                    </Card>
+                  </Col>
+                ))}
+              </Row>
+            ) : null}
+          </Space>
+        ) : (
+          <Empty description="暂无岗位数据概览，点击刷新重新加载" />
+        )}
+      </ProCard>
 
       {role === "admin" ? (
         <Row gutter={[16, 16]}>
@@ -1002,8 +2023,23 @@ function Dashboard({
           </Col>
         </Row>
       ) : (
-        <ProCard title="工作台" bordered>
-          <Empty description="可从左侧进入客服对话或查询自己的会话详情" />
+        <ProCard title="岗位工作台" bordered>
+          {position ? (
+            <Space direction="vertical" size={12} style={{ width: "100%" }}>
+              <Text type="secondary">当前岗位：{positionLabel(position)}</Text>
+              <Row gutter={[12, 12]}>
+                {positionConfigs[position].capabilities.map((item) => (
+                  <Col xs={24} md={12} key={item}>
+                    <Card size="small" className="contextCard">
+                      <Text strong>{item}</Text>
+                    </Card>
+                  </Col>
+                ))}
+              </Row>
+            </Space>
+          ) : (
+            <Empty description="当前账号尚未绑定岗位" />
+          )}
         </ProCard>
       )}
     </Space>
@@ -1018,6 +2054,7 @@ function ChatPanel(props: {
   sendMessage: () => void;
   messages: ChatMessage[];
   isLoading: boolean;
+  position: Position | null;
 }) {
   return (
     <ProCard bordered className="chatWorkspace" bodyStyle={{ padding: 0, height: "100%" }}>
@@ -1037,7 +2074,7 @@ function ChatPanel(props: {
         <div className="chatComposer">
           <TextArea
             variant="borderless"
-            placeholder="输入客服问题，按按钮发送到后端"
+            placeholder="输入当前岗位权限内的问题，按按钮发送到后端"
             value={props.messageInput}
             onChange={(event) => props.setMessageInput(event.target.value)}
             autoSize={{ minRows: 3, maxRows: 8 }}
@@ -1052,6 +2089,7 @@ function ChatPanel(props: {
             <Space size={8}>
               <Tag color="blue">SSE 流式</Tag>
               <Tag color="green">LangGraph</Tag>
+              {props.position ? <Tag color="purple">{positionLabel(props.position)}</Tag> : null}
             </Space>
             <Button
               type="primary"
@@ -1065,6 +2103,471 @@ function ChatPanel(props: {
       </div>
     </ProCard>
   );
+}
+
+function AutomationPanel({
+  role,
+  position,
+  selectedPosition,
+  tasks,
+  financeExcelFile,
+  setFinanceExcelFile,
+  financeExcelInstruction,
+  setFinanceExcelInstruction,
+  isTransformingFinanceExcel,
+  onGenerate,
+  onTransformFinanceExcel,
+  onInputChange,
+  loadingTaskId,
+}: {
+  role: Role;
+  position: Position | null;
+  selectedPosition: Position | null;
+  tasks: AutomationTaskRecord[];
+  financeExcelFile: File | null;
+  setFinanceExcelFile: (value: File | null) => void;
+  financeExcelInstruction: string;
+  setFinanceExcelInstruction: (value: string) => void;
+  isTransformingFinanceExcel: boolean;
+  onGenerate: (taskId: string, inputText: string) => void;
+  onTransformFinanceExcel: () => void;
+  onInputChange: (taskId: string, value: string) => void;
+  loadingTaskId: string;
+}) {
+  const positions = selectedPosition ? [selectedPosition] : [];
+
+  if (positions.length === 0) {
+    return (
+      <ProCard title="岗位应用" bordered>
+        <Empty description="当前账号尚未绑定岗位，请联系管理员分配岗位" />
+      </ProCard>
+    );
+  }
+
+  return (
+    <Space direction="vertical" size={16} className="pageStack">
+      {positions.map((item) => {
+        const config = positionConfigs[item];
+        const visibleTasks = tasks.filter((task) => task.position === item);
+        const financeFileList: UploadFile[] = financeExcelFile
+          ? [
+              {
+                uid: financeExcelFile.name,
+                name: financeExcelFile.name,
+                status: "done",
+              },
+            ]
+          : [];
+
+        return (
+          <ProCard
+            key={item}
+            title={`${config.label} AI 自动化`}
+            subTitle={role === "admin" ? `管理员预览 ${config.label} 岗位能力` : `ERP 权限范围：${config.erpScopes.join("、")}`}
+            bordered
+          >
+            <Row gutter={[12, 12]}>
+              {visibleTasks.map((task) => (
+                <Col xs={24} xl={12} key={task.task_id} className="automationTaskCol">
+                  <Card size="small" className="contextCard automationTaskCard">
+                    <div className="automationTaskBody">
+                      <Text strong className="automationTaskTitle">{task.label}</Text>
+                      <Paragraph type="secondary" className="automationTaskDescription">
+                        {task.output_format}
+                      </Paragraph>
+                      <Input.TextArea
+                        className="automationTaskInput"
+                        value={task.inputText}
+                        placeholder={task.placeholder}
+                        autoSize={false}
+                        rows={3}
+                        onChange={(event) => onInputChange(task.task_id, event.target.value)}
+                      />
+                      <div className="automationTaskFooter">
+                        <Button
+                          type="primary"
+                          loading={loadingTaskId === task.task_id}
+                          onClick={() => onGenerate(task.task_id, task.inputText)}
+                        >
+                          生成
+                        </Button>
+                      </div>
+                      {task.output ? (
+                        <Card size="small" title="生成结果" className="automationTaskResult">
+                          <Paragraph style={{ whiteSpace: "pre-wrap", marginBottom: 0 }}>
+                            {task.output}
+                          </Paragraph>
+                        </Card>
+                      ) : null}
+                    </div>
+                  </Card>
+                </Col>
+              ))}
+              {item === "finance" ? (
+                <Col xs={24} className="automationTaskCol">
+                  <Card size="small" className="contextCard automationTaskCard financeUploadTaskCard">
+                    <div className="financeUploadTaskBody">
+                      <Text strong className="automationTaskTitle">上传 Excel 生成新表</Text>
+                      <Paragraph type="secondary" className="automationTaskDescription">
+                        上传财务 Excel，系统会生成处理摘要、数值汇总、AI 建议和整理后的数据 Sheet。
+                      </Paragraph>
+                      <div className="financeUploadControls">
+                        <Upload.Dragger
+                          className="financeUploadDragger"
+                          accept=".xlsx,.xls"
+                          multiple={false}
+                          maxCount={1}
+                          fileList={financeFileList}
+                          beforeUpload={(file) => {
+                            setFinanceExcelFile(file);
+                            return false;
+                          }}
+                          onRemove={() => setFinanceExcelFile(null)}
+                        >
+                          <p className="uploadIcon">
+                            <CloudUploadOutlined />
+                          </p>
+                          <p className="uploadTitle">选择财务 Excel</p>
+                          <p className="uploadHint">支持 .xlsx / .xls，生成后自动下载新文件</p>
+                        </Upload.Dragger>
+                        <div className="financeUploadActionPane">
+                          <Input.TextArea
+                            className="financeUploadInstruction"
+                            value={financeExcelInstruction}
+                            placeholder="输入财务整理要求，例如：按部门统计工资、汇总各店铺销售额、标记负数和空值。"
+                            autoSize={false}
+                            rows={3}
+                            onChange={(event) => setFinanceExcelInstruction(event.target.value)}
+                          />
+                          <div className="automationTaskFooter">
+                            <Button
+                              type="primary"
+                              icon={<CloudUploadOutlined />}
+                              loading={isTransformingFinanceExcel}
+                              disabled={!financeExcelFile || isTransformingFinanceExcel}
+                              onClick={onTransformFinanceExcel}
+                            >
+                              生成并下载 Excel
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </Card>
+                </Col>
+              ) : null}
+            </Row>
+          </ProCard>
+        );
+      })}
+    </Space>
+  );
+}
+
+function ErpPanel({
+  role,
+  position,
+  activeView,
+  status,
+  diagnostics,
+  resources,
+  selectedResource,
+  setSelectedResource,
+  queryText,
+  setQueryText,
+  filtersText,
+  setFiltersText,
+  limit,
+  setLimit,
+  result,
+  isLoading,
+  onRefresh,
+  onQuery,
+}: {
+  role: Role;
+  position: Position | null;
+  activeView: View;
+  status: ErpStatusResponse | null;
+  diagnostics: ErpDiagnosticsResponse | null;
+  resources: ErpResourceItem[];
+  selectedResource: string;
+  setSelectedResource: (value: string) => void;
+  queryText: string;
+  setQueryText: (value: string) => void;
+  filtersText: string;
+  setFiltersText: (value: string) => void;
+  limit: number;
+  setLimit: (value: number) => void;
+  result: ErpQueryResponse | null;
+  isLoading: boolean;
+  onRefresh: () => void;
+  onQuery: () => void;
+}) {
+  const statusColor = status?.ok ? "green" : status?.configured ? "gold" : "default";
+  const selected = resources.find((item) => item.resource === selectedResource);
+  const diagnosticHealth = diagnostics?.active_health;
+  const currentErpView = activeView === "erp" ? "erp_query" : activeView;
+
+  const queryPanel = (
+    <Space direction="vertical" size={16} className="pageStack">
+      <ProCard
+        title="ERP 连接查询"
+        subTitle={role === "admin" ? "管理员可查看全部岗位资源" : position ? `${positionLabel(position)}岗位` : "未绑定岗位"}
+        bordered
+      >
+        <Row gutter={[16, 16]}>
+          <Col xs={24} lg={8}>
+            <Card size="small" title="连接状态" className="erpAlignedCard">
+              <Space direction="vertical" size={12} className="pageStack">
+                <Space size={[8, 8]} wrap>
+                  <Tag color="blue">{status?.provider_label || "ERP"}</Tag>
+                  <Tag color={statusColor}>{status?.status || "unknown"}</Tag>
+                  {status?.configured ? <Tag color="green">已配置</Tag> : <Tag>未配置</Tag>}
+                </Space>
+                <Paragraph type="secondary" className="erpDescription">
+                  {status?.message || "点击刷新获取 ERP 连接状态和当前岗位资源。"}
+                </Paragraph>
+                {selected ? (
+                  <div>
+                    <Text strong>{selected.label}</Text>
+                    <Paragraph type="secondary" className="erpDescription">
+                      {selected.description}
+                    </Paragraph>
+                  </div>
+                ) : null}
+              </Space>
+            </Card>
+          </Col>
+          <Col xs={24} lg={16}>
+            <Card size="small" title="查询条件" className="erpAlignedCard">
+              <Form layout="vertical" className="erpQueryForm">
+                <Row gutter={12}>
+                  <Col xs={24} md={12}>
+                    <Form.Item label="资源">
+                      <Select
+                        value={selectedResource || undefined}
+                        placeholder="选择当前岗位允许的 ERP 资源"
+                        onChange={setSelectedResource}
+                        options={resources.map((item) => ({
+                          label: `${item.label} / ${item.resource}`,
+                          value: item.resource,
+                        }))}
+                      />
+                    </Form.Item>
+                  </Col>
+                  <Col xs={24} md={12}>
+                    <Form.Item label="关键字">
+                      <Input
+                        value={queryText}
+                        placeholder="可选，例如订单号、客户名、SKU"
+                        onChange={(event) => setQueryText(event.target.value)}
+                      />
+                    </Form.Item>
+                  </Col>
+                  <Col xs={24}>
+                    <Form.Item label="Filters JSON">
+                      <TextArea
+                        value={filtersText}
+                        rows={4}
+                        onChange={(event) => setFiltersText(event.target.value)}
+                      />
+                    </Form.Item>
+                  </Col>
+                  <Col xs={24} md={8}>
+                    <Form.Item label="返回数量">
+                      <InputNumber
+                        min={1}
+                        max={100}
+                        value={limit}
+                        onChange={(value) => setLimit(typeof value === "number" ? value : 10)}
+                      />
+                    </Form.Item>
+                  </Col>
+                </Row>
+                <Space>
+                  <Button icon={<ReloadOutlined />} onClick={onRefresh}>
+                    刷新
+                  </Button>
+                  <Button type="primary" icon={<ApiOutlined />} loading={isLoading} onClick={onQuery}>
+                    查询 ERP
+                  </Button>
+                </Space>
+              </Form>
+            </Card>
+          </Col>
+        </Row>
+      </ProCard>
+      <ProCard title="连接结果" bordered>
+        {result ? (
+          <Space direction="vertical" size={12} className="pageStack">
+            <Space size={[8, 8]} wrap>
+              <Tag color={result.ok ? "green" : "gold"}>{result.status}</Tag>
+              <Tag>{result.provider_label}</Tag>
+              <Tag>{result.resource_label}</Tag>
+              <Tag>{result.items.length} 条</Tag>
+            </Space>
+            <Paragraph type="secondary" style={{ marginBottom: 0 }}>
+              {result.message}
+            </Paragraph>
+            <pre className="statePre">{JSON.stringify(result, null, 2)}</pre>
+          </Space>
+        ) : (
+          <Empty description="还没有连接查询结果" />
+        )}
+      </ProCard>
+    </Space>
+  );
+
+  const diagnosticsPanel = (
+    <ProCard title="管理员 ERP 诊断" bordered>
+      {diagnostics ? (
+        <Space direction="vertical" size={14} className="pageStack">
+          <StatisticCard.Group direction="row">
+            <StatisticCard
+              statistic={{
+                title: "连接状态",
+                value: diagnosticHealth?.status || "unknown",
+                status: diagnosticHealth?.ok ? "success" : "warning",
+                description: String(diagnosticHealth?.detail || diagnosticHealth?.message || ""),
+              }}
+            />
+            <StatisticCard
+              statistic={{
+                title: "当前 Provider",
+                value: diagnostics.active_provider_label,
+                status: diagnostics.active_configured ? "success" : "warning",
+                description: diagnostics.active_provider,
+              }}
+            />
+            <StatisticCard
+              statistic={{
+                title: "岗位映射",
+                value: diagnostics.position_resource_mappings.reduce(
+                  (count, item) => count + item.resources.filter((resource) => resource.supported).length,
+                  0,
+                ),
+                suffix: "项",
+                status: "processing",
+                description: "当前 provider 支持的岗位资源",
+              }}
+            />
+          </StatisticCard.Group>
+
+          <Table
+            rowKey="provider"
+            size="small"
+            pagination={false}
+            dataSource={diagnostics.providers}
+            columns={[
+              {
+                title: "Provider",
+                dataIndex: "label",
+                width: 140,
+                render: (value, item) => (
+                  <Space size={6}>
+                    <Text>{String(value)}</Text>
+                    {item.active ? <Tag color="blue">当前</Tag> : null}
+                  </Space>
+                ),
+              },
+              { title: "说明", dataIndex: "description" },
+              {
+                title: "配置",
+                width: 110,
+                render: (_, item) => (
+                  <Tag color={item.configured ? "green" : "default"}>
+                    {item.configured ? "已配置" : "未配置"}
+                  </Tag>
+                ),
+              },
+              {
+                title: "配置项",
+                render: (_, item) => (
+                  <Space size={[4, 4]} wrap>
+                    {item.config_fields.map((field) => (
+                      <Tag color={field.configured ? "green" : "default"} key={`${item.provider}-${field.name}`}>
+                        {field.name}
+                        {field.value_preview ? `=${field.value_preview}` : ""}
+                      </Tag>
+                    ))}
+                  </Space>
+                ),
+              },
+            ]}
+          />
+
+          <Table
+            rowKey="position"
+            size="small"
+            pagination={false}
+            dataSource={diagnostics.position_resource_mappings}
+            columns={[
+              { title: "岗位", dataIndex: "position_label", width: 110 },
+              {
+                title: "资源映射",
+                render: (_, item) => (
+                  <Space size={[4, 4]} wrap>
+                    {item.resources.map((resource) => (
+                      <Tag color={resource.supported ? "green" : "gold"} key={`${item.position}-${resource.resource}`}>
+                        {resource.label}:{resource.provider_resource || "未映射"}
+                      </Tag>
+                    ))}
+                  </Space>
+                ),
+              },
+            ]}
+          />
+
+          {diagnostics.next_steps.length ? (
+            <Card size="small" title="下一步">
+              <Space direction="vertical" size={4}>
+                {diagnostics.next_steps.map((item) => (
+                  <Text key={item}>{item}</Text>
+                ))}
+              </Space>
+            </Card>
+          ) : null}
+        </Space>
+      ) : (
+        <Empty description="暂无诊断数据，点击刷新重新加载" />
+      )}
+    </ProCard>
+  );
+
+  const resourcesPanel = (
+    <ProCard title="当前岗位可查询资源" bordered>
+      <Table<ErpResourceItem>
+        rowKey="resource"
+        size="middle"
+        pagination={false}
+        dataSource={resources}
+        locale={{ emptyText: <Empty description="暂无 ERP 资源，请刷新或联系管理员分配岗位" /> }}
+        columns={[
+          { title: "资源", dataIndex: "resource", width: 170 },
+          { title: "名称", dataIndex: "label", width: 140 },
+          { title: "说明", dataIndex: "description" },
+          {
+            title: "当前 Provider 对象",
+            width: 180,
+            render: (_, item) => {
+              const provider = status?.provider || "erpnext";
+              return item.provider_refs[provider] || "-";
+            },
+          },
+        ]}
+      />
+    </ProCard>
+  );
+
+  if (currentErpView === "erp_resources") {
+    return resourcesPanel;
+  }
+
+  if (currentErpView === "erp_diagnostics") {
+    return role === "admin" ? diagnosticsPanel : <Empty description="当前账号无权查看 ERP 管理诊断" />;
+  }
+
+  return queryPanel;
 }
 
 function DocumentsPanel(props: {
@@ -1166,6 +2669,129 @@ function DocumentsPanel(props: {
   );
 }
 
+function UsersPanel(props: {
+  users: UserRecord[];
+  newUser: NewUserForm;
+  setNewUser: (value: NewUserForm) => void;
+  createUser: () => void;
+  refreshUsers: () => void;
+  isCreating: boolean;
+}) {
+  const selectedPosition = props.newUser.position || "customer_service";
+
+  function patchNewUser(patch: Partial<NewUserForm>) {
+    props.setNewUser({
+      ...props.newUser,
+      ...patch,
+    });
+  }
+
+  return (
+    <Row gutter={[16, 16]}>
+      <Col xs={24} xl={9}>
+        <ProCard title="管理员创建用户" bordered>
+          <Form layout="vertical">
+            <Form.Item label="用户名">
+              <Input
+                value={props.newUser.username}
+                onChange={(event) => patchNewUser({ username: event.target.value })}
+                placeholder="例如 service_01"
+              />
+            </Form.Item>
+            <Form.Item label="密码">
+              <Input.Password
+                value={props.newUser.password}
+                onChange={(event) => patchNewUser({ password: event.target.value })}
+                placeholder="至少 6 位"
+              />
+            </Form.Item>
+            <Form.Item label="系统角色">
+              <Radio.Group
+                optionType="button"
+                buttonStyle="solid"
+                value={props.newUser.role}
+                onChange={(event) => {
+                  const nextRole = event.target.value as Role;
+                  patchNewUser({
+                    role: nextRole,
+                    position: nextRole === "employee" ? selectedPosition : null,
+                  });
+                }}
+                options={[
+                  { label: "员工", value: "employee" },
+                  { label: "管理员", value: "admin" },
+                ]}
+              />
+            </Form.Item>
+            {props.newUser.role === "employee" ? (
+              <Form.Item label="岗位">
+                <Select
+                  value={selectedPosition}
+                  onChange={(value) =>
+                    patchNewUser({
+                      position: value,
+                      department: props.newUser.department || positionConfigs[value].department,
+                    })
+                  }
+                  options={(Object.keys(positionConfigs) as Position[]).map((item) => ({
+                    label: positionConfigs[item].label,
+                    value: item,
+                  }))}
+                />
+              </Form.Item>
+            ) : null}
+            <Form.Item label="部门">
+              <Input
+                value={props.newUser.department}
+                onChange={(event) => patchNewUser({ department: event.target.value })}
+                placeholder={props.newUser.role === "employee" ? positionConfigs[selectedPosition].department : "管理部"}
+              />
+            </Form.Item>
+            <Space>
+              <Button type="primary" loading={props.isCreating} onClick={props.createUser}>
+                创建用户
+              </Button>
+              <Button icon={<ReloadOutlined />} onClick={props.refreshUsers}>
+                刷新
+              </Button>
+            </Space>
+          </Form>
+        </ProCard>
+      </Col>
+      <Col xs={24} xl={15}>
+        <ProCard title="用户与岗位权限" bordered>
+          <Table<UserRecord>
+            rowKey="id"
+            dataSource={props.users}
+            locale={{ emptyText: <Empty description="暂无用户数据" /> }}
+            columns={[
+              { title: "用户名", dataIndex: "username", width: 140 },
+              { title: "角色", dataIndex: "role", width: 110, render: (value) => <Tag>{roleLabel(value as Role)}</Tag> },
+              {
+                title: "岗位",
+                dataIndex: "position",
+                width: 110,
+                render: (value) => value ? <Tag color="purple">{positionLabel(value as Position)}</Tag> : "-",
+              },
+              { title: "部门", dataIndex: "department", width: 120 },
+              {
+                title: "AI 能力",
+                dataIndex: "capabilities",
+                render: (value: string[]) => (
+                  <Space size={[4, 4]} wrap>
+                    {value.length ? value.map((item) => <Tag key={item}>{item}</Tag>) : <Text type="secondary">-</Text>}
+                  </Space>
+                ),
+              },
+              { title: "创建时间", dataIndex: "createdAt", width: 150 },
+            ]}
+          />
+        </ProCard>
+      </Col>
+    </Row>
+  );
+}
+
 function ApprovalsPanel({
   approvals,
   reviewApproval,
@@ -1239,9 +2865,63 @@ function RefundsPanel({ refunds }: { refunds: Refund[] }) {
   );
 }
 
-function AuditPanel({ logs }: { logs: AuditLog[] }) {
+function AuditPanel({
+  logs,
+  actionFilter,
+  setActionFilter,
+  resourceFilter,
+  setResourceFilter,
+  positionFilter,
+  setPositionFilter,
+  refreshLogs,
+}: {
+  logs: AuditLog[];
+  actionFilter: string;
+  setActionFilter: (value: string) => void;
+  resourceFilter: string;
+  setResourceFilter: (value: string) => void;
+  positionFilter: Position | "all";
+  setPositionFilter: (value: Position | "all") => void;
+  refreshLogs: () => void;
+}) {
   return (
-    <ProCard title="审计日志" bordered>
+    <ProCard
+      title="审计日志"
+      bordered
+      extra={
+        <Space size={8} wrap>
+          <Input
+            size="small"
+            value={actionFilter}
+            placeholder="动作筛选"
+            onChange={(event) => setActionFilter(event.target.value)}
+            style={{ width: 160 }}
+          />
+          <Input
+            size="small"
+            value={resourceFilter}
+            placeholder="资源类型"
+            onChange={(event) => setResourceFilter(event.target.value)}
+            style={{ width: 120 }}
+          />
+          <Select
+            size="small"
+            value={positionFilter}
+            onChange={setPositionFilter}
+            style={{ width: 130 }}
+            options={[
+              { label: "全部岗位", value: "all" },
+              { label: "运营", value: "operations" },
+              { label: "客服", value: "customer_service" },
+              { label: "财务", value: "finance" },
+            ]}
+          />
+          <Button size="small" icon={<SearchOutlined />} onClick={refreshLogs}>
+            查询
+          </Button>
+        </Space>
+      }
+    >
       <Table<AuditLog>
         rowKey="id"
         dataSource={logs}
@@ -1250,11 +2930,81 @@ function AuditPanel({ logs }: { logs: AuditLog[] }) {
           { title: "动作", dataIndex: "action" },
           { title: "资源", dataIndex: "resourceType" },
           { title: "操作者", dataIndex: "actor" },
+          {
+            title: "岗位",
+            dataIndex: "position",
+            width: 100,
+            render: (value) => isPosition(value) ? <Tag color="purple">{positionLabel(value)}</Tag> : "-",
+          },
           { title: "时间", dataIndex: "createdAt" },
           { title: "资源 ID", dataIndex: "resourceId", ellipsis: true },
         ]}
       />
     </ProCard>
+  );
+}
+
+function ErpRecordDetailModal({
+  open,
+  loading,
+  detail,
+  onClose,
+}: {
+  open: boolean;
+  loading: boolean;
+  detail: ErpRecordDetailResponse | null;
+  onClose: () => void;
+}) {
+  const item = detail?.item || null;
+  const rows = item ? Object.entries(item).filter(([, value]) => value !== null && value !== "") : [];
+
+  return (
+    <Modal
+      open={open}
+      title={detail ? `ERP 记录详情 / ${detail.resource_label}` : "ERP 记录详情"}
+      onCancel={onClose}
+      footer={[
+        <Button key="close" onClick={onClose}>
+          关闭
+        </Button>,
+      ]}
+      width={760}
+    >
+      {loading ? (
+        <Empty description="正在加载 ERP 记录详情" />
+      ) : detail ? (
+        <Space direction="vertical" size={12} className="pageStack">
+          <Space size={[8, 8]} wrap>
+            <Tag color={detail.ok ? "green" : "gold"}>{detail.ok ? "已找到" : "未找到"}</Tag>
+            <Tag>{detail.provider_label}</Tag>
+            <Tag>{detail.provider_resource}</Tag>
+            <Tag>{detail.record_id}</Tag>
+          </Space>
+          <Paragraph type="secondary" style={{ marginBottom: 0 }}>
+            {detail.message}
+          </Paragraph>
+          {rows.length ? (
+            <Table
+              rowKey="field"
+              size="small"
+              pagination={false}
+              dataSource={rows.map(([field, value]) => ({
+                field,
+                value: textFromUnknown(value),
+              }))}
+              columns={[
+                { title: "字段", dataIndex: "field", width: 190 },
+                { title: "值", dataIndex: "value" },
+              ]}
+            />
+          ) : (
+            <Empty description="暂无详情字段" />
+          )}
+        </Space>
+      ) : (
+        <Empty description="暂无 ERP 记录详情" />
+      )}
+    </Modal>
   );
 }
 
@@ -1330,6 +3080,15 @@ function MessageList({ messages }: { messages: ChatMessage[] }) {
               <Text type="secondary">{item.createdAt}</Text>
             </div>
             <Paragraph className="messageContent">{item.content || "正在生成..."}</Paragraph>
+            {item.erpReferences?.length ? (
+              <Space size={[6, 6]} wrap className="erpReferenceList">
+                {item.erpReferences.map((reference) => (
+                  <Tag color="geekblue" key={`${reference.resource}-${reference.record_id}`}>
+                    引用：{reference.resource_label} / {reference.record_id}
+                  </Tag>
+                ))}
+              </Space>
+            ) : null}
           </div>
         </div>
       ))}
@@ -1349,12 +3108,275 @@ function StatusTag({ value }: { value: string }) {
   return <Tag color={colorMap[value] || "default"}>{labelForBadge(value)}</Tag>;
 }
 
+function metricStatus(value: string): "success" | "processing" | "error" | "default" | "warning" {
+  if (value === "success" || value === "processing" || value === "error" || value === "warning") {
+    return value;
+  }
+
+  return "default";
+}
+
+function overviewPrimaryText(item: Record<string, unknown>) {
+  return textFromUnknown(
+    item.name
+      || item.po_no
+      || item.lr_no
+      || item.subject
+      || item.item_code
+      || item.customer
+      || item.account
+      || item.party
+      || "-",
+  );
+}
+
+function overviewRecordId(item: Record<string, unknown>) {
+  const value = item.name || item.po_no || item.lr_no || item.subject || item.item_code;
+  return value ? textFromUnknown(value) : "";
+}
+
+function overviewSecondaryText(item: Record<string, unknown>) {
+  const parts = [
+    item.customer || item.customer_name || item.supplier || item.account || item.item_name,
+    item.status,
+    item.grand_total ? `金额 ${item.grand_total}` : null,
+    item.outstanding_amount ? `未收 ${item.outstanding_amount}` : null,
+    item.price_list_rate ? `价格 ${item.price_list_rate}` : null,
+    item.posting_date || item.transaction_date || item.modified,
+  ]
+    .filter(Boolean)
+    .map(textFromUnknown);
+
+  return parts.length ? parts.join(" / ") : "暂无更多字段";
+}
+
+function textFromUnknown(value: unknown) {
+  return String(value ?? "").slice(0, 120);
+}
+
+function formatAmount(value: number) {
+  return Number(value).toLocaleString("zh-CN", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
+function dashboardShortcuts(role: Role, position: Position | null): Array<{
+  title: string;
+  description: string;
+  view: View;
+  icon: React.ReactNode;
+}> {
+  if (role === "admin") {
+    return [
+      {
+        title: "用户管理",
+        description: "创建员工账号，分配运营、客服、财务岗位。",
+        view: "users",
+        icon: <SafetyCertificateOutlined />,
+      },
+      {
+        title: "ERP 诊断",
+        description: "检查 ERP provider、密钥配置和岗位资源映射。",
+        view: "erp",
+        icon: <ApiOutlined />,
+      },
+      {
+        title: "知识库上传",
+        description: "上传 RAG 文档，维护企业规则和业务资料。",
+        view: "documents",
+        icon: <CloudUploadOutlined />,
+      },
+      {
+        title: "审计日志",
+        description: "查看越权拦截、ERP 查询和自动化调用记录。",
+        view: "audit",
+        icon: <AuditOutlined />,
+      },
+    ];
+  }
+
+  if (position === "operations") {
+    return [
+      {
+        title: "运营 AI 自动化",
+        description: "生成 Listing、标题、五点描述、关键词和促销文案。",
+        view: "automation",
+        icon: <RobotOutlined />,
+      },
+      {
+        title: "运营 ERP 查询",
+        description: "查询商品、价格、销售订单和销售发票摘要。",
+        view: "erp",
+        icon: <ApiOutlined />,
+      },
+      {
+        title: "AI 对话",
+        description: "在运营权限内询问订单、商品和平台资料。",
+        view: "chat",
+        icon: <MessageOutlined />,
+      },
+    ];
+  }
+
+  if (position === "finance") {
+    return [
+      {
+        title: "财务 Excel 生成",
+        description: "上传 Excel，生成处理摘要、数值汇总和 AI 建议。",
+        view: "automation",
+        icon: <CloudUploadOutlined />,
+      },
+      {
+        title: "财务 ERP 查询",
+        description: "查询总账分录、收付款、工资单和发票。",
+        view: "erp",
+        icon: <ApiOutlined />,
+      },
+      {
+        title: "财务 AI 对话",
+        description: "在财务权限内分析报表、工资和发票问题。",
+        view: "chat",
+        icon: <MessageOutlined />,
+      },
+    ];
+  }
+
+  if (position === "customer_service") {
+    return [
+      {
+        title: "客服 AI 对话",
+        description: "处理物流、售后、退款话术和多语言回复。",
+        view: "chat",
+        icon: <MessageOutlined />,
+      },
+      {
+        title: "客服 ERP 查询",
+        description: "查询客户资料、销售订单、物流出库单和售后工单。",
+        view: "erp",
+        icon: <ApiOutlined />,
+      },
+      {
+        title: "客服自动化",
+        description: "生成智能客服回复、自动回复和退款售后话术。",
+        view: "automation",
+        icon: <RobotOutlined />,
+      },
+    ];
+  }
+
+  return [
+    {
+      title: "AI 对话",
+      description: "联系管理员绑定岗位后，可使用岗位专属能力。",
+      view: "chat",
+      icon: <MessageOutlined />,
+    },
+  ];
+}
+
 function readStoredRole(): Role {
   if (!localStorage.getItem("access_token")) {
     return "employee";
   }
 
   return localStorage.getItem("role") === "admin" ? "admin" : "employee";
+}
+
+function readStoredPosition(): Position | null {
+  const value = localStorage.getItem("position");
+  return isPosition(value) ? value : null;
+}
+
+function visibleNavigationForUser(role: Role, position: Position | null): NavItem[] {
+  return navItems
+    .filter((item) => item.roles.includes(role))
+    .map((item) => {
+      if (!item.children?.length) {
+        return item;
+      }
+
+      const children = item.children.filter((child) =>
+        child.roles.includes(role)
+        && (role === "admin" || !child.positions?.length || child.positions.includes(position as Position)),
+      );
+
+      return {
+        ...item,
+        children,
+      };
+    })
+    .filter((item) => !item.children || item.children.length > 0);
+}
+
+function flattenNavItems(items: NavItem[]): NavItem[] {
+  return items.flatMap((item) => [item, ...flattenNavItems(item.children || [])]);
+}
+
+function allNavItems(): NavItem[] {
+  return flattenNavItems(navItems);
+}
+
+function viewFromPath(pathname: string): View {
+  const matched = allNavItems().find((item) => item.path === pathname);
+  return matched?.id || "dashboard";
+}
+
+function pathForView(view: View) {
+  if (view === "automation") {
+    const storedPosition = readStoredPosition();
+    if (storedPosition === "customer_service") {
+      return "/automation/customer-service";
+    }
+    if (storedPosition === "finance") {
+      return "/automation/finance";
+    }
+    return "/automation/operations";
+  }
+
+  if (view === "erp") {
+    return "/erp/query";
+  }
+
+  return allNavItems().find((item) => item.id === view)?.path || "/dashboard";
+}
+
+function navigateToView(view: View, options: { replace?: boolean } = {}) {
+  const path = pathForView(view);
+
+  if (window.location.pathname !== path) {
+    if (options.replace) {
+      window.history.replaceState(null, "", path);
+    } else {
+      window.history.pushState(null, "", path);
+    }
+  }
+
+  window.dispatchEvent(new PopStateEvent("popstate"));
+}
+
+function resolveNavTargetView(item: NavItem, role: Role, position: Position | null): View {
+  if (item.id === "erp") {
+    return "erp_query";
+  }
+
+  if (item.id !== "automation") {
+    return item.id;
+  }
+
+  if (role === "admin") {
+    return "automation_operations";
+  }
+
+  if (position === "customer_service") {
+    return "automation_customer_service";
+  }
+
+  if (position === "finance") {
+    return "automation_finance";
+  }
+
+  return "automation_operations";
 }
 
 function readRoleFromToken(token: string): Role {
@@ -1372,26 +3394,75 @@ function readRoleFromToken(token: string): Role {
   }
 }
 
+function readPositionFromToken(token: string): Position | null {
+  const [, payload] = token.split(".");
+
+  if (!payload) {
+    return null;
+  }
+
+  try {
+    const decoded = JSON.parse(window.atob(toBase64(payload))) as { position?: unknown };
+    return isPosition(decoded.position) ? decoded.position : null;
+  } catch {
+    return null;
+  }
+}
+
 function toBase64(value: string) {
   return value.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(value.length / 4) * 4, "=");
 }
 
 function titleForView(view: View) {
-  const found = navItems.find((item) => item.id === view);
+  const found = allNavItems().find((item) => item.id === view);
   return found?.name ?? "概览";
 }
 
 function canRoleAccessView(role: Role, view: View) {
-  const item = navItems.find((nav) => nav.id === view);
+  const item = allNavItems().find((nav) => nav.id === view);
   return item ? item.roles.includes(role) : false;
 }
 
-function pageSubtitle(role: Role) {
-  if (role === "admin") {
-    return "RAG、LangGraph、Agent 和后台审批控制台";
+function isAutomationView(view: View) {
+  return view === "automation"
+    || view === "automation_operations"
+    || view === "automation_customer_service"
+    || view === "automation_finance";
+}
+
+function isErpView(view: View) {
+  return view === "erp"
+    || view === "erp_query"
+    || view === "erp_resources"
+    || view === "erp_diagnostics";
+}
+
+function automationPositionFromView(
+  view: View,
+  role: Role,
+  position: Position | null,
+): Position | null {
+  if (role !== "admin") {
+    return position;
   }
 
-  return "客服对话与个人会话工作台";
+  if (view === "automation_customer_service") {
+    return "customer_service";
+  }
+
+  if (view === "automation_finance") {
+    return "finance";
+  }
+
+  return "operations";
+}
+
+function pageSubtitle(role: Role, position: Position | null) {
+  if (role === "admin") {
+    return "RAG、LangGraph、Agent、用户岗位和后台审批控制台";
+  }
+
+  return position ? `${positionLabel(position)}岗位 AI 自动化工作台` : "员工工作台";
 }
 
 function mapApproval(item: ApprovalItem): Approval {
@@ -1424,6 +3495,7 @@ function mapRefund(item: RefundItem): Refund {
 
 function mapAuditLog(item: AuditLogItem): AuditLog {
   const username = typeof item.metadata.username === "string" ? item.metadata.username : item.user_id || "-";
+  const position = typeof item.metadata.position === "string" ? item.metadata.position : "-";
 
   return {
     id: item.id,
@@ -1431,8 +3503,49 @@ function mapAuditLog(item: AuditLogItem): AuditLog {
     resourceType: item.resource_type || "-",
     resourceId: item.resource_id || "-",
     actor: username,
+    position,
     createdAt: formatDate(item.created_at),
   };
+}
+
+function mapUser(item: UserItem): UserRecord {
+  return {
+    id: item.id,
+    username: item.username,
+    role: item.role,
+    department: item.department || "-",
+    position: item.position,
+    capabilities: item.capabilities || [],
+    erpScopes: item.erp_scopes || [],
+    createdAt: formatDate(item.created_at),
+  };
+}
+
+function mergeAutomationTasks(
+  items: AutomationTaskItem[],
+  current: AutomationTaskRecord[],
+): AutomationTaskRecord[] {
+  return items.map((item) => {
+    const found = current.find((record) => record.task_id === item.task_id);
+
+    return {
+      ...item,
+      inputText: found?.inputText ?? "",
+      output: found?.output ?? "",
+    };
+  });
+}
+
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
 }
 
 function mapThreadMessage(item: ThreadMessageItem): ChatMessage {
@@ -1448,7 +3561,26 @@ function mapThreadMessage(item: ThreadMessageItem): ChatMessage {
     content: item.content,
     createdAt: formatDate(item.created_at),
     route,
+    erpReferences: parseErpReferences(item.metadata.erp_references),
   };
+}
+
+function parseErpReferences(value: unknown): ErpReference[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .filter((item): item is Record<string, unknown> => typeof item === "object" && item !== null)
+    .map((item) => ({
+      resource: textFromUnknown(item.resource),
+      resource_label: textFromUnknown(item.resource_label || item.resource),
+      record_id: textFromUnknown(item.record_id || item.name),
+      title: textFromUnknown(item.title || item.record_id || item.name),
+      provider: item.provider ? textFromUnknown(item.provider) : null,
+      provider_resource: item.provider_resource ? textFromUnknown(item.provider_resource) : null,
+    }))
+    .filter((item) => item.resource && item.record_id);
 }
 
 function moneyFromOrderResult(value: unknown) {
@@ -1516,6 +3648,14 @@ function routeColor(route: ChatRoute) {
 
 function roleLabel(role: Role) {
   return role === "admin" ? "管理员" : "员工";
+}
+
+function positionLabel(position: Position) {
+  return positionConfigs[position].label;
+}
+
+function isPosition(value: unknown): value is Position {
+  return value === "operations" || value === "customer_service" || value === "finance";
 }
 
 function roleLabelForMessage(role: ChatMessage["role"]) {

@@ -135,15 +135,38 @@ def list_thread_messages(thread_id: str) -> list[dict]:
     ]
 
 
-def list_audit_logs(limit: int = 50) -> list[dict]:
+def list_audit_logs(
+    limit: int = 50,
+    action: str | None = None,
+    resource_type: str | None = None,
+    position: str | None = None,
+) -> list[dict]:
+    conditions = []
+    params: list[object] = []
+
+    if action:
+        conditions.append("action ILIKE %s")
+        params.append(f"%{action}%")
+
+    if resource_type:
+        conditions.append("resource_type = %s")
+        params.append(resource_type)
+
+    if position:
+        conditions.append("metadata->>'position' = %s")
+        params.append(position)
+
+    where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+    params.append(limit)
     rows = fetch_all(
-        """
+        f"""
         SELECT id, user_id, action, resource_type, resource_id, metadata, created_at
         FROM audit_logs
+        {where_clause}
         ORDER BY created_at DESC
         LIMIT %s;
         """,
-        (limit,),
+        tuple(params),
     )
 
     return [

@@ -3,13 +3,22 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "/api";
 export type LoginResponse = {
   access_token: string;
   token_type: string;
+  username: string;
+  role: "admin" | "employee";
+  department: string | null;
+  position: Position | null;
+  capabilities: string[];
+  erp_scopes: string[];
 };
+
+export type Position = "operations" | "customer_service" | "finance";
 
 export type ChatResponse = {
   thread_id: string;
   answer: string;
   intent: string | null;
   risk_level: string | null;
+  erp_references?: ErpReference[];
   approval_result: Record<string, unknown> | null;
 };
 
@@ -22,6 +31,7 @@ export type ChatStreamPayload = {
   answer?: string;
   intent?: string | null;
   risk_level?: string | null;
+  erp_references?: ErpReference[];
   approval_result?: Record<string, unknown> | null;
 };
 
@@ -59,6 +69,216 @@ export type AuditLogItem = {
   resource_id: string | null;
   metadata: Record<string, unknown>;
   created_at: string;
+};
+
+export type UserItem = {
+  id: string;
+  username: string;
+  role: "admin" | "employee";
+  department: string | null;
+  position: Position | null;
+  capabilities: string[];
+  erp_scopes: string[];
+  created_at: string;
+};
+
+export type UserCreatePayload = {
+  username: string;
+  password: string;
+  role: "admin" | "employee";
+  position: Position | null;
+  department?: string | null;
+};
+
+export type AutomationTaskItem = {
+  task_id: string;
+  label: string;
+  placeholder: string;
+  instruction: string;
+  output_format: string;
+  position: Position;
+  position_label: string;
+};
+
+export type AutomationTasksResponse = {
+  position: Position;
+  position_label: string;
+  items: AutomationTaskItem[];
+};
+
+export type AutomationGenerateResponse = {
+  position: Position;
+  position_label: string;
+  task_id: string;
+  task_label: string;
+  answer: string;
+};
+
+export type ErpProviderItem = {
+  provider: string;
+  label: string;
+  description: string;
+  active: boolean;
+  configured: boolean;
+};
+
+export type ErpProvidersResponse = {
+  active_provider: string;
+  items: ErpProviderItem[];
+};
+
+export type ErpResourceItem = {
+  resource: string;
+  label: string;
+  description: string;
+  provider_refs: Record<string, string>;
+};
+
+export type ErpScopesResponse = {
+  provider: string;
+  provider_label: string;
+  position: Position | null;
+  position_label: string;
+  resources: ErpResourceItem[];
+};
+
+export type ErpStatusResponse = {
+  provider: string;
+  provider_label: string;
+  ok: boolean;
+  configured: boolean;
+  status: string;
+  message: string;
+  detail: unknown;
+};
+
+export type ErpDiagnosticsConfigField = {
+  name: string;
+  configured: boolean;
+  secret: boolean;
+  value_preview: string | null;
+  description: string;
+};
+
+export type ErpDiagnosticsProvider = {
+  provider: string;
+  label: string;
+  description: string;
+  active: boolean;
+  configured: boolean;
+  config_fields: ErpDiagnosticsConfigField[];
+};
+
+export type ErpDiagnosticsMappedResource = {
+  resource: string;
+  label: string;
+  provider_resource: string | null;
+  supported: boolean;
+  fields: string[];
+};
+
+export type ErpDiagnosticsPositionMapping = {
+  position: Position;
+  position_label: string;
+  resources: ErpDiagnosticsMappedResource[];
+};
+
+export type ErpDiagnosticsResponse = {
+  active_provider: string;
+  active_provider_label: string;
+  active_configured: boolean;
+  active_health: {
+    ok: boolean;
+    configured: boolean;
+    status: string;
+    message: string;
+    detail?: unknown;
+  };
+  providers: ErpDiagnosticsProvider[];
+  position_resource_mappings: ErpDiagnosticsPositionMapping[];
+  local_development: Record<string, unknown>;
+  next_steps: string[];
+};
+
+export type ErpQueryPayload = {
+  resource: string;
+  query?: string;
+  filters?: Record<string, unknown> | unknown[] | null;
+  limit?: number;
+};
+
+export type ErpQueryResponse = {
+  ok: boolean;
+  configured: boolean;
+  status: string;
+  provider: string;
+  provider_label: string;
+  resource: string;
+  resource_label: string;
+  provider_resource: string;
+  message: string;
+  items: Array<Record<string, unknown>>;
+  raw: Record<string, unknown> | null;
+};
+
+export type ErpReference = {
+  resource: string;
+  resource_label: string;
+  record_id: string;
+  title: string;
+  provider: string | null;
+  provider_resource: string | null;
+};
+
+export type ErpDashboardMetric = {
+  title: string;
+  value: string | number;
+  suffix: string;
+  description: string;
+  status: string;
+};
+
+export type ErpDashboardSection = {
+  resource: string;
+  resource_label: string;
+  title: string;
+  ok: boolean;
+  status: string;
+  message: string;
+  total_count: number;
+  amount_total: number | null;
+  amount_label: string | null;
+  items: Array<Record<string, unknown>>;
+};
+
+export type ErpDashboardOverviewResponse = {
+  provider: string;
+  provider_label: string;
+  role: "admin" | "employee";
+  position: Position | null;
+  position_label: string;
+  market: string;
+  market_label: string;
+  store: string;
+  store_label: string;
+  date_range: string;
+  date_range_label: string;
+  title: string;
+  message: string;
+  metrics: ErpDashboardMetric[];
+  sections: ErpDashboardSection[];
+};
+
+export type ErpRecordDetailResponse = {
+  ok: boolean;
+  provider: string;
+  provider_label: string;
+  resource: string;
+  resource_label: string;
+  provider_resource: string;
+  record_id: string;
+  message: string;
+  item: Record<string, unknown> | null;
 };
 
 export async function sendPublicLLMChatStream(
@@ -158,6 +378,21 @@ export type PublicLLMChatResponse = {
 
 type JsonValue = Record<string, unknown> | Array<unknown> | string | number | boolean | null;
 
+const AUTH_EXPIRED_EVENT = "company-rag-auth-expired";
+
+export class AuthExpiredError extends Error {
+  readonly status = 401;
+
+  constructor(message = "登录失效，需要重新登录") {
+    super(message);
+    this.name = "AuthExpiredError";
+  }
+}
+
+export function isAuthExpiredError(error: unknown): error is AuthExpiredError {
+  return error instanceof AuthExpiredError;
+}
+
 async function requestJson<T>(
   path: string,
   options: RequestInit = {},
@@ -175,10 +410,31 @@ async function requestJson<T>(
   });
 
   if (!response.ok) {
-    throw new Error(await readErrorMessage(response));
+    throw await buildRequestError(response, Boolean(token));
   }
 
   return response.json();
+}
+
+async function buildRequestError(response: Response, authenticatedRequest: boolean) {
+  const message = await readErrorMessage(response);
+
+  if (authenticatedRequest && response.status === 401) {
+    emitAuthExpired(message);
+    return new AuthExpiredError(message || "登录失效，需要重新登录");
+  }
+
+  return new Error(message);
+}
+
+function emitAuthExpired(message: string) {
+  window.dispatchEvent(
+    new CustomEvent(AUTH_EXPIRED_EVENT, {
+      detail: {
+        message: message || "登录失效，需要重新登录",
+      },
+    }),
+  );
 }
 
 async function readErrorMessage(response: Response) {
@@ -263,7 +519,7 @@ export async function sendChatStream(
   });
 
   if (!response.ok) {
-    throw new Error(await readErrorMessage(response));
+    throw await buildRequestError(response, true);
   }
 
   if (!response.body) {
@@ -409,8 +665,159 @@ export async function listRefunds(token: string) {
   return requestJson<{ items: RefundItem[] }>("/admin/refunds", {}, token);
 }
 
-export async function listAuditLogs(token: string) {
-  return requestJson<{ items: AuditLogItem[] }>("/admin/audit-logs", {}, token);
+export async function listAuditLogs(
+  token: string,
+  filters: { action?: string; resource_type?: string; position?: Position | "all"; limit?: number } = {},
+) {
+  const params = new URLSearchParams();
+
+  if (filters.action?.trim()) {
+    params.set("action", filters.action.trim());
+  }
+
+  if (filters.resource_type?.trim()) {
+    params.set("resource_type", filters.resource_type.trim());
+  }
+
+  if (filters.position && filters.position !== "all") {
+    params.set("position", filters.position);
+  }
+
+  params.set("limit", String(filters.limit || 50));
+
+  return requestJson<{ items: AuditLogItem[] }>(`/admin/audit-logs?${params}`, {}, token);
+}
+
+export async function listUsers(token: string) {
+  return requestJson<{ items: UserItem[] }>("/admin/users", {}, token);
+}
+
+export async function createUser(token: string, payload: UserCreatePayload) {
+  return requestJson<{ item: UserItem }>(
+    "/admin/users",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    },
+    token,
+  );
+}
+
+export async function listAutomationTasks(token: string) {
+  return requestJson<AutomationTasksResponse>("/automation/tasks", {}, token);
+}
+
+export async function generateAutomation(
+  token: string,
+  taskId: string,
+  inputText: string,
+) {
+  return requestJson<AutomationGenerateResponse>(
+    "/automation/generate",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        task_id: taskId,
+        input_text: inputText,
+      }),
+    },
+    token,
+  );
+}
+
+export async function transformFinanceExcel(
+  token: string,
+  file: File,
+  instruction: string,
+) {
+  const formData = new FormData();
+
+  formData.append("file", file);
+  formData.append("instruction", instruction.trim());
+
+  const headers = new Headers();
+  headers.set("Authorization", `Bearer ${token}`);
+
+  const response = await fetch(`${API_BASE_URL}/automation/finance/excel-transform`, {
+    method: "POST",
+    headers,
+    body: formData,
+  });
+
+  if (!response.ok) {
+    throw await buildRequestError(response, true);
+  }
+
+  const blob = await response.blob();
+  const disposition = response.headers.get("content-disposition") || "";
+
+  return {
+    blob,
+    filename: parseDownloadFilename(disposition) || "finance_ai_result.xlsx",
+  };
+}
+
+export async function listErpProviders(token: string) {
+  return requestJson<ErpProvidersResponse>("/erp/providers", {}, token);
+}
+
+export async function getErpStatus(token: string) {
+  return requestJson<ErpStatusResponse>("/erp/status", {}, token);
+}
+
+export async function getErpScopes(token: string) {
+  return requestJson<ErpScopesResponse>("/erp/scopes", {}, token);
+}
+
+export async function getErpDiagnostics(token: string) {
+  return requestJson<ErpDiagnosticsResponse>("/erp/diagnostics", {}, token);
+}
+
+export async function getErpDashboardOverview(token: string, market = "all", dateRange = "all", store = "all") {
+  const params = new URLSearchParams({ market, date_range: dateRange, store });
+  return requestJson<ErpDashboardOverviewResponse>(`/erp/dashboard-overview?${params}`, {}, token);
+}
+
+export async function getErpRecordDetail(token: string, resource: string, recordId: string) {
+  return requestJson<ErpRecordDetailResponse>(
+    `/erp/records/${encodeURIComponent(resource)}/${encodeURIComponent(recordId)}`,
+    {},
+    token,
+  );
+}
+
+export async function queryErp(token: string, payload: ErpQueryPayload) {
+  return requestJson<ErpQueryResponse>(
+    "/erp/query",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    },
+    token,
+  );
+}
+
+function parseDownloadFilename(contentDisposition: string) {
+  const encodedMatch = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i);
+  if (encodedMatch?.[1]) {
+    try {
+      return decodeURIComponent(encodedMatch[1]);
+    } catch {
+      return encodedMatch[1];
+    }
+  }
+
+  const normalMatch = contentDisposition.match(/filename="?([^";]+)"?/i);
+  return normalMatch?.[1] || "";
 }
 
 export async function getThreadMessages(token: string, threadId: string) {

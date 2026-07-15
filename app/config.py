@@ -43,6 +43,19 @@ class Settings(BaseSettings):
     feishu_ticket_source_field: str = "来源"
     feishu_ticket_status_field: str = "状态"
     feishu_ticket_created_at_field: str = "创建时间"
+    erp_provider: str = "erpnext"
+    erp_base_url: str | None = None
+    erp_api_key: str | None = None
+    erp_api_secret: str | None = None
+    erp_timeout_seconds: int = 8
+    erp_kingdee_base_url: str | None = None
+    erp_kingdee_account_id: str | None = None
+    erp_kingdee_app_id: str | None = None
+    erp_kingdee_app_secret: str | None = None
+    erp_yonyou_base_url: str | None = None
+    erp_yonyou_tenant_id: str | None = None
+    erp_yonyou_app_key: str | None = None
+    erp_yonyou_app_secret: str | None = None
 
     model_config = SettingsConfigDict(
         env_file=".env",

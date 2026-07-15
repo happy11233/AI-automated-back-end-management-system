@@ -8,27 +8,34 @@ from app.rag.vector_store import vector_store
 
 
 def build_metadata_filter(role: str, department: str | None = None) -> dict:
-    visibility_filter = (
-        {"visibility": {"$in": ["employee", "admin"]}}
-        if role == "admin"
-        else {"visibility": {"$eq": "employee"}}
-    )
-
-    if role == "admin" or not department:
-        return visibility_filter
-
-    return {
-        "$and": [
-            visibility_filter,
-            {
-                "$or": [
-                    {"department": {"$eq": department}},
-                    {"department": {"$eq": ""}},
-                    {"department": {"$exists": False}},
-                ]
-            },
+    status_filter = {
+        "$or": [
+            {"status": {"$eq": "active"}},
+            {"status": {"$exists": False}},
         ]
     }
+    filters = [
+        (
+            {"visibility": {"$in": ["employee", "admin"]}}
+            if role == "admin"
+            else {"visibility": {"$eq": "employee"}}
+        ),
+        status_filter,
+    ]
+
+    if role == "admin" or not department:
+        return {"$and": filters}
+
+    filters.append(
+        {
+            "$or": [
+                {"department": {"$eq": department}},
+                {"department": {"$eq": ""}},
+                {"department": {"$exists": False}},
+            ]
+        }
+    )
+    return {"$and": filters}
 
 
 def retrieve_chunks(
@@ -159,7 +166,7 @@ def _retrieve_keyword_candidates(
 
 def _load_keyword_corpus(role: str, department: str | None) -> list[dict]:
     params: list[str] = []
-    where_parts = []
+    where_parts = ["d.status = 'active'"]
 
     if role != "admin":
         where_parts.append("d.visibility = 'employee'")
@@ -267,7 +274,8 @@ def _replace_with_parent_chunks(chunks: list[dict]) -> list[dict]:
             d.department
         FROM document_parent_chunks p
         JOIN documents d ON d.id = p.document_id
-        WHERE p.id IN ({placeholders});
+        WHERE p.id IN ({placeholders})
+          AND d.status = 'active';
         """,
         tuple(parent_ids),
     )

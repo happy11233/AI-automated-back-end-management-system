@@ -2,16 +2,19 @@ from app.db import open_pool, close_pool, fetch_one
 from app.rag.ingest import ingest_text_document
 
 
-def upsert_user(username: str, role: str, department: str) -> str:
+def upsert_user(username: str, role: str, department: str, position: str | None = None) -> str:
     row = fetch_one(
         """
-        INSERT INTO users (username, role, department)
-        VALUES (%s, %s, %s)
+        INSERT INTO users (username, role, department, position)
+        VALUES (%s, %s, %s, %s)
         ON CONFLICT (username)
-        DO UPDATE SET role = EXCLUDED.role, department = EXCLUDED.department
+        DO UPDATE SET
+            role = EXCLUDED.role,
+            department = EXCLUDED.department,
+            position = EXCLUDED.position
         RETURNING id;
         """,
-        (username, role, department),
+        (username, role, department, position),
     )
 
     return str(row[0])
@@ -46,7 +49,9 @@ def main():
     open_pool()
 
     admin_id = upsert_user("admin_demo", "admin", "管理部")
-    employee_id = upsert_user("employee_demo", "employee", "客服部")
+    employee_id = upsert_user("employee_demo", "employee", "客服部", "customer_service")
+    upsert_user("operations_demo", "employee", "运营部", "operations")
+    upsert_user("finance_demo", "employee", "财务部", "finance")
 
     upsert_order("10086", employee_id, "shipping", 29900, True)
     upsert_order("10087", employee_id, "delivered", 59900, True)

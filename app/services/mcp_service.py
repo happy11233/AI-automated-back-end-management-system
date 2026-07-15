@@ -1,7 +1,7 @@
 from langchain_core.documents import Document
 
 from app.mcp_client import call_mcp_tool
-from app.rag.ingest import ingest_documents
+from app.rag.ingest import ingest_documents, mark_missing_documents_deleted
 
 
 def sync_document_system_to_rag(
@@ -10,6 +10,7 @@ def sync_document_system_to_rag(
 ) -> dict:
     documents = call_mcp_tool("document_system", "list_documents")
     synced_items = []
+    active_sources = set()
 
     for item in documents:
         document_detail = call_mcp_tool(
@@ -24,6 +25,7 @@ def sync_document_system_to_rag(
         if not content:
             continue
 
+        active_sources.add(document_detail["source"])
         result = ingest_documents(
             title=document_detail["title"],
             source=document_detail["source"],
@@ -51,10 +53,29 @@ def sync_document_system_to_rag(
             }
         )
 
+    deleted_items = mark_missing_documents_deleted(
+        active_sources=active_sources,
+        source_prefixes=[
+            "mcp://document-system/",
+            "feishu://docx/",
+        ],
+        visibility=visibility,
+        department=department,
+    )
+
     return {
         "synced_count": len(synced_items),
+        "created_count": _count_by_action(synced_items, "created"),
+        "updated_count": _count_by_action(synced_items, "updated"),
+        "skipped_count": _count_by_action(synced_items, "skipped"),
+        "deleted_count": len(deleted_items),
         "items": synced_items,
+        "deleted_items": deleted_items,
     }
+
+
+def _count_by_action(items: list[dict], action: str) -> int:
+    return sum(1 for item in items if item.get("update_action") == action)
 
 
 def create_external_ticket(

@@ -18,6 +18,10 @@ def set_password(username: str, password: str):
 def main():
     open_pool()
 
+    set_password("admin_demo", "Admin123456")
+    set_password("employee_demo", "Employee123456")
+    set_password("operations_demo", "Operations123456")
+    set_password("finance_demo", "Finance123456")
     set_password("admin", "Admin")
     set_password("user", "User")
 

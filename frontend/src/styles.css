@@ -313,6 +313,162 @@ button {
   margin-top: 16px;
 }
 
+.automationTaskCol {
+  display: flex;
+}
+
+.automationTaskCard {
+  width: 100%;
+  margin-top: 0;
+}
+
+.automationTaskCard > .ant-card-body {
+  height: 100%;
+}
+
+.automationTaskBody {
+  display: grid;
+  grid-template-rows: 22px 68px 76px auto auto;
+  align-content: start;
+  min-height: 248px;
+  height: 100%;
+  gap: 10px;
+}
+
+.automationTaskTitle {
+  height: 22px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.automationTaskDescription {
+  height: 68px;
+  margin-bottom: 0 !important;
+  overflow: hidden;
+  line-height: 1.55;
+}
+
+.automationTaskInput {
+  height: 76px !important;
+  min-height: 76px !important;
+  resize: vertical;
+}
+
+.automationTaskFooter {
+  min-height: 32px;
+}
+
+.automationTaskResult {
+  margin-top: 2px;
+}
+
+.financeUploadTaskBody {
+  display: grid;
+  grid-template-rows: 22px auto 142px;
+  align-content: start;
+  min-height: 260px;
+  height: 100%;
+  gap: 10px;
+}
+
+.financeUploadControls {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.8fr) minmax(0, 1.2fr);
+  gap: 12px;
+  align-items: stretch;
+}
+
+.financeUploadDragger {
+  height: 142px;
+}
+
+.financeUploadDragger .ant-upload {
+  height: 100%;
+  padding: 14px 16px !important;
+}
+
+.financeUploadDragger .uploadIcon {
+  margin-bottom: 4px;
+  font-size: 28px;
+}
+
+.financeUploadDragger .uploadTitle {
+  margin-bottom: 2px;
+}
+
+.financeUploadActionPane {
+  display: grid;
+  grid-template-rows: 76px auto;
+  gap: 10px;
+}
+
+.financeUploadInstruction {
+  height: 76px !important;
+  min-height: 76px !important;
+  resize: vertical;
+}
+
+@media (max-width: 900px) {
+  .financeUploadControls {
+    grid-template-columns: 1fr;
+  }
+}
+
+.erpAlignedCard {
+  height: 100%;
+}
+
+.erpAlignedCard > .ant-card-body {
+  height: calc(100% - 38px);
+}
+
+.erpDescription {
+  margin-bottom: 0 !important;
+  line-height: 1.65;
+}
+
+.erpQueryForm .ant-form-item {
+  margin-bottom: 14px;
+}
+
+.erpQueryForm .ant-input-number {
+  width: 100%;
+}
+
+.dashboardShortcutCard,
+.dashboardOverviewCard {
+  margin-top: 0;
+}
+
+.compactRecord {
+  display: grid;
+  gap: 2px;
+  min-height: 48px;
+  padding: 8px;
+  overflow: hidden;
+  background: #f8fafc;
+  border: 1px solid rgba(15, 23, 42, 0.06);
+  border-radius: 6px;
+}
+
+.compactRecord .ant-typography {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.compactRecordHeader {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.erpReferenceList {
+  margin-top: 8px;
+}
+
 .statePre {
   max-height: 320px;
   margin: 0;

@@ -5,6 +5,7 @@ CREATE TABLE IF NOT EXISTS users (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     username TEXT NOT NULL UNIQUE,
     role TEXT NOT NULL CHECK (role IN ('admin', 'employee')),
+    position TEXT CHECK (position IS NULL OR position IN ('operations', 'customer_service', 'finance')),
     department TEXT,
     password_hash TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -28,6 +29,10 @@ CREATE TABLE IF NOT EXISTS documents (
     source TEXT,
     visibility TEXT NOT NULL CHECK (visibility IN ('admin', 'employee')),
     department TEXT,
+    content_hash TEXT,
+    version INTEGER NOT NULL DEFAULT 1 CHECK (version >= 1),
+    status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'deleted')),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -140,8 +145,12 @@ CREATE TABLE IF NOT EXISTS refund_transactions (
 );
 
 CREATE INDEX IF NOT EXISTS idx_orders_order_no ON orders(order_no);
+CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
+CREATE INDEX IF NOT EXISTS idx_users_position ON users(position);
 CREATE INDEX IF NOT EXISTS idx_documents_visibility ON documents(visibility);
 CREATE INDEX IF NOT EXISTS idx_documents_department ON documents(department);
+CREATE INDEX IF NOT EXISTS idx_documents_source ON documents(source);
+CREATE INDEX IF NOT EXISTS idx_documents_status ON documents(status);
 CREATE INDEX IF NOT EXISTS idx_document_parent_chunks_document_id ON document_parent_chunks(document_id);
 CREATE INDEX IF NOT EXISTS idx_document_chunks_document_id ON document_chunks(document_id);
 CREATE INDEX IF NOT EXISTS idx_document_chunks_parent_chunk_id ON document_chunks(parent_chunk_id);
