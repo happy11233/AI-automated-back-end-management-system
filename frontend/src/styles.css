@@ -530,6 +530,194 @@ button {
   border-radius: 6px;
 }
 
+.effectAnalyticsToolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 96px;
+  gap: 10px;
+  align-items: center;
+  max-width: 520px;
+}
+
+.effectAnalyticsToolbar.admin {
+  grid-template-columns: minmax(0, 1fr) minmax(140px, 180px) 96px;
+  max-width: 720px;
+}
+
+.effectMetricRow .ant-col,
+.effectPanelCol {
+  display: flex;
+}
+
+.effectMetricCard,
+.effectPanelCard {
+  width: 100%;
+  margin-top: 0;
+}
+
+.effectMetricCard .ant-card-body {
+  display: grid;
+  min-height: 104px;
+  gap: 6px;
+}
+
+.effectMetricCard h3,
+.effectAuditSummary h4 {
+  margin: 0 !important;
+}
+
+.effectPanelCard > .ant-pro-card-body {
+  min-height: 260px;
+}
+
+.effectTrendChart {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(34px, 1fr));
+  align-items: end;
+  gap: 8px;
+  min-height: 232px;
+  min-width: 0;
+}
+
+.effectTrendBar {
+  display: grid;
+  grid-template-rows: 18px 168px 20px;
+  gap: 6px;
+  min-width: 0;
+  text-align: center;
+}
+
+.effectTrendDate,
+.effectTrendTotal {
+  min-width: 0;
+  overflow: hidden;
+  color: #4b5563;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.effectTrendTrack {
+  display: flex;
+  align-items: end;
+  justify-content: center;
+  gap: 3px;
+  min-width: 0;
+  padding: 8px 6px;
+  background: #f8fafc;
+  border: 1px solid rgba(15, 23, 42, 0.06);
+  border-radius: 6px;
+}
+
+.effectTrendTrack span {
+  display: block;
+  width: 7px;
+  min-height: 0;
+  border-radius: 4px 4px 0 0;
+}
+
+.effectTrendSucceeded {
+  background: #16a34a;
+}
+
+.effectTrendFailed {
+  background: #dc2626;
+}
+
+.effectTrendBlocked {
+  background: #ea580c;
+}
+
+.effectStatusList {
+  display: grid;
+  gap: 12px;
+}
+
+.effectStatusItem {
+  display: grid;
+  gap: 8px;
+}
+
+.effectStatusHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.effectProgressTrack {
+  height: 8px;
+  overflow: hidden;
+  background: #eef2f7;
+  border-radius: 999px;
+}
+
+.effectProgressBar {
+  display: block;
+  height: 100%;
+  min-width: 2px;
+  background: #6b7280;
+}
+
+.effectProgressBar.succeeded {
+  background: #16a34a;
+}
+
+.effectProgressBar.failed {
+  background: #dc2626;
+}
+
+.effectProgressBar.blocked {
+  background: #ea580c;
+}
+
+.effectProgressBar.running {
+  background: #2563eb;
+}
+
+.effectCellStack {
+  max-width: 100%;
+  min-width: 0;
+}
+
+.effectText,
+.effectMono {
+  display: block;
+  max-width: 100%;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.effectMono {
+  color: #4b5563;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+}
+
+.effectAuditSummary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.effectAuditSummary > div,
+.effectEstimateItem {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 10px 12px;
+  background: #f8fafc;
+  border: 1px solid rgba(15, 23, 42, 0.06);
+  border-radius: 6px;
+}
+
+.effectEstimateGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+
 .flowConfigMetricRow .ant-col {
   display: flex;
 }
@@ -1215,12 +1403,27 @@ button {
 
   .runRecordFilterGrid,
   .runRecordDetailGrid,
+  .effectAnalyticsToolbar,
+  .effectAnalyticsToolbar.admin,
   .flowConfigFilterGrid,
   .flowConfigFilterGrid.admin,
   .flowConfigDetailGrid,
   .connectorDetailGrid {
     grid-template-columns: 1fr;
     max-width: none;
+  }
+
+  .effectAuditSummary {
+    grid-template-columns: 1fr;
+  }
+
+  .effectTrendChart {
+    grid-template-columns: repeat(auto-fit, minmax(28px, 1fr));
+    gap: 6px;
+  }
+
+  .effectTrendBar {
+    grid-template-rows: 18px 132px 20px;
   }
 
   .connectorCardBody {

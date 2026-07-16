@@ -457,6 +457,122 @@ export type RunRecordFilters = {
   limit?: number;
 };
 
+export type EffectAnalyticsScope = {
+  role: "admin" | "employee" | null;
+  position: Position | null;
+  position_label: string;
+  date_range: string;
+  date_range_label: string;
+  since: string | null;
+  generated_at: string;
+};
+
+export type EffectAnalyticsSummary = {
+  total_runs: number;
+  succeeded_runs: number;
+  failed_runs: number;
+  blocked_runs: number;
+  running_runs: number;
+  success_rate: number;
+  failure_rate: number;
+  blocked_rate: number;
+  avg_duration_ms: number;
+  total_duration_ms: number;
+  estimated_saved_minutes: number;
+  estimated_saved_hours: number;
+};
+
+export type EffectStatusBucket = {
+  status: string;
+  count: number;
+};
+
+export type EffectTrendPoint = {
+  date: string;
+  total_runs: number;
+  succeeded_runs: number;
+  failed_runs: number;
+  blocked_runs: number;
+};
+
+export type EffectPositionStat = {
+  position: Position | "platform";
+  position_label: string;
+  total_runs: number;
+  succeeded_runs: number;
+  failed_runs: number;
+  blocked_runs: number;
+  success_rate: number;
+  estimated_saved_minutes: number;
+};
+
+export type EffectAppStat = {
+  app_id: string;
+  app_name: string;
+  total_runs: number;
+  succeeded_runs: number;
+  failed_runs: number;
+  blocked_runs: number;
+  success_rate: number;
+  last_run_at: string | null;
+};
+
+export type EffectRunTypeStat = {
+  run_type: string;
+  label: string;
+  total_runs: number;
+  succeeded_runs: number;
+  failed_runs: number;
+  blocked_runs: number;
+  success_rate: number;
+  avg_duration_ms: number;
+};
+
+export type EffectFailureReason = {
+  status: string;
+  reason: string;
+  count: number;
+  last_seen_at: string | null;
+};
+
+export type EffectAuditAction = {
+  action: string;
+  resource_type: string | null;
+  count: number;
+  last_seen_at: string | null;
+};
+
+export type EffectAuditSummary = {
+  total_events: number;
+  blocked_events: number;
+  approval_events: number;
+  top_actions: EffectAuditAction[];
+};
+
+export type EffectEstimateModelItem = {
+  run_type: string;
+  saved_minutes_per_run: number;
+  description: string;
+};
+
+export type EffectAnalyticsResponse = {
+  scope: EffectAnalyticsScope;
+  summary: EffectAnalyticsSummary;
+  status_distribution: EffectStatusBucket[];
+  trend: EffectTrendPoint[];
+  position_ranking: EffectPositionStat[];
+  app_ranking: EffectAppStat[];
+  run_type_ranking: EffectRunTypeStat[];
+  failure_reasons: EffectFailureReason[];
+  audit_summary: EffectAuditSummary;
+  estimate_model: EffectEstimateModelItem[];
+};
+
+export type EffectAnalyticsFilters = {
+  date_range?: "7d" | "30d" | "90d" | "all";
+  position?: Position | "all";
+};
+
 export async function sendPublicLLMChatStream(
   message: string,
   history: PublicLLMMessage[],
@@ -1061,6 +1177,20 @@ export async function getRunRecordDetail(token: string, runId: string) {
     {},
     token,
   );
+}
+
+export async function getEffectAnalytics(
+  token: string,
+  filters: EffectAnalyticsFilters = {},
+) {
+  const params = new URLSearchParams();
+  params.set("date_range", filters.date_range || "30d");
+
+  if (filters.position && filters.position !== "all") {
+    params.set("position", filters.position);
+  }
+
+  return requestJson<EffectAnalyticsResponse>(`/effect-analytics?${params}`, {}, token);
 }
 
 function parseDownloadFilename(contentDisposition: string) {

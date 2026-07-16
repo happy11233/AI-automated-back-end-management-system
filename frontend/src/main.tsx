@@ -58,6 +58,7 @@ import "./styles.css";
 import {
   login,
   createUser,
+  getEffectAnalytics,
   getConnectorDetail,
   getAutomationFlowDetail,
   generateAutomation,
@@ -91,6 +92,7 @@ import {
   type ConnectorDetailResponse,
   type ConnectorItem,
   type ConnectorsResponse,
+  type EffectAnalyticsResponse,
   type AutomationTaskItem,
   type ErpDashboardOverviewResponse,
   type ErpDiagnosticsResponse,
@@ -125,6 +127,7 @@ type View =
   | "dashboard"
   | "ai_apps"
   | "run_records"
+  | "effect_analytics"
   | "automation_flows"
   | "connectors"
   | "automation"
@@ -244,6 +247,11 @@ type RunRecordFilterState = {
   resourceId: string;
 };
 
+type EffectAnalyticsFilterState = {
+  dateRange: "7d" | "30d" | "90d" | "all";
+  position: Position | "all";
+};
+
 type AutomationFlowFilterState = {
   position: Position | "all";
   category: string;
@@ -278,6 +286,7 @@ const navItems: NavItem[] = [
   { path: "/dashboard", id: "dashboard", name: "概览", icon: <DatabaseOutlined />, roles: ["admin", "employee"] },
   { path: "/ai-apps", id: "ai_apps", name: "AI 应用中心", icon: <AppstoreOutlined />, roles: ["admin", "employee"] },
   { path: "/run-records", id: "run_records", name: "运行记录", icon: <HistoryOutlined />, roles: ["admin", "employee"] },
+  { path: "/effect-analytics", id: "effect_analytics", name: "效果分析", icon: <AuditOutlined />, roles: ["admin", "employee"] },
   { path: "/automation-flows", id: "automation_flows", name: "流程配置", icon: <AuditOutlined />, roles: ["admin", "employee"] },
   { path: "/connectors", id: "connectors", name: "连接器中心", icon: <ApiOutlined />, roles: ["admin"] },
   {
@@ -421,6 +430,12 @@ function App() {
   const [isRunRecordDetailOpen, setIsRunRecordDetailOpen] = useState(false);
   const [isRunRecordDetailLoading, setIsRunRecordDetailLoading] = useState(false);
   const [isRunRecordsLoading, setIsRunRecordsLoading] = useState(false);
+  const [effectAnalytics, setEffectAnalytics] = useState<EffectAnalyticsResponse | null>(null);
+  const [effectAnalyticsFilters, setEffectAnalyticsFilters] = useState<EffectAnalyticsFilterState>({
+    dateRange: "30d",
+    position: "all",
+  });
+  const [isEffectAnalyticsLoading, setIsEffectAnalyticsLoading] = useState(false);
   const [automationFlows, setAutomationFlows] = useState<AutomationFlowItem[]>([]);
   const [automationFlowFilters, setAutomationFlowFilters] = useState<AutomationFlowFilterState>({
     position: "all",
@@ -563,6 +578,7 @@ function App() {
     void refreshErpScopes(storedToken, role);
     void refreshErpDashboardOverview(storedToken, erpDashboardMarket, erpDashboardDateRange, erpDashboardStore);
     void refreshRunRecords(storedToken);
+    void refreshEffectAnalytics(storedToken);
     void refreshAutomationFlows(storedToken);
 
     if (role === "admin") {
@@ -611,6 +627,7 @@ function App() {
       await refreshErpScopes(result.access_token, nextRole);
       await refreshErpDashboardOverview(result.access_token, erpDashboardMarket, erpDashboardDateRange, erpDashboardStore);
       await refreshRunRecords(result.access_token);
+      await refreshEffectAnalytics(result.access_token, defaultEffectAnalyticsFilters(nextRole, nextPosition));
       await refreshAutomationFlows(result.access_token, defaultAutomationFlowFilters(nextRole, nextPosition));
 
       setIsLoginModalOpen(false);
@@ -643,6 +660,8 @@ function App() {
     setRunRecords([]);
     setRunRecordDetail(null);
     setIsRunRecordDetailOpen(false);
+    setEffectAnalytics(null);
+    setEffectAnalyticsFilters({ dateRange: "30d", position: "all" });
     setAutomationFlows([]);
     setAutomationFlowDetail(null);
     setIsAutomationFlowDetailOpen(false);
@@ -802,6 +821,36 @@ function App() {
       message.error(text);
     } finally {
       setIsRunRecordDetailLoading(false);
+    }
+  }
+
+  function effectAnalyticsPayload(filters = effectAnalyticsFilters) {
+    return {
+      date_range: filters.dateRange,
+      position: filters.position,
+    };
+  }
+
+  async function refreshEffectAnalytics(activeToken = token, filters = effectAnalyticsFilters) {
+    if (!activeToken) {
+      return;
+    }
+
+    setIsEffectAnalyticsLoading(true);
+
+    try {
+      const result = await getEffectAnalytics(activeToken, effectAnalyticsPayload(filters));
+      setEffectAnalytics(result);
+      setStatusMessage("效果分析已刷新");
+    } catch (error) {
+      if (isAuthExpiredError(error)) {
+        return;
+      }
+      const text = error instanceof Error ? error.message : "效果分析加载失败";
+      setStatusMessage(text);
+      message.error(text);
+    } finally {
+      setIsEffectAnalyticsLoading(false);
     }
   }
 
@@ -1718,6 +1767,16 @@ function App() {
                     loading={isRunRecordsLoading}
                     refreshRecords={() => refreshRunRecords()}
                     openDetail={openRunRecordDetail}
+                  />
+                )}
+                {safeActiveView === "effect_analytics" && (
+                  <EffectAnalyticsPanel
+                    role={role}
+                    analytics={effectAnalytics}
+                    filters={effectAnalyticsFilters}
+                    setFilters={setEffectAnalyticsFilters}
+                    loading={isEffectAnalyticsLoading}
+                    refreshAnalytics={() => refreshEffectAnalytics()}
                   />
                 )}
                 {safeActiveView === "automation_flows" && (
@@ -3773,6 +3832,260 @@ function RunRecordDetailItem({
   );
 }
 
+function EffectAnalyticsPanel({
+  role,
+  analytics,
+  filters,
+  setFilters,
+  loading,
+  refreshAnalytics,
+}: {
+  role: Role;
+  analytics: EffectAnalyticsResponse | null;
+  filters: EffectAnalyticsFilterState;
+  setFilters: React.Dispatch<React.SetStateAction<EffectAnalyticsFilterState>>;
+  loading: boolean;
+  refreshAnalytics: () => void;
+}) {
+  const summary = analytics?.summary;
+  const maxTrend = Math.max(1, ...(analytics?.trend || []).map((item) => item.total_runs));
+  const maxStatus = Math.max(1, ...(analytics?.status_distribution || []).map((item) => item.count));
+
+  return (
+    <Space direction="vertical" size={16} className="pageStack">
+      <ProCard
+        title="效果分析"
+        subTitle={role === "admin" ? "基于真实运行记录和审计事件的全平台只读指标" : "当前账号仅查看自己的执行效果"}
+        bordered
+        extra={
+          <Button size="small" icon={<ReloadOutlined />} onClick={refreshAnalytics} loading={loading}>
+            刷新
+          </Button>
+        }
+      >
+        <div className={role === "admin" ? "effectAnalyticsToolbar admin" : "effectAnalyticsToolbar"}>
+          <Segmented
+            size="small"
+            value={filters.dateRange}
+            onChange={(value) => setFilters((current) => ({ ...current, dateRange: value as EffectAnalyticsFilterState["dateRange"] }))}
+            options={[
+              { label: "近7天", value: "7d" },
+              { label: "近30天", value: "30d" },
+              { label: "近90天", value: "90d" },
+              { label: "全部", value: "all" },
+            ]}
+          />
+          {role === "admin" && (
+            <Select
+              size="small"
+              value={filters.position}
+              onChange={(value) => setFilters((current) => ({ ...current, position: value }))}
+              options={[
+                { label: "全部岗位", value: "all" },
+                { label: "运营", value: "operations" },
+                { label: "客服", value: "customer_service" },
+                { label: "财务", value: "finance" },
+              ]}
+            />
+          )}
+          <Button size="small" type="primary" icon={<SearchOutlined />} onClick={refreshAnalytics} loading={loading}>
+            查询
+          </Button>
+        </div>
+      </ProCard>
+
+      <Row gutter={[12, 12]} className="effectMetricRow">
+        <Col xs={12} xl={6}>
+          <Card size="small" className="effectMetricCard">
+            <Text type="secondary">自动化次数</Text>
+            <Title level={3}>{summary?.total_runs ?? 0}</Title>
+            <Text type="secondary">{analytics?.scope.date_range_label || "近 30 天"}</Text>
+          </Card>
+        </Col>
+        <Col xs={12} xl={6}>
+          <Card size="small" className="effectMetricCard">
+            <Text type="secondary">成功率</Text>
+            <Title level={3}>{formatPercent(summary?.success_rate)}</Title>
+            <Text type="secondary">{summary?.succeeded_runs ?? 0} 次成功</Text>
+          </Card>
+        </Col>
+        <Col xs={12} xl={6}>
+          <Card size="small" className="effectMetricCard">
+            <Text type="secondary">越权拦截</Text>
+            <Title level={3}>{summary?.blocked_runs ?? 0}</Title>
+            <Text type="secondary">{formatPercent(summary?.blocked_rate)} 拦截率</Text>
+          </Card>
+        </Col>
+        <Col xs={12} xl={6}>
+          <Card size="small" className="effectMetricCard">
+            <Text type="secondary">估算节省</Text>
+            <Title level={3}>{summary?.estimated_saved_hours ?? 0}h</Title>
+            <Text type="secondary">按成功执行保守估算</Text>
+          </Card>
+        </Col>
+      </Row>
+
+      <Row gutter={[12, 12]}>
+        <Col xs={24} xl={14} className="effectPanelCol">
+          <ProCard title="执行趋势" bordered className="effectPanelCard">
+            {analytics?.trend.length ? (
+              <div className="effectTrendChart" aria-label="执行趋势">
+                {analytics.trend.map((item) => (
+                  <div className="effectTrendBar" key={item.date}>
+                    <div className="effectTrendDate">{item.date.slice(5)}</div>
+                    <div className="effectTrendTrack">
+                      <span className="effectTrendSucceeded" style={{ height: `${Math.max(8, (item.succeeded_runs / maxTrend) * 100)}%` }} />
+                      <span className="effectTrendFailed" style={{ height: `${Math.max(item.failed_runs ? 8 : 0, (item.failed_runs / maxTrend) * 100)}%` }} />
+                      <span className="effectTrendBlocked" style={{ height: `${Math.max(item.blocked_runs ? 8 : 0, (item.blocked_runs / maxTrend) * 100)}%` }} />
+                    </div>
+                    <Text className="effectTrendTotal">{item.total_runs}</Text>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <Empty description="暂无趋势数据" />
+            )}
+          </ProCard>
+        </Col>
+        <Col xs={24} xl={10} className="effectPanelCol">
+          <ProCard title="状态分布" bordered className="effectPanelCard">
+            <div className="effectStatusList">
+              {(analytics?.status_distribution || []).map((item) => (
+                <div className="effectStatusItem" key={item.status}>
+                  <div className="effectStatusHeader">
+                    <StatusTag value={item.status} />
+                    <Text strong>{item.count}</Text>
+                  </div>
+                  <div className="effectProgressTrack">
+                    <span className={`effectProgressBar ${item.status}`} style={{ width: `${(item.count / maxStatus) * 100}%` }} />
+                  </div>
+                </div>
+              ))}
+              {!analytics?.status_distribution.length && <Empty description="暂无状态数据" />}
+            </div>
+          </ProCard>
+        </Col>
+      </Row>
+
+      <Row gutter={[12, 12]}>
+        <Col xs={24} xl={12} className="effectPanelCol">
+          <ProCard title="岗位效果排行" bordered className="effectPanelCard">
+            <Table
+              rowKey="position"
+              size="small"
+              dataSource={analytics?.position_ranking || []}
+              pagination={false}
+              scroll={{ x: 560 }}
+              locale={{ emptyText: <Empty description="暂无岗位数据" /> }}
+              columns={[
+                { title: "岗位", dataIndex: "position_label", width: 110, render: (value) => <Text strong>{String(value)}</Text> },
+                { title: "次数", dataIndex: "total_runs", width: 78 },
+                { title: "成功率", dataIndex: "success_rate", width: 92, render: (value) => formatPercent(value) },
+                { title: "失败", dataIndex: "failed_runs", width: 72 },
+                { title: "拦截", dataIndex: "blocked_runs", width: 72 },
+                { title: "节省", dataIndex: "estimated_saved_minutes", render: (value) => `${value} 分钟` },
+              ]}
+            />
+          </ProCard>
+        </Col>
+        <Col xs={24} xl={12} className="effectPanelCol">
+          <ProCard title="应用使用排行" bordered className="effectPanelCard">
+            <Table
+              rowKey="app_id"
+              size="small"
+              dataSource={analytics?.app_ranking || []}
+              pagination={false}
+              scroll={{ x: 680 }}
+              locale={{ emptyText: <Empty description="暂无应用数据" /> }}
+              columns={[
+                {
+                  title: "应用",
+                  dataIndex: "app_name",
+                  width: 210,
+                  render: (value, record) => (
+                    <Space direction="vertical" size={2} className="effectCellStack">
+                      <Text strong className="effectText">{String(value)}</Text>
+                      <Text className="effectMono">{record.app_id}</Text>
+                    </Space>
+                  ),
+                },
+                { title: "次数", dataIndex: "total_runs", width: 78 },
+                { title: "成功率", dataIndex: "success_rate", width: 92, render: (value) => formatPercent(value) },
+                { title: "最近运行", dataIndex: "last_run_at", render: (value) => formatTime(value) },
+              ]}
+            />
+          </ProCard>
+        </Col>
+      </Row>
+
+      <Row gutter={[12, 12]}>
+        <Col xs={24} xl={12} className="effectPanelCol">
+          <ProCard title="失败与拦截原因" bordered className="effectPanelCard">
+            <Table
+              rowKey={(record) => `${record.status}-${record.reason}`}
+              size="small"
+              dataSource={analytics?.failure_reasons || []}
+              pagination={false}
+              scroll={{ x: 640 }}
+              locale={{ emptyText: <Empty description="暂无失败或拦截" /> }}
+              columns={[
+                { title: "状态", dataIndex: "status", width: 92, render: (value) => <StatusTag value={String(value)} /> },
+                { title: "原因", dataIndex: "reason", render: (value) => <Text className="effectText">{String(value)}</Text> },
+                { title: "次数", dataIndex: "count", width: 76 },
+                { title: "最近", dataIndex: "last_seen_at", width: 130, render: (value) => formatTime(value) },
+              ]}
+            />
+          </ProCard>
+        </Col>
+        <Col xs={24} xl={12} className="effectPanelCol">
+          <ProCard title="审计安全摘要" bordered className="effectPanelCard">
+            <div className="effectAuditSummary">
+              <div>
+                <Text type="secondary">审计事件</Text>
+                <Title level={4}>{analytics?.audit_summary.total_events ?? 0}</Title>
+              </div>
+              <div>
+                <Text type="secondary">权限拦截</Text>
+                <Title level={4}>{analytics?.audit_summary.blocked_events ?? 0}</Title>
+              </div>
+              <div>
+                <Text type="secondary">审批事件</Text>
+                <Title level={4}>{analytics?.audit_summary.approval_events ?? 0}</Title>
+              </div>
+            </div>
+            <Table
+              rowKey={(record) => `${record.action}-${record.resource_type}`}
+              size="small"
+              dataSource={analytics?.audit_summary.top_actions || []}
+              pagination={false}
+              scroll={{ x: 560 }}
+              locale={{ emptyText: <Empty description="暂无审计事件" /> }}
+              columns={[
+                { title: "动作", dataIndex: "action", render: (value) => <Text className="effectMono">{String(value)}</Text> },
+                { title: "资源", dataIndex: "resource_type", width: 110, render: (value) => value || "-" },
+                { title: "次数", dataIndex: "count", width: 76 },
+                { title: "最近", dataIndex: "last_seen_at", width: 130, render: (value) => formatTime(value) },
+              ]}
+            />
+          </ProCard>
+        </Col>
+      </Row>
+
+      <ProCard title="估算口径" bordered>
+        <div className="effectEstimateGrid">
+          {(analytics?.estimate_model || []).map((item) => (
+            <div className="effectEstimateItem" key={item.run_type}>
+              <Text className="effectMono">{item.run_type}</Text>
+              <Text strong>{item.saved_minutes_per_run} 分钟/次</Text>
+              <Text type="secondary" className="effectText">{item.description}</Text>
+            </div>
+          ))}
+        </div>
+      </ProCard>
+    </Space>
+  );
+}
+
 function AutomationFlowsPanel({
   role,
   flows,
@@ -4659,6 +4972,13 @@ function defaultAutomationFlowFilters(role: Role, position: Position | null): Au
   };
 }
 
+function defaultEffectAnalyticsFilters(role: Role, position: Position | null): EffectAnalyticsFilterState {
+  return {
+    dateRange: "30d",
+    position: role === "admin" ? "all" : position || "all",
+  };
+}
+
 function metricStatus(value: string): "success" | "processing" | "error" | "default" | "warning" {
   if (value === "success" || value === "processing" || value === "error" || value === "warning") {
     return value;
@@ -5300,6 +5620,14 @@ function formatDuration(value: unknown) {
   }
 
   return `${(value / 1000).toFixed(1)}s`;
+}
+
+function formatPercent(value: unknown) {
+  if (typeof value !== "number") {
+    return "0%";
+  }
+
+  return `${Math.round(value * 1000) / 10}%`;
 }
 
 function formatBytes(value: unknown) {

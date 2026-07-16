@@ -319,6 +319,15 @@ AI 对话 ERP 查询状态：
 - Platform Loop 2 已完成：`/run-records` 统一运行记录中心，真实记录自动化生成、ERP 查询、财务 Excel 和 AI 对话执行。
 - Platform Loop 3 已完成：`/automation-flows` 只读自动化流程配置中心。
 - Platform Loop 4 已完成：`/connectors` 管理员连接器中心一期。
+- Platform Loop 5 已完成：`/effect-analytics` 效果分析中心一期。
+- 效果分析 API：`GET /effect-analytics?date_range=7d|30d|90d|all&position=operations|customer_service|finance`。
+- 效果分析数据来源：真实 `automation_runs`、`automation_run_steps`、`automation_run_artifacts` 和 `audit_logs`。
+- 效果分析权限口径：管理员可看全局和按岗位筛选；员工强制限定为本人和当前岗位，即使传入其他岗位参数也不会扩大范围。
+- 效果分析展示：自动化次数、成功率、失败率、越权拦截率、趋势、岗位排行、应用排行、运行类型排行、失败/拦截原因、审计安全摘要、节省时间估算。
+- 效果分析不返回运行明细字段，不暴露 `input_preview`、`output_preview`、`error_message`、`resource_id`、`external_ref` 等明细或敏感字段。
+- 效果分析真实 API 验证脚本：`.venv/bin/python scripts/verify_effect_analytics.py`。
+- 效果分析真实浏览器验证脚本：`node scripts/verify_effect_analytics_frontend.mjs`。
+- 效果分析截图路径：`/tmp/company-rag-effect-analytics-admin-desktop.png`、`/tmp/company-rag-effect-analytics-finance-mobile.png`。
 - 流程配置 API：`GET /automation-flows`、`GET /automation-flows/{flow_id}`。
 - 流程配置来源于真实代码投影：`AUTOMATION_TASKS`、岗位 ERP scope、ERP 资源目录、聊天入口、财务 Excel 和管理员知识库维护。
 - 流程配置包含输入 schema、输出 schema、Prompt 摘要、模板预览、模型配置、允许工具、允许 ERP 资源、权限规则、审批策略、失败策略和执行步骤。

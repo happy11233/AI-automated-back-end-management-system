@@ -1107,3 +1107,64 @@
 
 #### 后续待做
 - Platform Loop 5：效果分析中心一期，基于真实运行记录和审计事件生成效果指标、趋势、岗位排行、失败原因和节省时间估算。
+
+### 日期：2026-07-17
+
+#### 本次目标
+- 完成 Platform Loop 5：新增效果分析中心一期，用真实运行记录和审计事件展示自动化效果、失败/拦截原因、岗位/应用排行和节省时间估算。
+
+#### 修改内容
+- 新增只读效果分析聚合服务，数据来源为真实 `automation_runs`、`automation_run_steps`、`automation_run_artifacts` 和 `audit_logs`。
+- 新增只读 API：`GET /effect-analytics`，支持 `date_range=7d|30d|90d|all` 和管理员岗位筛选。
+- 管理员可查看全局或按岗位筛选的效果分析；员工强制限定为本人和当前岗位，即使传入其他岗位参数也不会扩大范围。
+- 后端返回 KPI、状态分布、趋势、岗位排行、应用排行、运行类型排行、失败/拦截原因、审计安全摘要和估算口径。
+- 节省时间为保守估算值，仅按真实成功运行次数和固定口径计算，并在页面展示估算说明。
+- 员工侧估算口径只展示当前账号实际运行类型，避免看到其他岗位能力信息。
+- 前端新增 `/effect-analytics` 页面，导航名为“效果分析”。
+- 页面采用 KPI 卡片、趋势柱状图、状态分布、岗位/应用排行、失败原因、审计摘要和估算口径分区。
+- 新增真实 API 验收脚本 `scripts/verify_effect_analytics.py`。
+- 新增真实浏览器验收脚本 `scripts/verify_effect_analytics_frontend.mjs`。
+- 页面格式参考官方后台设计原则：首屏展示关键 KPI，控制面板元素数量，长文本和表格列做换行/横向滚动保护。
+
+#### 修改文件
+- `app/api/effect_analytics.py`
+- `app/main.py`
+- `app/services/effect_analytics_service.py`
+- `frontend/src/api.ts`
+- `frontend/src/main.tsx`
+- `frontend/src/styles.css`
+- `scripts/verify_effect_analytics.py`
+- `scripts/verify_effect_analytics_frontend.mjs`
+- `docs/TASKS.md`
+- `docs/CHANGELOG_AI.md`
+- `docs/AI_CONTEXT.md`
+
+#### 验证方式
+- `.venv/bin/python -m compileall app scripts`
+- `docker compose up -d --build api`
+- `curl -sS -i http://127.0.0.1:8001/health`
+- `.venv/bin/python scripts/verify_effect_analytics.py`
+- `npm run build`
+- `node scripts/verify_effect_analytics_frontend.mjs`
+- `node scripts/verify_automation_flows_frontend.mjs`
+- `node scripts/verify_connectors_frontend.mjs`
+- `NODE_PATH=/Users/xiaoxiang/.npm/_npx/e41f203b7505f1fb/node_modules node scripts/verify_frontend_permissions.mjs`
+- `git diff --check`
+
+#### 验证结果
+- 后端编译通过。
+- API 容器重建并启动，`/health` 返回 `ok`。
+- 真实 API 验收通过：管理员统计真实运行记录 4 条，运营员工 1 条，财务员工 2 条，真实审计事件 1393 条。
+- 真实 API 验收确认员工传入其他岗位参数仍被强制限定为本人岗位范围。
+- 真实 API 验收确认响应未泄露 `Bearer`、`api_secret`、`password`、`Authorization`、`input_preview`、`output_preview`、`error_message`、`resource_id`、`external_ref` 等敏感或明细字段。
+- 前端构建通过，仅保留 Vite chunk 体积警告。
+- 真实浏览器验收通过，截图：
+  - `/tmp/company-rag-effect-analytics-admin-desktop.png`
+  - `/tmp/company-rag-effect-analytics-finance-mobile.png`
+- 管理员桌面和财务移动端效果分析页面均无横向溢出。
+- 运营员工浏览器验收确认效果分析 scope 为 `operations`，不会看到财务统计。
+- 自动化流程页面、连接器页面和前端权限可见性真实回归均通过。
+- 本轮验收未使用 mock、stub、fake provider、monkeypatch 或模拟响应。
+
+#### 后续待做
+- Platform Loop 6：AI 评测中心一期，管理 RAG、ERP、权限拒答和自动化输出格式测试集，并输出真实评测结果。
