@@ -573,6 +573,72 @@ export type EffectAnalyticsFilters = {
   position?: Position | "all";
 };
 
+export type EvaluationSummary = {
+  dataset_count: number;
+  report_count: number;
+  regression_suite_count: number;
+  total_cases: number;
+  average_pass_rate: number;
+};
+
+export type EvaluationDataset = {
+  id: string;
+  name: string;
+  category: string;
+  description: string;
+  path: string;
+  report_path: string;
+  runner: string;
+  case_count: number;
+  positive_cases: number;
+  refusal_cases: number;
+  has_report: boolean;
+  can_run: boolean;
+  updated_at: string | null;
+  report_updated_at: string | null;
+};
+
+export type EvaluationReport = {
+  dataset_id: string;
+  dataset_name: string;
+  metrics: Record<string, unknown>;
+  counts: Record<string, unknown>;
+  pass_rate: number | null;
+  failed_cases: Array<Record<string, unknown>>;
+  updated_at: string | null;
+};
+
+export type EvaluationRegressionSuite = {
+  id: string;
+  name: string;
+  category: string;
+  description: string;
+  command: string;
+  case_count: number;
+  real_services: string[];
+};
+
+export type EvaluationReleaseGate = {
+  id: string;
+  name: string;
+  status: string;
+  threshold: string;
+  actual: string;
+};
+
+export type EvaluationCenterResponse = {
+  summary: EvaluationSummary;
+  datasets: EvaluationDataset[];
+  reports: EvaluationReport[];
+  regression_suites: EvaluationRegressionSuite[];
+  release_gates: EvaluationReleaseGate[];
+};
+
+export type RagEvaluationRunResponse = {
+  dataset: EvaluationDataset;
+  report: EvaluationReport;
+};
+
 export async function sendPublicLLMChatStream(
   message: string,
   history: PublicLLMMessage[],
@@ -1191,6 +1257,21 @@ export async function getEffectAnalytics(
   }
 
   return requestJson<EffectAnalyticsResponse>(`/effect-analytics?${params}`, {}, token);
+}
+
+export async function getEvaluationCenter(token: string) {
+  return requestJson<EvaluationCenterResponse>("/evaluation-center", {}, token);
+}
+
+export async function runRagEvaluation(token: string, datasetId = "rag_smoke", topK = 5) {
+  const params = new URLSearchParams();
+  params.set("dataset_id", datasetId);
+  params.set("top_k", String(topK));
+  return requestJson<RagEvaluationRunResponse>(
+    `/evaluation-center/run-rag?${params}`,
+    { method: "POST" },
+    token,
+  );
 }
 
 function parseDownloadFilename(contentDisposition: string) {

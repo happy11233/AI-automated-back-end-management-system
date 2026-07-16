@@ -59,6 +59,7 @@ import {
   login,
   createUser,
   getEffectAnalytics,
+  getEvaluationCenter,
   getConnectorDetail,
   getAutomationFlowDetail,
   generateAutomation,
@@ -83,6 +84,7 @@ import {
   listConnectors,
   listAutomationFlows,
   queryErp,
+  runRagEvaluation,
   reviewApproval as reviewApprovalApi,
   type ApprovalItem,
   type AuditLogItem,
@@ -93,6 +95,7 @@ import {
   type ConnectorItem,
   type ConnectorsResponse,
   type EffectAnalyticsResponse,
+  type EvaluationCenterResponse,
   type AutomationTaskItem,
   type ErpDashboardOverviewResponse,
   type ErpDiagnosticsResponse,
@@ -128,6 +131,7 @@ type View =
   | "ai_apps"
   | "run_records"
   | "effect_analytics"
+  | "evaluation_center"
   | "automation_flows"
   | "connectors"
   | "automation"
@@ -287,6 +291,7 @@ const navItems: NavItem[] = [
   { path: "/ai-apps", id: "ai_apps", name: "AI 应用中心", icon: <AppstoreOutlined />, roles: ["admin", "employee"] },
   { path: "/run-records", id: "run_records", name: "运行记录", icon: <HistoryOutlined />, roles: ["admin", "employee"] },
   { path: "/effect-analytics", id: "effect_analytics", name: "效果分析", icon: <AuditOutlined />, roles: ["admin", "employee"] },
+  { path: "/evaluation-center", id: "evaluation_center", name: "AI 评测中心", icon: <CheckCircleOutlined />, roles: ["admin"] },
   { path: "/automation-flows", id: "automation_flows", name: "流程配置", icon: <AuditOutlined />, roles: ["admin", "employee"] },
   { path: "/connectors", id: "connectors", name: "连接器中心", icon: <ApiOutlined />, roles: ["admin"] },
   {
@@ -436,6 +441,9 @@ function App() {
     position: "all",
   });
   const [isEffectAnalyticsLoading, setIsEffectAnalyticsLoading] = useState(false);
+  const [evaluationCenter, setEvaluationCenter] = useState<EvaluationCenterResponse | null>(null);
+  const [isEvaluationCenterLoading, setIsEvaluationCenterLoading] = useState(false);
+  const [runningEvaluationId, setRunningEvaluationId] = useState("");
   const [automationFlows, setAutomationFlows] = useState<AutomationFlowItem[]>([]);
   const [automationFlowFilters, setAutomationFlowFilters] = useState<AutomationFlowFilterState>({
     position: "all",
@@ -585,6 +593,7 @@ function App() {
       void refreshAdminData(storedToken);
       void refreshUsers(storedToken);
       void refreshConnectors(storedToken);
+      void refreshEvaluationCenter(storedToken);
     }
   }, []);
 
@@ -621,6 +630,7 @@ function App() {
         await refreshAdminData(result.access_token);
         await refreshUsers(result.access_token);
         await refreshConnectors(result.access_token);
+        await refreshEvaluationCenter(result.access_token);
       }
 
       await refreshAutomationTasks(result.access_token, nextPosition || undefined);
@@ -662,6 +672,8 @@ function App() {
     setIsRunRecordDetailOpen(false);
     setEffectAnalytics(null);
     setEffectAnalyticsFilters({ dateRange: "30d", position: "all" });
+    setEvaluationCenter(null);
+    setRunningEvaluationId("");
     setAutomationFlows([]);
     setAutomationFlowDetail(null);
     setIsAutomationFlowDetailOpen(false);
@@ -851,6 +863,55 @@ function App() {
       message.error(text);
     } finally {
       setIsEffectAnalyticsLoading(false);
+    }
+  }
+
+  async function refreshEvaluationCenter(activeToken = token) {
+    if (!activeToken) {
+      return;
+    }
+
+    setIsEvaluationCenterLoading(true);
+
+    try {
+      const result = await getEvaluationCenter(activeToken);
+      setEvaluationCenter(result);
+      setStatusMessage("AI 评测中心已刷新");
+    } catch (error) {
+      if (isAuthExpiredError(error)) {
+        return;
+      }
+      const text = error instanceof Error ? error.message : "AI 评测中心加载失败";
+      setStatusMessage(text);
+      message.error(text);
+    } finally {
+      setIsEvaluationCenterLoading(false);
+    }
+  }
+
+  async function runEvaluation(datasetId: string) {
+    if (!token) {
+      setStatusMessage("请先登录管理员账号");
+      message.warning("请先登录管理员账号");
+      return;
+    }
+
+    setRunningEvaluationId(datasetId);
+
+    try {
+      const result = await runRagEvaluation(token, datasetId, 5);
+      setStatusMessage(`评测完成：${result.report.dataset_name}`);
+      message.success("RAG 评测已完成");
+      await refreshEvaluationCenter(token);
+    } catch (error) {
+      if (isAuthExpiredError(error)) {
+        return;
+      }
+      const text = error instanceof Error ? error.message : "RAG 评测运行失败";
+      setStatusMessage(text);
+      message.error(text);
+    } finally {
+      setRunningEvaluationId("");
     }
   }
 
@@ -1777,6 +1838,15 @@ function App() {
                     setFilters={setEffectAnalyticsFilters}
                     loading={isEffectAnalyticsLoading}
                     refreshAnalytics={() => refreshEffectAnalytics()}
+                  />
+                )}
+                {safeActiveView === "evaluation_center" && role === "admin" && (
+                  <EvaluationCenterPanel
+                    data={evaluationCenter}
+                    loading={isEvaluationCenterLoading}
+                    runningEvaluationId={runningEvaluationId}
+                    refreshEvaluationCenter={() => refreshEvaluationCenter()}
+                    runEvaluation={runEvaluation}
                   />
                 )}
                 {safeActiveView === "automation_flows" && (
@@ -4086,6 +4156,215 @@ function EffectAnalyticsPanel({
   );
 }
 
+function EvaluationCenterPanel({
+  data,
+  loading,
+  runningEvaluationId,
+  refreshEvaluationCenter,
+  runEvaluation,
+}: {
+  data: EvaluationCenterResponse | null;
+  loading: boolean;
+  runningEvaluationId: string;
+  refreshEvaluationCenter: () => void;
+  runEvaluation: (datasetId: string) => void;
+}) {
+  const summary = data?.summary;
+
+  return (
+    <Space direction="vertical" size={16} className="pageStack">
+      <ProCard
+        title="AI 评测中心"
+        subTitle="管理员专属，只展示真实评测摘要和发布闸门，不返回原始 chunk 内容"
+        bordered
+        extra={
+          <Button size="small" icon={<ReloadOutlined />} onClick={refreshEvaluationCenter} loading={loading}>
+            刷新
+          </Button>
+        }
+      >
+        <Row gutter={[12, 12]} className="evaluationMetricRow">
+          <Col xs={12} xl={6}>
+            <Card size="small" className="evaluationMetricCard">
+              <Text type="secondary">评测集</Text>
+              <Title level={3}>{summary?.dataset_count ?? 0}</Title>
+              <Text type="secondary">真实 JSONL 资产</Text>
+            </Card>
+          </Col>
+          <Col xs={12} xl={6}>
+            <Card size="small" className="evaluationMetricCard">
+              <Text type="secondary">样本数</Text>
+              <Title level={3}>{summary?.total_cases ?? 0}</Title>
+              <Text type="secondary">RAG + 回归套件</Text>
+            </Card>
+          </Col>
+          <Col xs={12} xl={6}>
+            <Card size="small" className="evaluationMetricCard">
+              <Text type="secondary">平均通过率</Text>
+              <Title level={3}>{formatPercent(summary?.average_pass_rate)}</Title>
+              <Text type="secondary">基于已有报告</Text>
+            </Card>
+          </Col>
+          <Col xs={12} xl={6}>
+            <Card size="small" className="evaluationMetricCard">
+              <Text type="secondary">回归套件</Text>
+              <Title level={3}>{summary?.regression_suite_count ?? 0}</Title>
+              <Text type="secondary">真实脚本覆盖</Text>
+            </Card>
+          </Col>
+        </Row>
+      </ProCard>
+
+      <Row gutter={[12, 12]}>
+        <Col xs={24} xl={14} className="evaluationPanelCol">
+          <ProCard title="评测集资产" bordered className="evaluationPanelCard">
+            <Table
+              rowKey="id"
+              loading={loading}
+              dataSource={data?.datasets || []}
+              pagination={false}
+              scroll={{ x: 820 }}
+              locale={{ emptyText: <Empty description="暂无评测集" /> }}
+              columns={[
+                {
+                  title: "评测集",
+                  dataIndex: "name",
+                  width: 230,
+                  render: (value, record) => (
+                    <Space direction="vertical" size={2} className="evaluationCellStack">
+                      <Text strong className="evaluationText">{String(value)}</Text>
+                      <Text className="evaluationMono">{record.path}</Text>
+                    </Space>
+                  ),
+                },
+                { title: "类型", dataIndex: "category", width: 92, render: (value) => <Tag color="blue">{String(value)}</Tag> },
+                { title: "样本", dataIndex: "case_count", width: 82 },
+                { title: "正/拒答", dataIndex: "positive_cases", width: 108, render: (value, record) => `${value}/${record.refusal_cases}` },
+                { title: "报告", dataIndex: "has_report", width: 82, render: (value) => <Tag color={value ? "green" : "default"}>{value ? "已有" : "暂无"}</Tag> },
+                { title: "更新", dataIndex: "report_updated_at", width: 132, render: (value) => formatTime(value) },
+                {
+                  title: "操作",
+                  dataIndex: "id",
+                  fixed: "right",
+                  width: 112,
+                  render: (value, record) => (
+                    <Button
+                      size="small"
+                      type="primary"
+                      disabled={!record.can_run || record.id !== "rag_smoke"}
+                      loading={runningEvaluationId === record.id}
+                      onClick={() => runEvaluation(String(value))}
+                    >
+                      运行
+                    </Button>
+                  ),
+                },
+              ]}
+            />
+          </ProCard>
+        </Col>
+        <Col xs={24} xl={10} className="evaluationPanelCol">
+          <ProCard title="发布闸门" bordered className="evaluationPanelCard">
+            <div className="evaluationGateList">
+              {(data?.release_gates || []).map((item) => (
+                <div className="evaluationGateItem" key={item.id}>
+                  <div className="evaluationGateHeader">
+                    <Text strong className="evaluationText">{item.name}</Text>
+                    <Tag color={evaluationGateColor(item.status)}>{labelForBadge(item.status)}</Tag>
+                  </div>
+                  <Text type="secondary" className="evaluationText">阈值：{item.threshold}</Text>
+                  <Text className="evaluationMono">{item.actual}</Text>
+                </div>
+              ))}
+              {!data?.release_gates.length && <Empty description="暂无发布闸门" />}
+            </div>
+          </ProCard>
+        </Col>
+      </Row>
+
+      <Row gutter={[12, 12]}>
+        <Col xs={24} xl={13} className="evaluationPanelCol">
+          <ProCard title="最近评测报告" bordered className="evaluationPanelCard">
+            <Table
+              rowKey="dataset_id"
+              dataSource={data?.reports || []}
+              pagination={false}
+              scroll={{ x: 760 }}
+              locale={{ emptyText: <Empty description="暂无评测报告" /> }}
+              columns={[
+                {
+                  title: "报告",
+                  dataIndex: "dataset_name",
+                  width: 220,
+                  render: (value, record) => (
+                    <Space direction="vertical" size={2} className="evaluationCellStack">
+                      <Text strong className="evaluationText">{String(value)}</Text>
+                      <Text className="evaluationMono">{record.dataset_id}</Text>
+                    </Space>
+                  ),
+                },
+                { title: "通过率", dataIndex: "pass_rate", width: 92, render: (value) => formatPercent(value) },
+                { title: "Hit@5", dataIndex: "metrics", width: 88, render: (value) => formatPercent(metricValue(value, "hit@5")) },
+                { title: "MRR", dataIndex: "metrics", width: 88, render: (value) => formatNumber(metricValue(value, "MRR")) },
+                { title: "拒答", dataIndex: "metrics", width: 88, render: (value) => formatPercent(metricValue(value, "refusal_accuracy")) },
+                { title: "样本", dataIndex: "counts", width: 78, render: (value) => String(metricValue(value, "total_cases") ?? 0) },
+                { title: "更新", dataIndex: "updated_at", render: (value) => formatTime(value) },
+              ]}
+            />
+          </ProCard>
+        </Col>
+        <Col xs={24} xl={11} className="evaluationPanelCol">
+          <ProCard title="失败样例摘要" bordered className="evaluationPanelCard">
+            <div className="evaluationFailureList">
+              {(data?.reports || []).flatMap((report) => report.failed_cases.map((item) => ({
+                ...(item as Record<string, unknown>),
+                dataset: report.dataset_name,
+              } as Record<string, unknown>))).slice(0, 8).map((item) => (
+                <div className="evaluationFailureItem" key={`${item.dataset}-${String(item.id)}`}>
+                  <div className="evaluationGateHeader">
+                    <Text strong className="evaluationText">{String(item.id || "-")}</Text>
+                    <Tag color="red">{String(item.type || "failed")}</Tag>
+                  </div>
+                  <Text type="secondary" className="evaluationText">{String(item.dataset)}</Text>
+                  <Text className="evaluationText">{String(item.reason || "-")}</Text>
+                </div>
+              ))}
+              {!data?.reports.some((report) => report.failed_cases.length) && <Empty description="暂无失败样例" />}
+            </div>
+          </ProCard>
+        </Col>
+      </Row>
+
+      <ProCard title="真实回归套件" bordered>
+        <Table
+          rowKey="id"
+          dataSource={data?.regression_suites || []}
+          pagination={false}
+          scroll={{ x: 860 }}
+          locale={{ emptyText: <Empty description="暂无回归套件" /> }}
+          columns={[
+            {
+              title: "套件",
+              dataIndex: "name",
+              width: 220,
+              render: (value, record) => (
+                <Space direction="vertical" size={2} className="evaluationCellStack">
+                  <Text strong className="evaluationText">{String(value)}</Text>
+                  <Text type="secondary" className="evaluationText">{record.description}</Text>
+                </Space>
+              ),
+            },
+            { title: "类型", dataIndex: "category", width: 110, render: (value) => <Tag color="purple">{String(value)}</Tag> },
+            { title: "用例", dataIndex: "case_count", width: 72 },
+            { title: "真实服务", dataIndex: "real_services", width: 220, render: (value: string[]) => <Space size={[4, 4]} wrap>{value.map((item) => <Tag key={item}>{item}</Tag>)}</Space> },
+            { title: "命令", dataIndex: "command", render: (value) => <Text className="evaluationMono">{String(value)}</Text> },
+          ]}
+        />
+      </ProCard>
+    </Space>
+  );
+}
+
 function AutomationFlowsPanel({
   role,
   flows,
@@ -5630,6 +5909,23 @@ function formatPercent(value: unknown) {
   return `${Math.round(value * 1000) / 10}%`;
 }
 
+function formatNumber(value: unknown) {
+  if (typeof value !== "number") {
+    return "-";
+  }
+
+  return value.toFixed(3);
+}
+
+function metricValue(metrics: unknown, key: string) {
+  if (!metrics || typeof metrics !== "object") {
+    return null;
+  }
+
+  const value = (metrics as Record<string, unknown>)[key];
+  return typeof value === "number" ? value : null;
+}
+
 function formatBytes(value: unknown) {
   if (typeof value !== "number") {
     return "-";
@@ -5720,6 +6016,9 @@ function labelForBadge(value: string) {
   const labels: Record<string, string> = {
     enabled: "已启用",
     published: "已发布",
+    ready: "待运行",
+    warning: "需关注",
+    passed: "通过",
     pending: "待审批",
     approved: "已通过",
     rejected: "已拒绝",
@@ -5730,6 +6029,17 @@ function labelForBadge(value: string) {
   };
 
   return labels[value] ?? value;
+}
+
+function evaluationGateColor(value: string) {
+  const colors: Record<string, string> = {
+    passed: "green",
+    ready: "blue",
+    warning: "gold",
+    failed: "red",
+  };
+
+  return colors[value] || "default";
 }
 
 function labelForConnectorStatus(value: string) {

@@ -15,6 +15,7 @@ from app.api.auth import router as auth_router
 from app.api.automation_flows import router as automation_flows_router
 from app.api.connectors import router as connectors_router
 from app.api.effect_analytics import router as effect_analytics_router
+from app.api.evaluation_center import router as evaluation_center_router
 from app.auth.security import get_current_user, require_admin
 from app.db import close_pool, open_pool
 from app.graph.workflow import graph
@@ -85,6 +86,7 @@ app.include_router(automation_router)
 app.include_router(automation_flows_router)
 app.include_router(connectors_router)
 app.include_router(effect_analytics_router)
+app.include_router(evaluation_center_router)
 app.include_router(audit_logs_router)
 app.include_router(erp_router)
 app.include_router(refunds_router)

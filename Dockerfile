@@ -24,6 +24,7 @@ COPY app ./app
 COPY scripts ./scripts
 COPY sql ./sql
 COPY docs ./docs
+COPY eval ./eval
 RUN mkdir -p data
 
 EXPOSE 8001

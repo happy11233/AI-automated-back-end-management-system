@@ -320,6 +320,15 @@ AI 对话 ERP 查询状态：
 - Platform Loop 3 已完成：`/automation-flows` 只读自动化流程配置中心。
 - Platform Loop 4 已完成：`/connectors` 管理员连接器中心一期。
 - Platform Loop 5 已完成：`/effect-analytics` 效果分析中心一期。
+- Platform Loop 6 已完成：`/evaluation-center` 管理员 AI 评测中心一期。
+- 评测中心 API：`GET /evaluation-center`、`POST /evaluation-center/run-rag`，仅管理员可访问。
+- 评测中心数据来源：真实 `eval/rag_eval_set.jsonl`、`eval/rule_rag_eval_set.jsonl`、`eval/rag_eval_report.json`、`eval/rule_rag_eval_report.json` 和真实回归脚本目录。
+- API Docker 镜像已复制 `eval/` 到 `/app/eval`，避免容器内评测资产为空。
+- 评测中心默认不返回 `top_chunks`、`content_preview`、`expected_evidence`、`chunk_id`、`document_id` 等原始评测敏感字段。
+- 评测中心页面只允许管理员访问；员工直接访问 `/evaluation-center` 会回到 `/dashboard`。
+- 评测中心真实 API 验证脚本：`.venv/bin/python scripts/verify_evaluation_center.py`，会触发真实 `rag_smoke` RAG 评测。
+- 评测中心真实浏览器验证脚本：`node scripts/verify_evaluation_center_frontend.mjs`。
+- 评测中心截图路径：`/tmp/company-rag-evaluation-center-admin-desktop.png`、`/tmp/company-rag-evaluation-center-admin-mobile.png`。
 - 效果分析 API：`GET /effect-analytics?date_range=7d|30d|90d|all&position=operations|customer_service|finance`。
 - 效果分析数据来源：真实 `automation_runs`、`automation_run_steps`、`automation_run_artifacts` 和 `audit_logs`。
 - 效果分析权限口径：管理员可看全局和按岗位筛选；员工强制限定为本人和当前岗位，即使传入其他岗位参数也不会扩大范围。

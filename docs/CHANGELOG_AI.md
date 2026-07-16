@@ -1168,3 +1168,64 @@
 
 #### 后续待做
 - Platform Loop 6：AI 评测中心一期，管理 RAG、ERP、权限拒答和自动化输出格式测试集，并输出真实评测结果。
+
+### 日期：2026-07-17
+
+#### 本次目标
+- 完成 Platform Loop 6：新增管理员专属 AI 评测中心一期，统一展示真实 RAG 评测资产、评测报告、ERP/权限/自动化回归套件和发布闸门。
+
+#### 修改内容
+- 新增评测中心服务，读取真实 `eval/*.jsonl` 评测集和 `eval/*_report.json` 报告摘要。
+- 新增管理员 API：`GET /evaluation-center`，返回评测集、报告、真实回归套件和发布闸门。
+- 新增管理员 API：`POST /evaluation-center/run-rag`，调用真实 RAG 评测逻辑运行 `rag_smoke` 评测集并刷新报告。
+- API Docker 镜像新增 `COPY eval ./eval`，确保容器内能读取真实评测资产。
+- 评测中心只允许管理员访问，员工访问后端返回 403，前端直接访问会回到概览。
+- 默认响应不返回 `top_chunks`、`content_preview`、`expected_evidence`、`chunk_id`、`document_id` 等原始评测敏感字段。
+- 前端新增 `/evaluation-center` 页面，展示评测集资产、最近报告、失败样例摘要、真实回归套件和发布闸门。
+- 大型规则评测集仅展示已有报告和资产摘要；页面运行按钮只开放小型 `rag_smoke`，避免误触长时间评测。
+- 新增真实 API 验收脚本 `scripts/verify_evaluation_center.py`。
+- 新增真实浏览器验收脚本 `scripts/verify_evaluation_center_frontend.mjs`。
+
+#### 修改文件
+- `Dockerfile`
+- `app/api/evaluation_center.py`
+- `app/main.py`
+- `app/services/evaluation_center_service.py`
+- `frontend/src/api.ts`
+- `frontend/src/main.tsx`
+- `frontend/src/styles.css`
+- `scripts/verify_evaluation_center.py`
+- `scripts/verify_evaluation_center_frontend.mjs`
+- `docs/TASKS.md`
+- `docs/CHANGELOG_AI.md`
+- `docs/AI_CONTEXT.md`
+
+#### 验证方式
+- `.venv/bin/python -m compileall app scripts`
+- `docker compose up -d --build api`
+- `curl -sS -i http://127.0.0.1:8001/health`
+- `.venv/bin/python scripts/verify_evaluation_center.py`
+- `npm run build`
+- `node scripts/verify_evaluation_center_frontend.mjs`
+- `node scripts/verify_effect_analytics_frontend.mjs`
+- `NODE_PATH=/Users/xiaoxiang/.npm/_npx/e41f203b7505f1fb/node_modules node scripts/verify_frontend_permissions.mjs`
+- `git diff --check`
+
+#### 验证结果
+- 后端编译通过。
+- API 容器重建并启动，容器内 `/app/eval` 包含真实评测集和报告。
+- `/health` 返回 `ok`。
+- 真实 API 验收通过：评测集 2 个，总样本 960 个，员工访问返回 403。
+- 真实 API 验收触发 `rag_smoke` RAG 评测，真实运行后通过率 1.0。
+- 真实 API 响应未泄露 `content_preview`、`expected_evidence`、`top_chunks`、`chunk_id`、`document_id`、`Bearer`、`api_secret`、`password`、`Authorization` 等敏感字段。
+- 前端构建通过，仅保留 Vite chunk 体积警告。
+- 真实浏览器验收通过，截图：
+  - `/tmp/company-rag-evaluation-center-admin-desktop.png`
+  - `/tmp/company-rag-evaluation-center-admin-mobile.png`
+- 管理员桌面和移动端 AI 评测中心页面均无横向溢出。
+- 员工直接访问 `/evaluation-center` 会回到 `/dashboard`，页面不可见 AI 评测中心内容。
+- 效果分析页面和前端权限可见性真实回归通过。
+- 本轮验收未使用 mock、stub、fake provider、monkeypatch 或模拟响应。
+
+#### 后续待做
+- Platform Loop 7：监控中心一期，集中展示 API 健康、ERPNext 连接、连接器状态、近期失败、延迟和发布版本状态。

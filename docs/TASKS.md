@@ -374,7 +374,12 @@
 
 ### Platform Loop 6：AI 评测中心一期
 
-- [ ] 新增 AI 评测中心页面
-- [ ] 管理 RAG、ERP、权限拒答、自动化输出格式测试集
-- [ ] 调用真实评测脚本或真实后端评测 API
-- [ ] 输出通过率、失败样例、引用命中和越权拦截结果
+- [x] 新增管理员专属 AI 评测中心页面 `/evaluation-center`
+- [x] 管理 RAG、ERP、权限拒答、自动化输出格式测试集和真实回归套件
+- [x] 调用真实 RAG 评测逻辑运行 `rag_smoke` 评测集
+- [x] 输出通过率、失败样例摘要、引用命中指标、拒答准确率和发布闸门
+- [x] 默认不向前端返回 `top_chunks`、`content_preview`、`expected_evidence` 等原始敏感评测内容
+- [x] 新增 `GET /evaluation-center` 和 `POST /evaluation-center/run-rag` 管理员接口
+- [x] 新增真实 API 验证脚本 `scripts/verify_evaluation_center.py`
+- [x] 新增真实浏览器验证脚本 `scripts/verify_evaluation_center_frontend.mjs`
+- [x] API Docker 镜像包含真实 `eval/` 评测资产

@@ -718,6 +718,75 @@ button {
   gap: 10px;
 }
 
+.evaluationMetricRow .ant-col,
+.evaluationPanelCol {
+  display: flex;
+}
+
+.evaluationMetricCard,
+.evaluationPanelCard {
+  width: 100%;
+  margin-top: 0;
+}
+
+.evaluationMetricCard .ant-card-body {
+  display: grid;
+  min-height: 104px;
+  gap: 6px;
+}
+
+.evaluationMetricCard h3 {
+  margin: 0 !important;
+}
+
+.evaluationPanelCard > .ant-pro-card-body {
+  min-height: 260px;
+}
+
+.evaluationCellStack {
+  max-width: 100%;
+  min-width: 0;
+}
+
+.evaluationText,
+.evaluationMono {
+  display: block;
+  max-width: 100%;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.evaluationMono {
+  color: #4b5563;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+}
+
+.evaluationGateList,
+.evaluationFailureList {
+  display: grid;
+  gap: 10px;
+}
+
+.evaluationGateItem,
+.evaluationFailureItem {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding: 10px 12px;
+  background: #f8fafc;
+  border: 1px solid rgba(15, 23, 42, 0.06);
+  border-radius: 6px;
+}
+
+.evaluationGateHeader {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
 .flowConfigMetricRow .ant-col {
   display: flex;
 }
