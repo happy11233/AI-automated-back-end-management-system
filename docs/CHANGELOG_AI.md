@@ -849,3 +849,39 @@
 - 可把首页概览筛选条件进一步下沉到 ERPNext provider 的 filters/or_filters，减少后端拉取后再过滤的数据量。
 - 可给 ERP 记录详情增加“复制记录 ID”和“从详情发起 AI 追问”。
 - 可把审计日志导出为 Excel，方便管理员做周期审计。
+
+### 日期：2026-07-17
+
+#### 本次目标
+- 启动企业级 AI 自动化平台升级，先完成 Platform Loop 0：制定 Loop Engineering 多 Agent 工作规则、企业平台需求、真实测试政策、安全验收和 UI 质量清单。
+
+#### 修改内容
+- 新增 Loop Engineering 总计划，明确项目经理、架构、开发、Code Review、测试、安全、DevOps、文档、监控、页面格式 Agent 的职责。
+- 新增企业 AI 平台需求文档，定义 AI 应用中心、自动化流程、运行记录、连接器中心、权限治理、效果分析和评测中心。
+- 新增 UI 质量清单，要求后续前端 loop 用真实浏览器截图检查桌面、平板和移动端，重点检查卡片、表格、输入框、弹窗和内容溢出。
+- 新增安全清单，覆盖岗位越权、字段越权、ERP 凭据、AI 上下文泄露、审计日志、token 失效和管理员操作。
+- 新增真实测试政策，明确不得把 mock、stub、fake provider、monkeypatch 或模拟响应测试写进项目代码；验收必须使用真实后端、真实数据库、真实登录账号、真实 ERPNext、真实浏览器和真实文件上传下载。
+- 更新长期上下文和任务清单，把后续企业级平台升级拆为 Platform Loop 1 到 Platform Loop 6。
+
+#### 修改文件
+- `docs/LOOP_ENGINEERING_PLAN.md`
+- `docs/AI_PLATFORM_REQUIREMENTS.md`
+- `docs/UI_QUALITY_CHECKLIST.md`
+- `docs/SECURITY_CHECKLIST.md`
+- `docs/REAL_TESTING_POLICY.md`
+- `docs/AI_CONTEXT.md`
+- `docs/TASKS.md`
+- `docs/CHANGELOG_AI.md`
+
+#### 验证方式
+- `git diff --check`
+- `ls docs`
+- 人工检查新增文档覆盖真实测试、安全、UI 和 loop 规划要求
+
+#### 验证结果
+- 文档检查通过。
+- `git diff --check` 无输出，未发现 whitespace 错误。
+- 已确认新增文档包含真实测试红线、安全验收、UI 质量清单和后续 loop 规划。
+
+#### 后续待做
+- Platform Loop 1：企业级导航与只读 AI 应用中心。

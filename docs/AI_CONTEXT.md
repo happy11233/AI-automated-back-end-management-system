@@ -23,10 +23,23 @@
 - docs/AI_CONTEXT.md
 - docs/TASKS.md
 - docs/CHANGELOG_AI.md
+- docs/LOOP_ENGINEERING_PLAN.md
+- docs/REAL_TESTING_POLICY.md
+- docs/SECURITY_CHECKLIST.md
+- docs/UI_QUALITY_CHECKLIST.md
 
 ## 当前状态
 
-项目已完成初步分析。后续新增功能应遵循“小步开发、优先复用、修改后验证、同步更新文档”的方式推进。
+项目已完成初步分析和岗位/ERP/权限/审计/首页概览等多轮最小闭环。后续目标升级为企业级 AI 自动化平台，应遵循 Loop Engineering：小步开发、多 Agent 分工、优先复用、真实测试、截图验收、同步更新文档。
+
+### Loop Engineering 硬规则
+
+- 后续每个 loop 必须先明确目标、文件边界、验收标准和真实测试方式。
+- 不允许把 mock、stub、fake provider、monkeypatch 或模拟响应测试写进项目代码。
+- 验收必须尽量使用真实后端、真实数据库、真实登录账号、真实 ERPNext、真实浏览器和真实文件上传下载。
+- 涉及前端布局时必须用浏览器截图检查桌面和移动端，重点检查卡片、表格、输入框、按钮和弹窗是否溢出。
+- 涉及权限、ERP、AI 上下文、审计和 token 时必须按 `docs/SECURITY_CHECKLIST.md` 做真实验证。
+- 每个 loop 完成后更新 `docs/TASKS.md`、`docs/CHANGELOG_AI.md`，通过验证后再进入下一个 loop。
 
 ## 项目技术栈
 
