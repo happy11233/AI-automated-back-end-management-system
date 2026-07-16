@@ -1831,7 +1831,7 @@ function Dashboard({
 
   return (
     <Space direction="vertical" size={16} className="pageStack">
-      <StatisticCard.Group direction="row">
+      <StatisticCard.Group direction="row" className="dashboardStatsGroup">
         {visibleStats.map((item) => (
           <StatisticCard
             key={item.title}
@@ -1851,24 +1851,25 @@ function Dashboard({
       >
         <Row gutter={[12, 12]}>
           {shortcuts.map((item) => (
-            <Col xs={24} md={12} xl={8} key={item.view}>
+            <Col xs={24} md={12} xl={8} key={item.view} className="dashboardShortcutCol">
               <Card size="small" className="contextCard dashboardShortcutCard">
-                <Space direction="vertical" size={8} style={{ width: "100%" }}>
-                  <Space>
+                <div className="dashboardShortcutBody">
+                  <Space className="dashboardShortcutTitle">
                     {item.icon}
                     <Text strong>{item.title}</Text>
                   </Space>
-                  <Paragraph type="secondary" style={{ marginBottom: 0 }}>
+                  <Paragraph type="secondary" className="dashboardShortcutDescription">
                     {item.description}
                   </Paragraph>
                   <Button
+                    className="dashboardShortcutButton"
                     aria-label={`打开 ${item.title}`}
                     type="primary"
                     onClick={() => onNavigate(item.view)}
                   >
                     打开
                   </Button>
-                </Space>
+                </div>
               </Card>
             </Col>
           ))}
@@ -1879,41 +1880,41 @@ function Dashboard({
         title={role === "admin" ? "平台数据概览" : "岗位数据概览"}
         subTitle={erpOverview?.message || "从 ERP 权限范围内加载关键数据"}
         bordered
-        extra={
-          <Space size={8} wrap>
-            <Segmented<DashboardMarket>
-              size="small"
-              value={erpDashboardMarket}
-              options={dashboardMarketOptions}
-              onChange={setErpDashboardMarket}
-            />
-            <Segmented<DashboardDateRange>
-              size="small"
-              value={erpDashboardDateRange}
-              options={dashboardDateRangeOptions}
-              onChange={setErpDashboardDateRange}
-            />
-            <Segmented<DashboardStore>
-              size="small"
-              value={erpDashboardStore}
-              options={dashboardStoreOptions}
-              onChange={setErpDashboardStore}
-            />
-            <Button size="small" icon={<ReloadOutlined />} onClick={refreshErpOverview}>
-              刷新
-            </Button>
-          </Space>
-        }
       >
         {erpOverview ? (
           <Space direction="vertical" size={16} className="pageStack">
-            <Space size={8} wrap>
-              <Text strong>{erpOverview.title}</Text>
-              <Tag color="blue">{erpOverview.market_label}</Tag>
-              <Tag color="geekblue">{erpOverview.store_label}</Tag>
-              <Tag color="cyan">{erpOverview.date_range_label}</Tag>
-            </Space>
-            <StatisticCard.Group direction="row">
+            <div className="dashboardOverviewToolbar">
+              <Space size={8} wrap>
+                <Text strong>{erpOverview.title}</Text>
+                <Tag color="blue">{erpOverview.market_label}</Tag>
+                <Tag color="geekblue">{erpOverview.store_label}</Tag>
+                <Tag color="cyan">{erpOverview.date_range_label}</Tag>
+              </Space>
+              <Space size={8} wrap>
+                <Segmented<DashboardMarket>
+                  size="small"
+                  value={erpDashboardMarket}
+                  options={dashboardMarketOptions}
+                  onChange={setErpDashboardMarket}
+                />
+                <Segmented<DashboardDateRange>
+                  size="small"
+                  value={erpDashboardDateRange}
+                  options={dashboardDateRangeOptions}
+                  onChange={setErpDashboardDateRange}
+                />
+                <Segmented<DashboardStore>
+                  size="small"
+                  value={erpDashboardStore}
+                  options={dashboardStoreOptions}
+                  onChange={setErpDashboardStore}
+                />
+                <Button size="small" icon={<ReloadOutlined />} onClick={refreshErpOverview}>
+                  刷新
+                </Button>
+              </Space>
+            </div>
+            <StatisticCard.Group direction="row" className="dashboardMetricGroup">
               {erpOverview.metrics.map((item) => (
                 <StatisticCard
                   key={item.title}
@@ -1931,7 +1932,7 @@ function Dashboard({
             {erpOverview.sections.length ? (
               <Row gutter={[12, 12]}>
                 {erpOverview.sections.map((section) => (
-                  <Col xs={24} xl={8} key={section.resource}>
+                  <Col xs={24} xl={8} key={section.resource} className="dashboardOverviewCol">
                     <Card
                       size="small"
                       className="contextCard dashboardOverviewCard"
@@ -1942,8 +1943,8 @@ function Dashboard({
                         </Space>
                       }
                     >
-                      <Space direction="vertical" size={8} style={{ width: "100%" }}>
-                        <Paragraph type="secondary" style={{ marginBottom: 0 }}>
+                      <div className="dashboardOverviewBody">
+                        <Paragraph type="secondary" className="dashboardOverviewDescription">
                           {section.message}
                         </Paragraph>
                         <Space size={[6, 6]} wrap>
@@ -1974,7 +1975,7 @@ function Dashboard({
                         ) : (
                           <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无记录" />
                         )}
-                      </Space>
+                      </div>
                     </Card>
                   </Col>
                 ))}
@@ -1988,8 +1989,8 @@ function Dashboard({
 
       {role === "admin" ? (
         <Row gutter={[16, 16]}>
-          <Col xs={24} xl={14}>
-            <ProCard title="待处理事项" bordered>
+          <Col xs={24} xl={14} className="dashboardTableCol">
+            <ProCard title="待处理事项" bordered className="dashboardTableCard">
               <Table<Approval>
                 rowKey="id"
                 size="middle"
@@ -2005,8 +2006,8 @@ function Dashboard({
               />
             </ProCard>
           </Col>
-          <Col xs={24} xl={10}>
-            <ProCard title="最近退款" bordered>
+          <Col xs={24} xl={10} className="dashboardTableCol">
+            <ProCard title="最近退款" bordered className="dashboardTableCard">
               <Table<Refund>
                 rowKey="id"
                 size="middle"
@@ -2029,8 +2030,8 @@ function Dashboard({
               <Text type="secondary">当前岗位：{positionLabel(position)}</Text>
               <Row gutter={[12, 12]}>
                 {positionConfigs[position].capabilities.map((item) => (
-                  <Col xs={24} md={12} key={item}>
-                    <Card size="small" className="contextCard">
+                  <Col xs={24} md={12} key={item} className="capabilityCardCol">
+                    <Card size="small" className="contextCard capabilityCard">
                       <Text strong>{item}</Text>
                     </Card>
                   </Col>
@@ -2594,8 +2595,8 @@ function DocumentsPanel(props: {
 
   return (
     <Row gutter={[16, 16]}>
-      <Col xs={24} xl={10}>
-        <ProCard title="上传知识库" bordered>
+      <Col xs={24} xl={10} className="splitCardCol">
+        <ProCard title="上传知识库" bordered className="splitCard">
           <Form layout="vertical">
             <Form.Item label="文件">
               <Upload.Dragger
@@ -2644,8 +2645,8 @@ function DocumentsPanel(props: {
           </Form>
         </ProCard>
       </Col>
-      <Col xs={24} xl={14}>
-        <ProCard title="入库流程" bordered>
+      <Col xs={24} xl={14} className="splitCardCol">
+        <ProCard title="入库流程" bordered className="splitCard">
           <div className="processList">
             {[
               "管理员上传文档",
@@ -2688,8 +2689,8 @@ function UsersPanel(props: {
 
   return (
     <Row gutter={[16, 16]}>
-      <Col xs={24} xl={9}>
-        <ProCard title="管理员创建用户" bordered>
+      <Col xs={24} xl={9} className="splitCardCol">
+        <ProCard title="管理员创建用户" bordered className="splitCard">
           <Form layout="vertical">
             <Form.Item label="用户名">
               <Input
@@ -2758,8 +2759,8 @@ function UsersPanel(props: {
           </Form>
         </ProCard>
       </Col>
-      <Col xs={24} xl={15}>
-        <ProCard title="用户与岗位权限" bordered>
+      <Col xs={24} xl={15} className="splitCardCol">
+        <ProCard title="用户与岗位权限" bordered className="splitCard">
           <Table<UserRecord>
             rowKey="id"
             dataSource={props.users}
@@ -3025,8 +3026,8 @@ function ThreadsPanel({
 }) {
   return (
     <Row gutter={[16, 16]}>
-      <Col xs={24} xl={9}>
-        <ProCard title="查询会话" bordered>
+      <Col xs={24} xl={9} className="splitCardCol">
+        <ProCard title="查询会话" bordered className="splitCard">
           <Form layout="vertical">
             <Form.Item label="Thread ID">
               <Input value={threadFilter} onChange={(event) => setThreadFilter(event.target.value)} />
@@ -3049,8 +3050,8 @@ function ThreadsPanel({
           ) : null}
         </ProCard>
       </Col>
-      <Col xs={24} xl={15}>
-        <ProCard title="消息记录" bordered>
+      <Col xs={24} xl={15} className="splitCardCol">
+        <ProCard title="消息记录" bordered className="splitCard">
           <MessageList messages={messages} />
         </ProCard>
       </Col>

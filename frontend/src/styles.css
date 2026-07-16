@@ -441,6 +441,104 @@ button {
   margin-top: 0;
 }
 
+.dashboardShortcutCol,
+.dashboardOverviewCol,
+.dashboardTableCol,
+.capabilityCardCol {
+  display: flex;
+}
+
+.dashboardShortcutCard,
+.dashboardOverviewCard,
+.dashboardTableCard,
+.capabilityCard {
+  width: 100%;
+}
+
+.dashboardShortcutCard > .ant-card-body,
+.dashboardOverviewCard > .ant-card-body,
+.dashboardTableCard > .ant-pro-card-body,
+.capabilityCard > .ant-card-body {
+  height: 100%;
+}
+
+.dashboardShortcutBody {
+  display: grid;
+  grid-template-rows: 24px 48px auto;
+  min-height: 120px;
+  height: 100%;
+  gap: 8px;
+}
+
+.dashboardShortcutTitle {
+  min-width: 0;
+}
+
+.dashboardShortcutDescription {
+  height: 48px;
+  margin-bottom: 0 !important;
+  overflow: hidden;
+  line-height: 1.6;
+}
+
+.dashboardShortcutButton {
+  align-self: end;
+  justify-self: start;
+}
+
+.dashboardOverviewToolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.dashboardStatsGroup .ant-pro-card,
+.dashboardMetricGroup .ant-pro-card {
+  height: 100%;
+}
+
+.dashboardStatsGroup .ant-pro-card-body,
+.dashboardMetricGroup .ant-pro-card-body {
+  min-height: 132px;
+}
+
+.dashboardMetricGroup .ant-pro-card-body {
+  min-height: 164px;
+}
+
+.dashboardOverviewBody {
+  display: grid;
+  grid-template-rows: 44px auto;
+  min-height: 252px;
+  height: 100%;
+  gap: 8px;
+}
+
+.dashboardOverviewDescription {
+  height: 44px;
+  margin-bottom: 0 !important;
+  overflow: hidden;
+  line-height: 1.55;
+}
+
+.capabilityCard {
+  margin-top: 0;
+}
+
+.splitCardCol {
+  display: flex;
+}
+
+.splitCard {
+  width: 100%;
+}
+
+.splitCard > .ant-pro-card-body {
+  height: 100%;
+}
+
 .compactRecord {
   display: grid;
   gap: 2px;
