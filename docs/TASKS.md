@@ -339,10 +339,15 @@
 
 ### Platform Loop 3：自动化流程配置一期
 
-- [ ] 新增自动化流程配置页面
-- [ ] 管理员可查看应用的输入 schema、Prompt、输出格式、允许资源、审批规则
-- [ ] 员工不可编辑流程配置
-- [ ] 先做只读配置和版本展示，不一次性做完整低代码编排
+- [x] 新增自动化流程配置页面 `/automation-flows`
+- [x] 管理员可查看应用的输入 schema、Prompt、输出格式、允许资源、审批规则
+- [x] 员工不可编辑流程配置，只能查看自己岗位的流程定义
+- [x] 先做只读配置和版本展示，不一次性做完整低代码编排
+- [x] 新增 `GET /automation-flows` 和 `GET /automation-flows/{flow_id}` 只读接口
+- [x] 流程配置从真实现有代码源投影：岗位自动化任务、ERP scope、ERP 资源目录、聊天入口、财务 Excel、知识库维护
+- [x] 新增真实 API 验证脚本 `scripts/verify_automation_flows.py`
+- [x] 新增真实浏览器验证脚本 `scripts/verify_automation_flows_frontend.mjs`
+- [x] 浏览器验证覆盖管理员、运营、财务移动端页面、详情弹窗、无写入按钮和无横向溢出
 
 ### Platform Loop 4：连接器中心一期
 

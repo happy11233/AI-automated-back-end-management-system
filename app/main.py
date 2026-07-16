@@ -12,6 +12,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from app.api.audit_logs import router as audit_logs_router
 from app.api.auth import router as auth_router
+from app.api.automation_flows import router as automation_flows_router
 from app.auth.security import get_current_user, require_admin
 from app.db import close_pool, open_pool
 from app.graph.workflow import graph
@@ -79,6 +80,7 @@ app.add_middleware(
 app.include_router(auth_router)
 app.include_router(approvals_router)
 app.include_router(automation_router)
+app.include_router(automation_flows_router)
 app.include_router(audit_logs_router)
 app.include_router(erp_router)
 app.include_router(refunds_router)

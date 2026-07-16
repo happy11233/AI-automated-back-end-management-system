@@ -114,6 +114,49 @@ export type AutomationGenerateResponse = {
   answer: string;
 };
 
+export type AutomationFlowStepItem = {
+  id: string;
+  name: string;
+  inputs: string[];
+  retryable: boolean;
+};
+
+export type AutomationFlowItem = {
+  id: string;
+  app_id: string;
+  name: string;
+  description: string;
+  category: string;
+  position: Position | null;
+  position_label: string;
+  status: string;
+  version: string;
+  publish_status: string;
+  owner: string;
+  trigger_type: string;
+  entrypoint: string;
+  input_schema: Array<Record<string, unknown>>;
+  output_schema: Array<Record<string, unknown>>;
+  prompt_summary: string;
+  prompt_template_preview: string;
+  model_config: Record<string, unknown>;
+  allowed_tools: string[];
+  allowed_erp_resources: ErpResourceItem[];
+  permission_rules: string[];
+  approval_policy: string;
+  failure_strategy: string;
+  steps: AutomationFlowStepItem[];
+  source: string;
+};
+
+export type AutomationFlowsResponse = {
+  items: AutomationFlowItem[];
+};
+
+export type AutomationFlowDetailResponse = {
+  item: AutomationFlowItem;
+};
+
 export type ErpProviderItem = {
   provider: string;
   label: string;
@@ -803,6 +846,32 @@ export async function generateAutomation(
         input_text: inputText,
       }),
     },
+    token,
+  );
+}
+
+export async function listAutomationFlows(
+  token: string,
+  filters: { position?: Position | "all"; category?: string } = {},
+) {
+  const params = new URLSearchParams();
+
+  if (filters.position && filters.position !== "all") {
+    params.set("position", filters.position);
+  }
+
+  if (filters.category?.trim()) {
+    params.set("category", filters.category.trim());
+  }
+
+  const suffix = params.toString() ? `?${params}` : "";
+  return requestJson<AutomationFlowsResponse>(`/automation-flows${suffix}`, {}, token);
+}
+
+export async function getAutomationFlowDetail(token: string, flowId: string) {
+  return requestJson<AutomationFlowDetailResponse>(
+    `/automation-flows/${encodeURIComponent(flowId)}`,
+    {},
     token,
   );
 }

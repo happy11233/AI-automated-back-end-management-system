@@ -530,6 +530,148 @@ button {
   border-radius: 6px;
 }
 
+.flowConfigMetricRow .ant-col {
+  display: flex;
+}
+
+.flowConfigMetricCard {
+  width: 100%;
+  margin-top: 0;
+}
+
+.flowConfigMetricCard .ant-card-body {
+  display: grid;
+  min-height: 96px;
+  gap: 6px;
+}
+
+.flowConfigMetricCard h3 {
+  margin: 0 !important;
+}
+
+.flowConfigFilterGrid {
+  display: grid;
+  grid-template-columns: minmax(140px, 1fr) 96px;
+  gap: 10px;
+  align-items: center;
+  max-width: 420px;
+  margin-bottom: 14px;
+}
+
+.flowConfigFilterGrid.admin {
+  grid-template-columns: minmax(140px, 1fr) minmax(140px, 1fr) 96px;
+  max-width: 620px;
+}
+
+.flowConfigTable .ant-table-cell {
+  vertical-align: top;
+}
+
+.flowConfigCellStack {
+  max-width: 100%;
+  min-width: 0;
+}
+
+.flowConfigText,
+.flowConfigMono,
+.flowConfigPreview {
+  display: block;
+  max-width: 100%;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.flowConfigMono {
+  color: #4b5563;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+}
+
+.flowConfigPreview {
+  display: -webkit-box;
+  overflow: hidden;
+  color: #4b5563;
+  line-height: 1.55;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.flowConfigDetailGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.flowConfigDetailItem {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 10px 12px;
+  background: #f8fafc;
+  border: 1px solid rgba(15, 23, 42, 0.06);
+  border-radius: 6px;
+}
+
+.flowConfigDetailPreview {
+  min-height: 82px;
+  margin: 6px 0 0 !important;
+  padding: 10px 12px;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  background: #f8fafc;
+  border: 1px solid rgba(15, 23, 42, 0.06);
+  border-radius: 6px;
+}
+
+.flowConfigDetailPreview.compact {
+  min-height: 72px;
+}
+
+.flowConfigPre {
+  min-height: 82px;
+  max-height: 220px;
+  margin: 6px 0 0;
+  padding: 10px 12px;
+  overflow: auto;
+  color: #3f4a56;
+  font-size: 12px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: #f8fafc;
+  border: 1px solid rgba(15, 23, 42, 0.06);
+  border-radius: 6px;
+}
+
+.flowConfigTagBlock {
+  display: flex;
+  margin-top: 8px;
+}
+
+.flowConfigResourceList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-height: 34px;
+  margin-top: 8px;
+}
+
+.flowConfigRuleList {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.flowConfigRuleItem {
+  min-width: 0;
+  padding: 8px 10px;
+  overflow-wrap: anywhere;
+  background: #f8fafc;
+  border: 1px solid rgba(15, 23, 42, 0.06);
+  border-radius: 6px;
+}
+
 .automationTaskCol {
   display: flex;
 }
@@ -894,8 +1036,12 @@ button {
   }
 
   .runRecordFilterGrid,
-  .runRecordDetailGrid {
+  .runRecordDetailGrid,
+  .flowConfigFilterGrid,
+  .flowConfigFilterGrid.admin,
+  .flowConfigDetailGrid {
     grid-template-columns: 1fr;
+    max-width: none;
   }
 
   .messageHeader {

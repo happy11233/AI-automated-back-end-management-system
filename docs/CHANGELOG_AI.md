@@ -986,3 +986,65 @@
 
 #### 后续待做
 - Platform Loop 3：自动化流程配置一期，先做只读配置、版本、输入 schema、Prompt、允许资源和审批规则展示。
+
+### 日期：2026-07-17
+
+#### 本次目标
+- 完成 Platform Loop 3：新增只读自动化流程配置中心，让管理员和岗位员工能查看真实流程定义、权限规则、ERP 资源、Prompt 摘要、Schema 和执行步骤。
+
+#### 修改内容
+- 新增流程配置投影服务，从真实现有代码源生成只读配置，不新增模拟配置表，也不改变执行逻辑。
+- 新增只读 API：`GET /automation-flows`、`GET /automation-flows/{flow_id}`。
+- 流程配置覆盖运营/客服/财务岗位自动化任务、各岗位 ERP 查询、各岗位 AI 对话、财务 Excel 生成和管理员知识库维护。
+- 后端响应包含流程版本、入口、触发方式、输入 schema、输出 schema、Prompt 摘要、模板预览、模型配置、允许工具、允许 ERP 资源、权限规则、审批策略、失败策略和执行步骤。
+- 管理员可查看全部岗位和平台流程；员工只能查看自己岗位流程，跨岗位详情返回 404。
+- 前端新增 `/automation-flows` 页面，展示流程指标、筛选、流程表格和只读详情弹窗。
+- 详情弹窗展示输入/输出 Schema、Prompt 与模型、权限/工具/ERP 资源、审批策略、失败策略和执行步骤。
+- 首页岗位快捷入口中的自动化入口改为进入流程配置中心，便于先查看能力和权限边界。
+- 新增真实后端验收脚本 `scripts/verify_automation_flows.py`。
+- 新增真实浏览器验收脚本 `scripts/verify_automation_flows_frontend.mjs`，并支持从本机真实 Playwright 安装或 npx 缓存解析。
+- 更新前端权限回归脚本，使财务首页快捷入口断言匹配新的 `/automation-flows` 入口。
+
+#### 修改文件
+- `app/api/automation_flows.py`
+- `app/main.py`
+- `app/services/automation_flow_service.py`
+- `frontend/src/api.ts`
+- `frontend/src/main.tsx`
+- `frontend/src/styles.css`
+- `scripts/verify_automation_flows.py`
+- `scripts/verify_automation_flows_frontend.mjs`
+- `scripts/verify_frontend_permissions.mjs`
+- `docs/TASKS.md`
+- `docs/CHANGELOG_AI.md`
+- `docs/AI_CONTEXT.md`
+
+#### 验证方式
+- `.venv/bin/python -m compileall app scripts`
+- `npm run build`
+- `docker compose up -d --build api`
+- `curl -sS -i http://127.0.0.1:8001/health`
+- `.venv/bin/python scripts/verify_automation_flows.py`
+- `node scripts/verify_automation_flows_frontend.mjs`
+- `NODE_PATH=/Users/xiaoxiang/.npm/_npx/e41f203b7505f1fb/node_modules node scripts/verify_run_records_frontend.mjs`
+- `NODE_PATH=/Users/xiaoxiang/.npm/_npx/e41f203b7505f1fb/node_modules node scripts/verify_frontend_permissions.mjs`
+- `git diff --check`
+
+#### 验证结果
+- 后端编译通过。
+- 前端构建通过，仅保留 Vite chunk 体积警告。
+- API 容器重建并启动，`/health` 返回 `ok`。
+- 真实 API 验收通过：管理员 21 个流程，运营 8 个流程，客服 6 个流程，财务 6 个流程。
+- 真实 API 验收确认运营无法查看财务 Excel 流程详情，员工流程 ERP 资源不超过本岗位 `/erp/scopes`。
+- 真实 API 验收确认响应未泄露 `Bearer`、`api_secret`、`password`、`Authorization`、`api_key` 等敏感文本。
+- 真实浏览器验收通过，截图：
+  - `/tmp/company-rag-automation-flows-admin-desktop.png`
+  - `/tmp/company-rag-automation-flows-operations-desktop.png`
+  - `/tmp/company-rag-automation-flows-finance-mobile.png`
+- 三个流程配置页面截图均无横向溢出，详情弹窗可打开，页面不存在“保存/编辑/删除”写入按钮。
+- 运行记录页面真实浏览器回归通过，管理员桌面、财务桌面和财务移动端均无横向溢出。
+- 前端权限可见性真实回归全部通过。
+- 本轮验收未使用 mock、stub、fake provider、monkeypatch 或模拟响应。
+
+#### 后续待做
+- Platform Loop 4：连接器中心一期，展示 ERPNext、金蝶、用友、Amazon SP-API、物流、广告、飞书/企业微信、邮箱和 Excel 等连接器。

@@ -99,9 +99,9 @@ try {
       hidden: ["用户管理", "知识库上传", "客服 AI 对话", "运营 AI 自动化"],
       afterChecks: async (page) => {
         await clickShortcut(page, "财务 Excel 生成");
-        await page.waitForURL("**/ai-apps", { timeout: 10000 });
+        await page.waitForURL("**/automation-flows", { timeout: 10000 });
         return {
-          ok: await isTextVisible(page, "AI 应用中心") && await isTextVisible(page, "财务 Excel 生成"),
+          ok: await isTextVisible(page, "自动化流程配置") && await isTextVisible(page, "财务 Excel 生成"),
           currentUrl: page.url(),
         };
       },

@@ -58,6 +58,7 @@ import "./styles.css";
 import {
   login,
   createUser,
+  getAutomationFlowDetail,
   generateAutomation,
   isAuthExpiredError,
   transformFinanceExcel,
@@ -77,10 +78,13 @@ import {
   listUsers,
   getThreadMessages,
   getRunRecordDetail,
+  listAutomationFlows,
   queryErp,
   reviewApproval as reviewApprovalApi,
   type ApprovalItem,
   type AuditLogItem,
+  type AutomationFlowDetailResponse,
+  type AutomationFlowItem,
   type AutomationTaskItem,
   type ErpDashboardOverviewResponse,
   type ErpDiagnosticsResponse,
@@ -115,6 +119,7 @@ type View =
   | "dashboard"
   | "ai_apps"
   | "run_records"
+  | "automation_flows"
   | "automation"
   | "automation_operations"
   | "automation_customer_service"
@@ -232,6 +237,11 @@ type RunRecordFilterState = {
   resourceId: string;
 };
 
+type AutomationFlowFilterState = {
+  position: Position | "all";
+  category: string;
+};
+
 type DashboardMarket = "all" | "us" | "de" | "jp";
 type DashboardDateRange = "all" | "today" | "7d" | "30d";
 type DashboardStore = "all" | "us_store" | "de_store" | "jp_store";
@@ -261,6 +271,7 @@ const navItems: NavItem[] = [
   { path: "/dashboard", id: "dashboard", name: "概览", icon: <DatabaseOutlined />, roles: ["admin", "employee"] },
   { path: "/ai-apps", id: "ai_apps", name: "AI 应用中心", icon: <AppstoreOutlined />, roles: ["admin", "employee"] },
   { path: "/run-records", id: "run_records", name: "运行记录", icon: <HistoryOutlined />, roles: ["admin", "employee"] },
+  { path: "/automation-flows", id: "automation_flows", name: "流程配置", icon: <AuditOutlined />, roles: ["admin", "employee"] },
   {
     path: "/automation",
     id: "automation",
@@ -402,6 +413,15 @@ function App() {
   const [isRunRecordDetailOpen, setIsRunRecordDetailOpen] = useState(false);
   const [isRunRecordDetailLoading, setIsRunRecordDetailLoading] = useState(false);
   const [isRunRecordsLoading, setIsRunRecordsLoading] = useState(false);
+  const [automationFlows, setAutomationFlows] = useState<AutomationFlowItem[]>([]);
+  const [automationFlowFilters, setAutomationFlowFilters] = useState<AutomationFlowFilterState>({
+    position: "all",
+    category: "",
+  });
+  const [automationFlowDetail, setAutomationFlowDetail] = useState<AutomationFlowDetailResponse | null>(null);
+  const [isAutomationFlowDetailOpen, setIsAutomationFlowDetailOpen] = useState(false);
+  const [isAutomationFlowDetailLoading, setIsAutomationFlowDetailLoading] = useState(false);
+  const [isAutomationFlowsLoading, setIsAutomationFlowsLoading] = useState(false);
   const [users, setUsers] = useState<UserRecord[]>([]);
   const [automationTasks, setAutomationTasks] = useState<AutomationTaskRecord[]>([]);
   const [erpResources, setErpResources] = useState<ErpResourceItem[]>([]);
@@ -529,6 +549,7 @@ function App() {
     void refreshErpScopes(storedToken, role);
     void refreshErpDashboardOverview(storedToken, erpDashboardMarket, erpDashboardDateRange, erpDashboardStore);
     void refreshRunRecords(storedToken);
+    void refreshAutomationFlows(storedToken);
 
     if (role === "admin") {
       void refreshAdminData(storedToken);
@@ -574,6 +595,7 @@ function App() {
       await refreshErpScopes(result.access_token, nextRole);
       await refreshErpDashboardOverview(result.access_token, erpDashboardMarket, erpDashboardDateRange, erpDashboardStore);
       await refreshRunRecords(result.access_token);
+      await refreshAutomationFlows(result.access_token, defaultAutomationFlowFilters(nextRole, nextPosition));
 
       setIsLoginModalOpen(false);
     } catch (error) {
@@ -605,6 +627,10 @@ function App() {
     setRunRecords([]);
     setRunRecordDetail(null);
     setIsRunRecordDetailOpen(false);
+    setAutomationFlows([]);
+    setAutomationFlowDetail(null);
+    setIsAutomationFlowDetailOpen(false);
+    setAutomationFlowFilters({ position: "all", category: "" });
     setUsers([]);
     setAutomationTasks([]);
     setFinanceExcelFile(null);
@@ -756,6 +782,55 @@ function App() {
       message.error(text);
     } finally {
       setIsRunRecordDetailLoading(false);
+    }
+  }
+
+  async function refreshAutomationFlows(activeToken = token, filters = automationFlowFilters) {
+    if (!activeToken) {
+      return;
+    }
+
+    setIsAutomationFlowsLoading(true);
+
+    try {
+      const result = await listAutomationFlows(activeToken, filters);
+      setAutomationFlows(result.items);
+      setStatusMessage("流程配置已刷新");
+    } catch (error) {
+      if (isAuthExpiredError(error)) {
+        return;
+      }
+      const text = error instanceof Error ? error.message : "流程配置加载失败";
+      setStatusMessage(text);
+      message.error(text);
+    } finally {
+      setIsAutomationFlowsLoading(false);
+    }
+  }
+
+  async function openAutomationFlowDetail(flowId: string) {
+    if (!token) {
+      setStatusMessage("请先登录");
+      message.warning("请先登录");
+      return;
+    }
+
+    setIsAutomationFlowDetailOpen(true);
+    setIsAutomationFlowDetailLoading(true);
+    setAutomationFlowDetail(null);
+
+    try {
+      setAutomationFlowDetail(await getAutomationFlowDetail(token, flowId));
+      setStatusMessage("流程配置详情已加载");
+    } catch (error) {
+      if (isAuthExpiredError(error)) {
+        return;
+      }
+      const text = error instanceof Error ? error.message : "流程配置详情加载失败";
+      setStatusMessage(text);
+      message.error(text);
+    } finally {
+      setIsAutomationFlowDetailLoading(false);
     }
   }
 
@@ -1575,6 +1650,17 @@ function App() {
                     openDetail={openRunRecordDetail}
                   />
                 )}
+                {safeActiveView === "automation_flows" && (
+                  <AutomationFlowsPanel
+                    role={role}
+                    flows={automationFlows}
+                    filters={automationFlowFilters}
+                    setFilters={setAutomationFlowFilters}
+                    loading={isAutomationFlowsLoading}
+                    refreshFlows={() => refreshAutomationFlows()}
+                    openDetail={openAutomationFlowDetail}
+                  />
+                )}
                 {isAutomationView(safeActiveView) && (
                   <AutomationPanel
                     role={role}
@@ -1717,6 +1803,12 @@ function App() {
               loading={isRunRecordDetailLoading}
               detail={runRecordDetail}
               onClose={() => setIsRunRecordDetailOpen(false)}
+            />
+            <AutomationFlowDetailModal
+              open={isAutomationFlowDetailOpen}
+              loading={isAutomationFlowDetailLoading}
+              detail={automationFlowDetail}
+              onClose={() => setIsAutomationFlowDetailOpen(false)}
             />
           </ProLayout>
         </AntApp>
@@ -3596,6 +3688,407 @@ function RunRecordDetailItem({
   );
 }
 
+function AutomationFlowsPanel({
+  role,
+  flows,
+  filters,
+  setFilters,
+  loading,
+  refreshFlows,
+  openDetail,
+}: {
+  role: Role;
+  flows: AutomationFlowItem[];
+  filters: AutomationFlowFilterState;
+  setFilters: React.Dispatch<React.SetStateAction<AutomationFlowFilterState>>;
+  loading: boolean;
+  refreshFlows: () => void;
+  openDetail: (flowId: string) => void;
+}) {
+  const enabledCount = flows.filter((item) => item.status === "enabled").length;
+  const categories = Array.from(new Set(flows.map((item) => item.category))).filter(Boolean);
+  const erpResourceCount = new Set(
+    flows.flatMap((item) => item.allowed_erp_resources.map((resource) => resource.resource)),
+  ).size;
+  const approvalCount = flows.filter((item) => item.approval_policy.includes("审批")).length;
+
+  return (
+    <Space direction="vertical" size={16} className="pageStack">
+      <Row gutter={[12, 12]} className="flowConfigMetricRow">
+        <Col xs={12} lg={6}>
+          <Card size="small" className="flowConfigMetricCard">
+            <Text type="secondary">流程总数</Text>
+            <Title level={3}>{flows.length}</Title>
+          </Card>
+        </Col>
+        <Col xs={12} lg={6}>
+          <Card size="small" className="flowConfigMetricCard">
+            <Text type="secondary">已发布</Text>
+            <Title level={3}>{enabledCount}</Title>
+          </Card>
+        </Col>
+        <Col xs={12} lg={6}>
+          <Card size="small" className="flowConfigMetricCard">
+            <Text type="secondary">ERP 资源</Text>
+            <Title level={3}>{erpResourceCount}</Title>
+          </Card>
+        </Col>
+        <Col xs={12} lg={6}>
+          <Card size="small" className="flowConfigMetricCard">
+            <Text type="secondary">审批策略</Text>
+            <Title level={3}>{approvalCount}</Title>
+          </Card>
+        </Col>
+      </Row>
+
+      <ProCard
+        title="自动化流程配置"
+        subTitle={role === "admin" ? "管理员查看全平台只读流程定义" : "当前账号只能查看自己岗位的流程定义"}
+        bordered
+        extra={
+          <Button size="small" icon={<ReloadOutlined />} onClick={refreshFlows} loading={loading}>
+            刷新
+          </Button>
+        }
+      >
+        <div className={role === "admin" ? "flowConfigFilterGrid admin" : "flowConfigFilterGrid"}>
+          {role === "admin" ? (
+            <Select
+              size="small"
+              value={filters.position}
+              onChange={(value) => setFilters((current) => ({ ...current, position: value }))}
+              options={[
+                { label: "全部岗位", value: "all" },
+                { label: "运营", value: "operations" },
+                { label: "客服", value: "customer_service" },
+                { label: "财务", value: "finance" },
+              ]}
+            />
+          ) : null}
+          <Select
+            size="small"
+            allowClear
+            value={filters.category || undefined}
+            placeholder="流程类别"
+            onChange={(value) => setFilters((current) => ({ ...current, category: value || "" }))}
+            options={categories.map((item) => ({ label: item, value: item }))}
+          />
+          <Button size="small" type="primary" icon={<SearchOutlined />} onClick={refreshFlows} loading={loading}>
+            查询
+          </Button>
+        </div>
+
+        <Table<AutomationFlowItem>
+          rowKey="id"
+          loading={loading}
+          dataSource={flows}
+          className="flowConfigTable"
+          scroll={{ x: 1160 }}
+          locale={{ emptyText: <Empty description="暂无流程配置" /> }}
+          columns={[
+            {
+              title: "流程",
+              dataIndex: "name",
+              width: 230,
+              render: (value, record) => (
+                <Space direction="vertical" size={2} className="flowConfigCellStack">
+                  <Text strong className="flowConfigText">{value}</Text>
+                  <Text type="secondary" className="flowConfigMono">{record.app_id}</Text>
+                </Space>
+              ),
+            },
+            {
+              title: "岗位",
+              dataIndex: "position_label",
+              width: 96,
+              render: (value, record) => (
+                <Tag color={record.position ? "purple" : "blue"}>{String(value)}</Tag>
+              ),
+            },
+            {
+              title: "类别",
+              dataIndex: "category",
+              width: 130,
+              render: (value) => <Text className="flowConfigText">{String(value)}</Text>,
+            },
+            {
+              title: "入口",
+              dataIndex: "entrypoint",
+              width: 210,
+              render: (value) => <Text className="flowConfigMono">{String(value)}</Text>,
+            },
+            {
+              title: "状态",
+              dataIndex: "status",
+              width: 92,
+              render: (value) => <StatusTag value={String(value)} />,
+            },
+            {
+              title: "版本",
+              dataIndex: "version",
+              width: 110,
+              render: (value) => <Text className="flowConfigMono">{String(value)}</Text>,
+            },
+            {
+              title: "允许资源",
+              dataIndex: "allowed_erp_resources",
+              width: 170,
+              render: (value: ErpResourceItem[]) => (
+                <Space size={[4, 4]} wrap>
+                  {value.length ? (
+                    <>
+                      <Tag color="geekblue">{value.length} 项</Tag>
+                      {value.slice(0, 2).map((item) => (
+                        <Tag key={item.resource}>{item.label}</Tag>
+                      ))}
+                    </>
+                  ) : (
+                    <Text type="secondary">无 ERP 资源</Text>
+                  )}
+                </Space>
+              ),
+            },
+            {
+              title: "说明",
+              dataIndex: "description",
+              width: 260,
+              render: (value) => <Text className="flowConfigPreview">{String(value)}</Text>,
+            },
+            {
+              title: "操作",
+              dataIndex: "id",
+              fixed: "right",
+              width: 96,
+              render: (value) => (
+                <Button size="small" type="link" onClick={() => openDetail(String(value))}>
+                  详情
+                </Button>
+              ),
+            },
+          ]}
+        />
+      </ProCard>
+    </Space>
+  );
+}
+
+function AutomationFlowDetailModal({
+  open,
+  loading,
+  detail,
+  onClose,
+}: {
+  open: boolean;
+  loading: boolean;
+  detail: AutomationFlowDetailResponse | null;
+  onClose: () => void;
+}) {
+  const flow = detail?.item || null;
+
+  return (
+    <Modal
+      open={open}
+      title={flow ? `流程配置 / ${flow.name}` : "流程配置"}
+      onCancel={onClose}
+      footer={[
+        <Button key="close" onClick={onClose}>
+          关闭
+        </Button>,
+      ]}
+      width={980}
+    >
+      {loading ? (
+        <Empty description="正在加载流程配置详情" />
+      ) : flow ? (
+        <Space direction="vertical" size={14} className="pageStack">
+          <div className="flowConfigDetailGrid">
+            <FlowConfigDetailItem label="流程 ID" value={flow.id} mono />
+            <FlowConfigDetailItem label="应用 ID" value={flow.app_id} mono />
+            <FlowConfigDetailItem label="岗位" value={flow.position_label} />
+            <FlowConfigDetailItem label="类别" value={flow.category} />
+            <FlowConfigDetailItem label="入口" value={flow.entrypoint} mono />
+            <FlowConfigDetailItem label="触发方式" value={flow.trigger_type} mono />
+            <FlowConfigDetailItem label="版本" value={flow.version} mono />
+            <FlowConfigDetailItem label="负责人" value={flow.owner} />
+          </div>
+
+          <Row gutter={[12, 12]}>
+            <Col xs={24} md={12}>
+              <ProCard title="输入 Schema" bordered size="small">
+                <SchemaTable items={flow.input_schema} />
+              </ProCard>
+            </Col>
+            <Col xs={24} md={12}>
+              <ProCard title="输出 Schema" bordered size="small">
+                <SchemaTable items={flow.output_schema} />
+              </ProCard>
+            </Col>
+          </Row>
+
+          <ProCard title="Prompt 与模型" bordered size="small">
+            <Row gutter={[12, 12]}>
+              <Col xs={24} md={12}>
+                <Text type="secondary">Prompt 摘要</Text>
+                <Paragraph className="flowConfigDetailPreview">{flow.prompt_summary || "-"}</Paragraph>
+              </Col>
+              <Col xs={24} md={12}>
+                <Text type="secondary">模板预览</Text>
+                <pre className="flowConfigPre">{flow.prompt_template_preview || "无独立 Prompt。"}</pre>
+              </Col>
+              <Col xs={24}>
+                <Space size={[6, 6]} wrap>
+                  {Object.entries(flow.model_config).map(([key, value]) => (
+                    <Tag key={key} color={key === "secrets_visible" ? "green" : "blue"}>
+                      {key}: {textFromUnknown(value)}
+                    </Tag>
+                  ))}
+                </Space>
+              </Col>
+            </Row>
+          </ProCard>
+
+          <ProCard title="权限、工具与 ERP 资源" bordered size="small">
+            <Row gutter={[12, 12]}>
+              <Col xs={24} md={8}>
+                <Text type="secondary">允许工具</Text>
+                <Space size={[6, 6]} wrap className="flowConfigTagBlock">
+                  {flow.allowed_tools.map((item) => (
+                    <Tag color="blue" key={item}>{item}</Tag>
+                  ))}
+                </Space>
+              </Col>
+              <Col xs={24} md={8}>
+                <Text type="secondary">审批策略</Text>
+                <Paragraph className="flowConfigDetailPreview compact">{flow.approval_policy}</Paragraph>
+              </Col>
+              <Col xs={24} md={8}>
+                <Text type="secondary">失败策略</Text>
+                <Paragraph className="flowConfigDetailPreview compact">{flow.failure_strategy}</Paragraph>
+              </Col>
+              <Col xs={24}>
+                <Text type="secondary">允许资源</Text>
+                <div className="flowConfigResourceList">
+                  {flow.allowed_erp_resources.length ? (
+                    flow.allowed_erp_resources.map((resource) => (
+                      <Tag color="geekblue" key={resource.resource}>
+                        {resource.label} / {resource.resource}
+                      </Tag>
+                    ))
+                  ) : (
+                    <Text type="secondary">该流程不直接访问 ERP 资源</Text>
+                  )}
+                </div>
+              </Col>
+              <Col xs={24}>
+                <Text type="secondary">权限规则</Text>
+                <div className="flowConfigRuleList">
+                  {flow.permission_rules.map((item) => (
+                    <div className="flowConfigRuleItem" key={item}>{item}</div>
+                  ))}
+                </div>
+              </Col>
+            </Row>
+          </ProCard>
+
+          <ProCard title="执行步骤" bordered size="small">
+            <Table
+              rowKey="id"
+              dataSource={flow.steps}
+              pagination={false}
+              scroll={{ x: 680 }}
+              locale={{ emptyText: <Empty description="暂无步骤" /> }}
+              columns={[
+                { title: "步骤 ID", dataIndex: "id", width: 190, render: (value) => <Text className="flowConfigMono">{String(value)}</Text> },
+                { title: "步骤名称", dataIndex: "name", width: 240, render: (value) => <Text className="flowConfigText">{String(value)}</Text> },
+                {
+                  title: "输入",
+                  dataIndex: "inputs",
+                  render: (value: string[]) => (
+                    <Space size={[4, 4]} wrap>
+                      {value.map((item) => <Tag key={item}>{item}</Tag>)}
+                    </Space>
+                  ),
+                },
+                {
+                  title: "可重试",
+                  dataIndex: "retryable",
+                  width: 90,
+                  render: (value) => <Tag color={value ? "green" : "gold"}>{value ? "是" : "否"}</Tag>,
+                },
+              ]}
+            />
+          </ProCard>
+        </Space>
+      ) : (
+        <Empty description="请选择一个流程配置" />
+      )}
+    </Modal>
+  );
+}
+
+function FlowConfigDetailItem({
+  label,
+  value,
+  mono = false,
+}: {
+  label: string;
+  value: React.ReactNode;
+  mono?: boolean;
+}) {
+  return (
+    <div className="flowConfigDetailItem">
+      <Text type="secondary">{label}</Text>
+      <Text className={mono ? "flowConfigMono" : "flowConfigText"}>{value}</Text>
+    </div>
+  );
+}
+
+function SchemaTable({ items }: { items: Array<Record<string, unknown>> }) {
+  return (
+    <Table
+      rowKey={(record) => String(record.name || record.label)}
+      size="small"
+      dataSource={items}
+      pagination={false}
+      scroll={{ x: 520 }}
+      locale={{ emptyText: <Empty description="暂无 Schema" /> }}
+      columns={[
+        {
+          title: "字段",
+          dataIndex: "name",
+          width: 150,
+          render: (value, record) => (
+            <Space direction="vertical" size={2} className="flowConfigCellStack">
+              <Text strong className="flowConfigMono">{textFromUnknown(value)}</Text>
+              <Text type="secondary" className="flowConfigText">{textFromUnknown(record.label)}</Text>
+            </Space>
+          ),
+        },
+        { title: "类型", dataIndex: "type", width: 110, render: (value) => <Tag>{textFromUnknown(value)}</Tag> },
+        {
+          title: "要求",
+          render: (_, record) => {
+            const values = [
+              record.required ? "必填" : "可选",
+              record.max_length ? `最长 ${record.max_length}` : null,
+              record.max_bytes ? `最大 ${formatBytes(Number(record.max_bytes))}` : null,
+              record.description ? textFromUnknown(record.description) : null,
+            ].filter(Boolean);
+
+            return values.length ? (
+              <Space size={[4, 4]} wrap>
+                {values.map((item) => <Tag key={String(item)} color="blue">{String(item)}</Tag>)}
+              </Space>
+            ) : (
+              <Text type="secondary">-</Text>
+            );
+          },
+        },
+      ]}
+    />
+  );
+}
+
 function ErpRecordDetailModal({
   open,
   loading,
@@ -3750,6 +4243,8 @@ function MessageList({ messages }: { messages: ChatMessage[] }) {
 
 function StatusTag({ value }: { value: string }) {
   const colorMap: Record<string, string> = {
+    enabled: "green",
+    published: "green",
     pending: "gold",
     approved: "green",
     rejected: "red",
@@ -3760,6 +4255,13 @@ function StatusTag({ value }: { value: string }) {
   };
 
   return <Tag color={colorMap[value] || "default"}>{labelForBadge(value)}</Tag>;
+}
+
+function defaultAutomationFlowFilters(role: Role, position: Position | null): AutomationFlowFilterState {
+  return {
+    position: role === "admin" ? "all" : position || "all",
+    category: "",
+  };
 }
 
 function metricStatus(value: string): "success" | "processing" | "error" | "default" | "warning" {
@@ -3832,7 +4334,7 @@ function dashboardShortcuts(role: Role, position: Position | null): Array<{
       {
         title: "AI 应用中心",
         description: "查看运营、客服、财务 AI 应用目录和岗位权限。",
-        view: "ai_apps",
+        view: "automation_flows",
         icon: <AppstoreOutlined />,
       },
       {
@@ -3855,7 +4357,7 @@ function dashboardShortcuts(role: Role, position: Position | null): Array<{
       {
         title: "运营 AI 自动化",
         description: "生成 Listing、标题、五点描述、关键词和促销文案。",
-        view: "ai_apps",
+        view: "automation_flows",
         icon: <RobotOutlined />,
       },
       {
@@ -3878,7 +4380,7 @@ function dashboardShortcuts(role: Role, position: Position | null): Array<{
       {
         title: "财务 Excel 生成",
         description: "上传 Excel，生成处理摘要、数值汇总和 AI 建议。",
-        view: "ai_apps",
+        view: "automation_flows",
         icon: <CloudUploadOutlined />,
       },
       {
@@ -3913,7 +4415,7 @@ function dashboardShortcuts(role: Role, position: Position | null): Array<{
       {
         title: "客服自动化",
         description: "生成智能客服回复、自动回复和退款售后话术。",
-        view: "ai_apps",
+        view: "automation_flows",
         icon: <RobotOutlined />,
       },
     ];

@@ -313,6 +313,21 @@ AI 对话 ERP 查询状态：
 - 统一验证会依次执行后端编译、API `/health`、管理员 ERP 诊断、ERP 对话权限回归、岗位越权权限回归、财务 Excel 生成回归、前端构建、前端权限可见性回归。
 - 如 API 不在默认端口，可用 `VERIFY_API_BASE_URL=http://127.0.0.1:8001 python3 scripts/verify_all.py` 指定地址。
 
+企业级平台升级状态：
+
+- Platform Loop 1 已完成：`/ai-apps` 只读 AI 应用中心，管理员看全平台应用，员工只看本岗位应用。
+- Platform Loop 2 已完成：`/run-records` 统一运行记录中心，真实记录自动化生成、ERP 查询、财务 Excel 和 AI 对话执行。
+- Platform Loop 3 已完成：`/automation-flows` 只读自动化流程配置中心。
+- 流程配置 API：`GET /automation-flows`、`GET /automation-flows/{flow_id}`。
+- 流程配置来源于真实代码投影：`AUTOMATION_TASKS`、岗位 ERP scope、ERP 资源目录、聊天入口、财务 Excel 和管理员知识库维护。
+- 流程配置包含输入 schema、输出 schema、Prompt 摘要、模板预览、模型配置、允许工具、允许 ERP 资源、权限规则、审批策略、失败策略和执行步骤。
+- 管理员可查看全部岗位和平台流程；员工只能查看自己岗位流程，跨岗位详情返回 404。
+- 流程配置当前只读，不允许员工或管理员在页面保存、编辑或删除流程。
+- 流程配置真实 API 验证脚本：`python3 scripts/verify_automation_flows.py`。
+- 流程配置真实浏览器验证脚本：`node scripts/verify_automation_flows_frontend.mjs`。
+- 流程配置截图路径：`/tmp/company-rag-automation-flows-admin-desktop.png`、`/tmp/company-rag-automation-flows-operations-desktop.png`、`/tmp/company-rag-automation-flows-finance-mobile.png`。
+- 如果本机没有项目内 Playwright，可先用 `npx -p playwright node -e "console.log('playwright ready')"` 拉取真实 Playwright，再运行浏览器脚本；不要改成 mock 浏览器测试。
+
 前端 ERP 诊断面板：
 
 - ERP 页面：`/erp`
