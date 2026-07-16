@@ -157,6 +157,63 @@ export type AutomationFlowDetailResponse = {
   item: AutomationFlowItem;
 };
 
+export type ConnectorConfigField = {
+  name: string;
+  configured: boolean;
+  secret: boolean;
+  value_preview: string | null;
+  description: string;
+};
+
+export type ConnectorResourceItem = {
+  resource: string;
+  label: string;
+  provider_resource: string | null;
+  position_scopes: Array<Position | "platform">;
+  position_scope_labels: string[];
+  fields: string[];
+};
+
+export type ConnectorItem = {
+  id: string;
+  label: string;
+  category: string;
+  description: string;
+  active: boolean;
+  configured: boolean;
+  status: string;
+  health_status: string;
+  health_message: string;
+  auth_type: string;
+  admin_only: boolean;
+  supports_real_health_check: boolean;
+  managed_by: string;
+  capabilities: string[];
+  position_scopes: Array<Position | "platform">;
+  position_scope_labels: string[];
+  config_fields: ConnectorConfigField[];
+  resources: ConnectorResourceItem[];
+  next_steps: string[];
+  last_checked_at: string;
+};
+
+export type ConnectorsSummary = {
+  total: number;
+  configured: number;
+  healthy: number;
+  needs_config: number;
+  pending: number;
+};
+
+export type ConnectorsResponse = {
+  summary: ConnectorsSummary;
+  items: ConnectorItem[];
+};
+
+export type ConnectorDetailResponse = {
+  item: ConnectorItem;
+};
+
 export type ErpProviderItem = {
   provider: string;
   label: string;
@@ -871,6 +928,18 @@ export async function listAutomationFlows(
 export async function getAutomationFlowDetail(token: string, flowId: string) {
   return requestJson<AutomationFlowDetailResponse>(
     `/automation-flows/${encodeURIComponent(flowId)}`,
+    {},
+    token,
+  );
+}
+
+export async function listConnectors(token: string) {
+  return requestJson<ConnectorsResponse>("/connectors", {}, token);
+}
+
+export async function getConnectorDetail(token: string, connectorId: string) {
+  return requestJson<ConnectorDetailResponse>(
+    `/connectors/${encodeURIComponent(connectorId)}`,
     {},
     token,
   );

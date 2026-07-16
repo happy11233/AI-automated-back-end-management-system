@@ -58,6 +58,7 @@ import "./styles.css";
 import {
   login,
   createUser,
+  getConnectorDetail,
   getAutomationFlowDetail,
   generateAutomation,
   isAuthExpiredError,
@@ -78,6 +79,7 @@ import {
   listUsers,
   getThreadMessages,
   getRunRecordDetail,
+  listConnectors,
   listAutomationFlows,
   queryErp,
   reviewApproval as reviewApprovalApi,
@@ -85,6 +87,10 @@ import {
   type AuditLogItem,
   type AutomationFlowDetailResponse,
   type AutomationFlowItem,
+  type ConnectorConfigField,
+  type ConnectorDetailResponse,
+  type ConnectorItem,
+  type ConnectorsResponse,
   type AutomationTaskItem,
   type ErpDashboardOverviewResponse,
   type ErpDiagnosticsResponse,
@@ -120,6 +126,7 @@ type View =
   | "ai_apps"
   | "run_records"
   | "automation_flows"
+  | "connectors"
   | "automation"
   | "automation_operations"
   | "automation_customer_service"
@@ -272,6 +279,7 @@ const navItems: NavItem[] = [
   { path: "/ai-apps", id: "ai_apps", name: "AI 应用中心", icon: <AppstoreOutlined />, roles: ["admin", "employee"] },
   { path: "/run-records", id: "run_records", name: "运行记录", icon: <HistoryOutlined />, roles: ["admin", "employee"] },
   { path: "/automation-flows", id: "automation_flows", name: "流程配置", icon: <AuditOutlined />, roles: ["admin", "employee"] },
+  { path: "/connectors", id: "connectors", name: "连接器中心", icon: <ApiOutlined />, roles: ["admin"] },
   {
     path: "/automation",
     id: "automation",
@@ -422,6 +430,12 @@ function App() {
   const [isAutomationFlowDetailOpen, setIsAutomationFlowDetailOpen] = useState(false);
   const [isAutomationFlowDetailLoading, setIsAutomationFlowDetailLoading] = useState(false);
   const [isAutomationFlowsLoading, setIsAutomationFlowsLoading] = useState(false);
+  const [connectors, setConnectors] = useState<ConnectorItem[]>([]);
+  const [connectorSummary, setConnectorSummary] = useState<ConnectorsResponse["summary"] | null>(null);
+  const [connectorDetail, setConnectorDetail] = useState<ConnectorDetailResponse | null>(null);
+  const [isConnectorDetailOpen, setIsConnectorDetailOpen] = useState(false);
+  const [isConnectorDetailLoading, setIsConnectorDetailLoading] = useState(false);
+  const [isConnectorsLoading, setIsConnectorsLoading] = useState(false);
   const [users, setUsers] = useState<UserRecord[]>([]);
   const [automationTasks, setAutomationTasks] = useState<AutomationTaskRecord[]>([]);
   const [erpResources, setErpResources] = useState<ErpResourceItem[]>([]);
@@ -554,6 +568,7 @@ function App() {
     if (role === "admin") {
       void refreshAdminData(storedToken);
       void refreshUsers(storedToken);
+      void refreshConnectors(storedToken);
     }
   }, []);
 
@@ -589,6 +604,7 @@ function App() {
       if (nextRole === "admin") {
         await refreshAdminData(result.access_token);
         await refreshUsers(result.access_token);
+        await refreshConnectors(result.access_token);
       }
 
       await refreshAutomationTasks(result.access_token, nextPosition || undefined);
@@ -631,6 +647,10 @@ function App() {
     setAutomationFlowDetail(null);
     setIsAutomationFlowDetailOpen(false);
     setAutomationFlowFilters({ position: "all", category: "" });
+    setConnectors([]);
+    setConnectorSummary(null);
+    setConnectorDetail(null);
+    setIsConnectorDetailOpen(false);
     setUsers([]);
     setAutomationTasks([]);
     setFinanceExcelFile(null);
@@ -831,6 +851,56 @@ function App() {
       message.error(text);
     } finally {
       setIsAutomationFlowDetailLoading(false);
+    }
+  }
+
+  async function refreshConnectors(activeToken = token) {
+    if (!activeToken) {
+      return;
+    }
+
+    setIsConnectorsLoading(true);
+
+    try {
+      const result = await listConnectors(activeToken);
+      setConnectors(result.items);
+      setConnectorSummary(result.summary);
+      setStatusMessage("连接器中心已刷新");
+    } catch (error) {
+      if (isAuthExpiredError(error)) {
+        return;
+      }
+      const text = error instanceof Error ? error.message : "连接器中心加载失败";
+      setStatusMessage(text);
+      message.error(text);
+    } finally {
+      setIsConnectorsLoading(false);
+    }
+  }
+
+  async function openConnectorDetail(connectorId: string) {
+    if (!token) {
+      setStatusMessage("请先登录");
+      message.warning("请先登录");
+      return;
+    }
+
+    setIsConnectorDetailOpen(true);
+    setIsConnectorDetailLoading(true);
+    setConnectorDetail(null);
+
+    try {
+      setConnectorDetail(await getConnectorDetail(token, connectorId));
+      setStatusMessage("连接器详情已加载");
+    } catch (error) {
+      if (isAuthExpiredError(error)) {
+        return;
+      }
+      const text = error instanceof Error ? error.message : "连接器详情加载失败";
+      setStatusMessage(text);
+      message.error(text);
+    } finally {
+      setIsConnectorDetailLoading(false);
     }
   }
 
@@ -1661,6 +1731,15 @@ function App() {
                     openDetail={openAutomationFlowDetail}
                   />
                 )}
+                {safeActiveView === "connectors" && role === "admin" && (
+                  <ConnectorsPanel
+                    connectors={connectors}
+                    summary={connectorSummary}
+                    loading={isConnectorsLoading}
+                    refreshConnectors={() => refreshConnectors()}
+                    openDetail={openConnectorDetail}
+                  />
+                )}
                 {isAutomationView(safeActiveView) && (
                   <AutomationPanel
                     role={role}
@@ -1809,6 +1888,12 @@ function App() {
               loading={isAutomationFlowDetailLoading}
               detail={automationFlowDetail}
               onClose={() => setIsAutomationFlowDetailOpen(false)}
+            />
+            <ConnectorDetailModal
+              open={isConnectorDetailOpen}
+              loading={isConnectorDetailLoading}
+              detail={connectorDetail}
+              onClose={() => setIsConnectorDetailOpen(false)}
             />
           </ProLayout>
         </AntApp>
@@ -4089,6 +4174,316 @@ function SchemaTable({ items }: { items: Array<Record<string, unknown>> }) {
   );
 }
 
+function ConnectorsPanel({
+  connectors,
+  summary,
+  loading,
+  refreshConnectors,
+  openDetail,
+}: {
+  connectors: ConnectorItem[];
+  summary: ConnectorsResponse["summary"] | null;
+  loading: boolean;
+  refreshConnectors: () => void;
+  openDetail: (connectorId: string) => void;
+}) {
+  const categories = Array.from(new Set(connectors.map((item) => item.category))).filter(Boolean);
+
+  return (
+    <Space direction="vertical" size={16} className="pageStack">
+      <Row gutter={[12, 12]} className="connectorMetricRow">
+        <Col xs={12} lg={6}>
+          <Card size="small" className="connectorMetricCard">
+            <Text type="secondary">连接器</Text>
+            <Title level={3}>{summary?.total ?? connectors.length}</Title>
+          </Card>
+        </Col>
+        <Col xs={12} lg={6}>
+          <Card size="small" className="connectorMetricCard">
+            <Text type="secondary">已配置</Text>
+            <Title level={3}>{summary?.configured ?? connectors.filter((item) => item.configured).length}</Title>
+          </Card>
+        </Col>
+        <Col xs={12} lg={6}>
+          <Card size="small" className="connectorMetricCard">
+            <Text type="secondary">健康</Text>
+            <Title level={3}>{summary?.healthy ?? connectors.filter((item) => item.status === "healthy").length}</Title>
+          </Card>
+        </Col>
+        <Col xs={12} lg={6}>
+          <Card size="small" className="connectorMetricCard">
+            <Text type="secondary">待配置</Text>
+            <Title level={3}>{summary?.needs_config ?? connectors.filter((item) => item.status === "not_configured").length}</Title>
+          </Card>
+        </Col>
+      </Row>
+
+      <ProCard
+        title="系统连接器"
+        subTitle="集中查看外部系统连接、真实健康状态、配置掩码、资源映射和岗位权限范围"
+        bordered
+        extra={
+          <Button size="small" icon={<ReloadOutlined />} onClick={refreshConnectors} loading={loading}>
+            刷新
+          </Button>
+        }
+      >
+        <Space direction="vertical" size={16} className="pageStack">
+          {categories.map((category) => (
+            <div key={category} className="connectorCategoryBlock">
+              <Space size={8} className="connectorCategoryTitle">
+                <Tag color="blue">{category}</Tag>
+                <Text type="secondary">
+                  {connectors.filter((item) => item.category === category).length} 个连接器
+                </Text>
+              </Space>
+              <Row gutter={[12, 12]}>
+                {connectors
+                  .filter((item) => item.category === category)
+                  .map((connector) => (
+                    <Col xs={24} lg={12} xl={8} key={connector.id} className="connectorCardCol">
+                      <Card size="small" className="contextCard connectorCard">
+                        <div className="connectorCardBody">
+                          <div className="connectorHeader">
+                            <Space size={8} className="connectorTitleWrap">
+                              <ApiOutlined />
+                              <Text strong className="connectorTitle">{connector.label}</Text>
+                            </Space>
+                            <ConnectorStatusTag status={connector.status} />
+                          </div>
+                          <Paragraph type="secondary" className="connectorDescription">
+                            {connector.description}
+                          </Paragraph>
+                          <div className="connectorMetaGrid">
+                            <div>
+                              <Text type="secondary">鉴权</Text>
+                              <Text strong>{connector.auth_type}</Text>
+                            </div>
+                            <div>
+                              <Text type="secondary">管理范围</Text>
+                              <Text strong>{connector.managed_by}</Text>
+                            </div>
+                            <div>
+                              <Text type="secondary">资源</Text>
+                              <Text strong>{connector.resources.length} 项</Text>
+                            </div>
+                            <div>
+                              <Text type="secondary">真实健康检查</Text>
+                              <Text strong>{connector.supports_real_health_check ? "已接入" : "未接入"}</Text>
+                            </div>
+                          </div>
+                          <Space size={[6, 6]} wrap className="connectorTagList">
+                            {connector.position_scope_labels.map((item) => (
+                              <Tag key={`${connector.id}-${item}`} color="purple">{item}</Tag>
+                            ))}
+                          </Space>
+                          <Paragraph className="connectorHealthMessage">
+                            {connector.health_message}
+                          </Paragraph>
+                          <div className="connectorFooter">
+                            <Button size="small" type="primary" onClick={() => openDetail(connector.id)}>
+                              详情
+                            </Button>
+                          </div>
+                        </div>
+                      </Card>
+                    </Col>
+                  ))}
+              </Row>
+            </div>
+          ))}
+        </Space>
+      </ProCard>
+    </Space>
+  );
+}
+
+function ConnectorDetailModal({
+  open,
+  loading,
+  detail,
+  onClose,
+}: {
+  open: boolean;
+  loading: boolean;
+  detail: ConnectorDetailResponse | null;
+  onClose: () => void;
+}) {
+  const connector = detail?.item || null;
+
+  return (
+    <Modal
+      open={open}
+      title={connector ? `连接器 / ${connector.label}` : "连接器"}
+      onCancel={onClose}
+      footer={[
+        <Button key="close" onClick={onClose}>
+          关闭
+        </Button>,
+      ]}
+      width={980}
+    >
+      {loading ? (
+        <Empty description="正在加载连接器详情" />
+      ) : connector ? (
+        <Space direction="vertical" size={14} className="pageStack">
+          <div className="connectorDetailGrid">
+            <ConnectorDetailItem label="连接器 ID" value={connector.id} mono />
+            <ConnectorDetailItem label="类别" value={connector.category} />
+            <ConnectorDetailItem label="状态" value={<ConnectorStatusTag status={connector.status} />} />
+            <ConnectorDetailItem label="健康状态" value={connector.health_status} mono />
+            <ConnectorDetailItem label="鉴权方式" value={connector.auth_type} />
+            <ConnectorDetailItem label="管理范围" value={connector.managed_by} />
+            <ConnectorDetailItem label="真实健康检查" value={connector.supports_real_health_check ? "已接入" : "未接入"} />
+            <ConnectorDetailItem label="最后检查" value={formatTime(connector.last_checked_at)} mono />
+          </div>
+
+          <ProCard title="健康信息" bordered size="small">
+            <Paragraph className="connectorDetailPreview">{connector.health_message}</Paragraph>
+            <Space size={[6, 6]} wrap>
+              {connector.capabilities.map((item) => (
+                <Tag color="blue" key={item}>{item}</Tag>
+              ))}
+              {connector.position_scope_labels.map((item) => (
+                <Tag color="purple" key={item}>{item}</Tag>
+              ))}
+            </Space>
+          </ProCard>
+
+          <Row gutter={[12, 12]}>
+            <Col xs={24} md={12}>
+              <ProCard title="配置项" bordered size="small">
+                <ConnectorConfigTable fields={connector.config_fields} />
+              </ProCard>
+            </Col>
+            <Col xs={24} md={12}>
+              <ProCard title="下一步" bordered size="small">
+                <div className="connectorRuleList">
+                  {connector.next_steps.map((item) => (
+                    <div className="connectorRuleItem" key={item}>{item}</div>
+                  ))}
+                </div>
+              </ProCard>
+            </Col>
+          </Row>
+
+          <ProCard title="资源映射" bordered size="small">
+            <Table
+              rowKey={(record) => `${record.resource}-${record.provider_resource}`}
+              dataSource={connector.resources}
+              pagination={false}
+              scroll={{ x: 820 }}
+              locale={{ emptyText: <Empty description="暂无资源映射" /> }}
+              columns={[
+                {
+                  title: "资源",
+                  dataIndex: "label",
+                  width: 170,
+                  render: (value, record) => (
+                    <Space direction="vertical" size={2} className="connectorCellStack">
+                      <Text strong className="connectorText">{String(value)}</Text>
+                      <Text className="connectorMono">{record.resource}</Text>
+                    </Space>
+                  ),
+                },
+                {
+                  title: "外部对象",
+                  dataIndex: "provider_resource",
+                  width: 190,
+                  render: (value) => <Text className="connectorMono">{value || "-"}</Text>,
+                },
+                {
+                  title: "岗位范围",
+                  dataIndex: "position_scope_labels",
+                  width: 190,
+                  render: (value: string[]) => (
+                    <Space size={[4, 4]} wrap>
+                      {value.map((item) => <Tag color="purple" key={item}>{item}</Tag>)}
+                    </Space>
+                  ),
+                },
+                {
+                  title: "字段",
+                  dataIndex: "fields",
+                  render: (value: string[]) => value.length ? (
+                    <Space size={[4, 4]} wrap>
+                      {value.map((item) => <Tag key={item}>{item}</Tag>)}
+                    </Space>
+                  ) : (
+                    <Text type="secondary">-</Text>
+                  ),
+                },
+              ]}
+            />
+          </ProCard>
+        </Space>
+      ) : (
+        <Empty description="请选择一个连接器" />
+      )}
+    </Modal>
+  );
+}
+
+function ConnectorConfigTable({ fields }: { fields: ConnectorConfigField[] }) {
+  return (
+    <Table
+      rowKey="name"
+      size="small"
+      dataSource={fields}
+      pagination={false}
+      scroll={{ x: 540 }}
+      locale={{ emptyText: <Empty description="无需环境变量配置" /> }}
+      columns={[
+        { title: "配置项", dataIndex: "name", width: 190, render: (value) => <Text className="connectorMono">{String(value)}</Text> },
+        {
+          title: "状态",
+          dataIndex: "configured",
+          width: 92,
+          render: (value) => <Tag color={value ? "green" : "default"}>{value ? "已配置" : "未配置"}</Tag>,
+        },
+        {
+          title: "值",
+          dataIndex: "value_preview",
+          width: 130,
+          render: (value, record) => (
+            <Text className="connectorMono">{value || (record.secret ? "****" : "-")}</Text>
+          ),
+        },
+        { title: "说明", dataIndex: "description", render: (value) => <Text className="connectorText">{String(value)}</Text> },
+      ]}
+    />
+  );
+}
+
+function ConnectorDetailItem({
+  label,
+  value,
+  mono = false,
+}: {
+  label: string;
+  value: React.ReactNode;
+  mono?: boolean;
+}) {
+  return (
+    <div className="connectorDetailItem">
+      <Text type="secondary">{label}</Text>
+      <Text className={mono ? "connectorMono" : "connectorText"}>{value}</Text>
+    </div>
+  );
+}
+
+function ConnectorStatusTag({ status }: { status: string }) {
+  const colorMap: Record<string, string> = {
+    healthy: "green",
+    degraded: "gold",
+    not_configured: "default",
+    not_implemented: "gold",
+    configured_pending: "blue",
+  };
+
+  return <Tag color={colorMap[status] || "default"}>{labelForConnectorStatus(status)}</Tag>;
+}
+
 function ErpRecordDetailModal({
   open,
   loading,
@@ -4995,6 +5390,8 @@ function roleColor(role: ChatMessage["role"]) {
 
 function labelForBadge(value: string) {
   const labels: Record<string, string> = {
+    enabled: "已启用",
+    published: "已发布",
     pending: "待审批",
     approved: "已通过",
     rejected: "已拒绝",
@@ -5002,6 +5399,18 @@ function labelForBadge(value: string) {
     failed: "失败",
     blocked: "已拦截",
     running: "运行中",
+  };
+
+  return labels[value] ?? value;
+}
+
+function labelForConnectorStatus(value: string) {
+  const labels: Record<string, string> = {
+    healthy: "健康",
+    degraded: "异常",
+    not_configured: "未配置",
+    not_implemented: "待接入",
+    configured_pending: "已配置待联调",
   };
 
   return labels[value] ?? value;

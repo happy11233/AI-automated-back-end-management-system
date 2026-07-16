@@ -672,6 +672,184 @@ button {
   border-radius: 6px;
 }
 
+.connectorMetricRow .ant-col {
+  display: flex;
+}
+
+.connectorMetricCard {
+  width: 100%;
+  margin-top: 0;
+}
+
+.connectorMetricCard .ant-card-body {
+  display: grid;
+  min-height: 96px;
+  gap: 6px;
+}
+
+.connectorMetricCard h3 {
+  margin: 0 !important;
+}
+
+.connectorCategoryBlock {
+  display: grid;
+  gap: 10px;
+}
+
+.connectorCategoryTitle {
+  min-width: 0;
+}
+
+.connectorCardCol {
+  display: flex;
+}
+
+.connectorCard {
+  width: 100%;
+  margin-top: 0;
+}
+
+.connectorCard > .ant-card-body {
+  height: 100%;
+}
+
+.connectorCardBody {
+  display: grid;
+  grid-template-rows: 28px 52px auto 34px 54px auto;
+  min-height: 292px;
+  height: 100%;
+  gap: 10px;
+  min-width: 0;
+}
+
+.connectorHeader {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+}
+
+.connectorTitleWrap {
+  min-width: 0;
+}
+
+.connectorTitle {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.connectorDescription {
+  height: 52px;
+  margin-bottom: 0 !important;
+  overflow: hidden;
+  line-height: 1.55;
+}
+
+.connectorMetaGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.connectorMetaGrid > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  padding: 8px;
+  background: #f8fafc;
+  border: 1px solid rgba(15, 23, 42, 0.06);
+  border-radius: 6px;
+}
+
+.connectorMetaGrid .ant-typography {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.connectorTagList {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.connectorHealthMessage {
+  height: 54px;
+  margin-bottom: 0 !important;
+  overflow: hidden;
+  color: #4b5563;
+  line-height: 1.55;
+}
+
+.connectorFooter {
+  align-self: end;
+}
+
+.connectorDetailGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.connectorDetailItem {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 10px 12px;
+  background: #f8fafc;
+  border: 1px solid rgba(15, 23, 42, 0.06);
+  border-radius: 6px;
+}
+
+.connectorDetailPreview {
+  min-height: 64px;
+  margin: 0 0 10px !important;
+  padding: 10px 12px;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  background: #f8fafc;
+  border: 1px solid rgba(15, 23, 42, 0.06);
+  border-radius: 6px;
+}
+
+.connectorRuleList {
+  display: grid;
+  gap: 8px;
+}
+
+.connectorRuleItem {
+  min-width: 0;
+  padding: 8px 10px;
+  overflow-wrap: anywhere;
+  background: #f8fafc;
+  border: 1px solid rgba(15, 23, 42, 0.06);
+  border-radius: 6px;
+}
+
+.connectorCellStack {
+  max-width: 100%;
+  min-width: 0;
+}
+
+.connectorText,
+.connectorMono {
+  display: block;
+  max-width: 100%;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.connectorMono {
+  color: #4b5563;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+}
+
 .automationTaskCol {
   display: flex;
 }
@@ -1039,9 +1217,19 @@ button {
   .runRecordDetailGrid,
   .flowConfigFilterGrid,
   .flowConfigFilterGrid.admin,
-  .flowConfigDetailGrid {
+  .flowConfigDetailGrid,
+  .connectorDetailGrid {
     grid-template-columns: 1fr;
     max-width: none;
+  }
+
+  .connectorCardBody {
+    grid-template-rows: auto 68px auto auto auto auto;
+    min-height: 0;
+  }
+
+  .connectorMetaGrid {
+    grid-template-columns: 1fr;
   }
 
   .messageHeader {

@@ -1048,3 +1048,62 @@
 
 #### 后续待做
 - Platform Loop 4：连接器中心一期，展示 ERPNext、金蝶、用友、Amazon SP-API、物流、广告、飞书/企业微信、邮箱和 Excel 等连接器。
+
+### 日期：2026-07-17
+
+#### 本次目标
+- 完成 Platform Loop 4：新增连接器中心一期，让管理员能统一查看外部系统连接、真实健康状态、配置掩码、资源映射和岗位权限范围。
+
+#### 修改内容
+- 新增连接器投影服务，从真实 ERP provider、真实配置环境变量、ERP 资源目录和现有 Excel 能力生成连接器目录，不写模拟连接成功状态。
+- 新增管理员只读 API：`GET /connectors`、`GET /connectors/{connector_id}`。
+- 连接器目录包含 ERPNext、金蝶、用友、Amazon SP-API、物流、Amazon Ads、飞书、企业微信、邮箱和 Excel。
+- ERPNext 使用当前真实 provider 的 `health_check()` 结果；Excel 使用项目已有真实上传/下载转换能力状态。
+- 金蝶、用友、Amazon SP-API、物流、广告、飞书、企业微信和邮箱按真实环境变量判断 `not_configured` 或 `configured_pending`，不伪造健康结果。
+- 配置项返回前统一掩码，只暴露配置是否存在和短预览，不返回 secret 明文。
+- 资源映射展示每个连接器可服务的岗位范围、ERP/外部对象和字段摘要。
+- 前端新增 `/connectors` 页面，仅管理员导航可见，展示连接器指标、分类卡片、真实状态和详情弹窗。
+- 员工直接访问 `/connectors` 会被前端权限逻辑带回概览；后端接口对员工返回 403。
+- 新增真实后端验收脚本 `scripts/verify_connectors.py`。
+- 新增真实浏览器验收脚本 `scripts/verify_connectors_frontend.mjs`，并支持从本机真实 Playwright 安装或 npx 缓存解析。
+
+#### 修改文件
+- `app/api/connectors.py`
+- `app/main.py`
+- `app/services/connector_service.py`
+- `frontend/src/api.ts`
+- `frontend/src/main.tsx`
+- `frontend/src/styles.css`
+- `scripts/verify_connectors.py`
+- `scripts/verify_connectors_frontend.mjs`
+- `docs/TASKS.md`
+- `docs/CHANGELOG_AI.md`
+- `docs/AI_CONTEXT.md`
+
+#### 验证方式
+- `.venv/bin/python -m compileall app scripts`
+- `npm run build`
+- `docker compose up -d --build api`
+- `curl -sS -i http://127.0.0.1:8001/health`
+- `.venv/bin/python scripts/verify_connectors.py`
+- `node scripts/verify_connectors_frontend.mjs`
+- `node scripts/verify_automation_flows_frontend.mjs`
+- `NODE_PATH=/Users/xiaoxiang/.npm/_npx/e41f203b7505f1fb/node_modules node scripts/verify_frontend_permissions.mjs`
+- `git diff --check`
+
+#### 验证结果
+- 后端编译通过。
+- 前端构建通过，仅保留 Vite chunk 体积警告。
+- API 容器重建并启动，`/health` 返回 `ok`。
+- 真实 API 验收通过：连接器总数 10 个，已配置 2 个，健康 2 个，待配置 8 个，待联调 0 个。
+- 真实 API 验收确认 ERPNext 状态为 `ok`，员工访问 `/connectors` 返回 403，响应中未泄露 `DASHSCOPE_API_KEY`、`ERP_API_SECRET`、`JWT_SECRET_KEY`、`password`、`Authorization` 等敏感明文。
+- 真实浏览器验收通过，截图：
+  - `/tmp/company-rag-connectors-admin-desktop.png`
+  - `/tmp/company-rag-connectors-admin-mobile.png`
+- 管理员桌面和移动端连接器页面均无横向溢出，详情弹窗可打开；员工直接访问 `/connectors` 会回到 `/dashboard`。
+- 自动化流程页面真实浏览器回归通过。
+- 前端权限可见性真实回归全部通过。
+- 本轮验收未使用 mock、stub、fake provider、monkeypatch 或模拟响应。
+
+#### 后续待做
+- Platform Loop 5：效果分析中心一期，基于真实运行记录和审计事件生成效果指标、趋势、岗位排行、失败原因和节省时间估算。

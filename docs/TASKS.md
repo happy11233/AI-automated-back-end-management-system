@@ -351,10 +351,14 @@
 
 ### Platform Loop 4：连接器中心一期
 
-- [ ] 新增系统连接器页面
-- [ ] 注册 ERPNext、金蝶、用友、Amazon SP-API、物流、广告、飞书/企业微信、邮箱、Excel 等连接器
-- [ ] ERPNext 连接状态使用真实诊断
-- [ ] 管理员可见掩码配置和资源映射，员工不可见密钥和管理诊断
+- [x] 新增系统连接器页面 `/connectors`
+- [x] 注册 ERPNext、金蝶、用友、Amazon SP-API、物流、广告、飞书/企业微信、邮箱、Excel 等连接器
+- [x] ERPNext 连接状态使用真实诊断，Excel 使用真实本地上传/下载能力状态
+- [x] 管理员可见掩码配置和资源映射，员工不可见密钥和管理诊断
+- [x] 新增 `GET /connectors` 和 `GET /connectors/{connector_id}` 管理员只读接口
+- [x] 新增真实 API 验证脚本 `scripts/verify_connectors.py`
+- [x] 新增真实浏览器验证脚本 `scripts/verify_connectors_frontend.mjs`
+- [x] 浏览器验证覆盖管理员桌面、管理员移动端、员工不可访问和无横向溢出
 
 ### Platform Loop 5：效果分析中心一期
 

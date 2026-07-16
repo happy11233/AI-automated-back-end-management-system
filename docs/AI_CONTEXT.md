@@ -318,6 +318,7 @@ AI 对话 ERP 查询状态：
 - Platform Loop 1 已完成：`/ai-apps` 只读 AI 应用中心，管理员看全平台应用，员工只看本岗位应用。
 - Platform Loop 2 已完成：`/run-records` 统一运行记录中心，真实记录自动化生成、ERP 查询、财务 Excel 和 AI 对话执行。
 - Platform Loop 3 已完成：`/automation-flows` 只读自动化流程配置中心。
+- Platform Loop 4 已完成：`/connectors` 管理员连接器中心一期。
 - 流程配置 API：`GET /automation-flows`、`GET /automation-flows/{flow_id}`。
 - 流程配置来源于真实代码投影：`AUTOMATION_TASKS`、岗位 ERP scope、ERP 资源目录、聊天入口、财务 Excel 和管理员知识库维护。
 - 流程配置包含输入 schema、输出 schema、Prompt 摘要、模板预览、模型配置、允许工具、允许 ERP 资源、权限规则、审批策略、失败策略和执行步骤。
@@ -326,6 +327,14 @@ AI 对话 ERP 查询状态：
 - 流程配置真实 API 验证脚本：`python3 scripts/verify_automation_flows.py`。
 - 流程配置真实浏览器验证脚本：`node scripts/verify_automation_flows_frontend.mjs`。
 - 流程配置截图路径：`/tmp/company-rag-automation-flows-admin-desktop.png`、`/tmp/company-rag-automation-flows-operations-desktop.png`、`/tmp/company-rag-automation-flows-finance-mobile.png`。
+- 连接器中心 API：`GET /connectors`、`GET /connectors/{connector_id}`，仅管理员可访问。
+- 连接器中心注册：ERPNext、金蝶、用友、Amazon SP-API、物流、Amazon Ads、飞书、企业微信、邮箱、Excel。
+- 连接器中心状态规则：ERPNext 使用真实 provider `health_check()`；Excel 使用项目已有真实上传/下载转换能力；未完整接入的外部系统只根据真实环境变量展示 `not_configured` 或 `configured_pending`，不伪造健康。
+- 连接器中心配置项只返回掩码预览和是否已配置，不返回 secret 明文。
+- 连接器中心真实 API 验证脚本：`.venv/bin/python scripts/verify_connectors.py`。
+- 连接器中心真实浏览器验证脚本：`node scripts/verify_connectors_frontend.mjs`。
+- 连接器中心截图路径：`/tmp/company-rag-connectors-admin-desktop.png`、`/tmp/company-rag-connectors-admin-mobile.png`。
+- 员工后端访问 `/connectors` 返回 403；前端直接访问 `/connectors` 会回到 `/dashboard`。
 - 如果本机没有项目内 Playwright，可先用 `npx -p playwright node -e "console.log('playwright ready')"` 拉取真实 Playwright，再运行浏览器脚本；不要改成 mock 浏览器测试。
 
 前端 ERP 诊断面板：
