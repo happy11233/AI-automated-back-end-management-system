@@ -71,8 +71,20 @@ button {
 }
 
 .userMenuButton {
+  max-width: min(360px, calc(100vw - 96px));
   height: 40px;
   padding-inline: 10px;
+}
+
+.userMenuButton .ant-space {
+  max-width: 100%;
+}
+
+.userMenuButton .ant-typography {
+  max-width: 128px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .loginModalForm {
@@ -311,6 +323,123 @@ button {
 
 .contextCard {
   margin-top: 16px;
+}
+
+.aiAppMetricRow .ant-col {
+  display: flex;
+}
+
+.aiAppMetricCard {
+  width: 100%;
+  margin-top: 0;
+}
+
+.aiAppMetricCard .ant-card-body {
+  display: grid;
+  min-height: 112px;
+  gap: 6px;
+}
+
+.aiAppMetricCard h3 {
+  margin: 0 !important;
+}
+
+.aiAppCardCol,
+.aiAppRoleCol {
+  display: flex;
+}
+
+.aiAppCard,
+.aiAppRoleCard {
+  width: 100%;
+  margin-top: 0;
+}
+
+.aiAppCard > .ant-card-body,
+.aiAppRoleCard > .ant-card-body {
+  height: 100%;
+}
+
+.aiAppCardBody {
+  display: grid;
+  grid-template-rows: 28px 52px auto 36px auto;
+  min-height: 268px;
+  height: 100%;
+  gap: 10px;
+  min-width: 0;
+}
+
+.aiAppHeader {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+}
+
+.aiAppTitleWrap {
+  min-width: 0;
+}
+
+.aiAppTitle {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.aiAppDescription {
+  height: 52px;
+  margin-bottom: 0 !important;
+  overflow: hidden;
+  line-height: 1.55;
+}
+
+.aiAppMetaGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.aiAppMetaGrid > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  padding: 8px;
+  background: #f8fafc;
+  border: 1px solid rgba(15, 23, 42, 0.06);
+  border-radius: 6px;
+}
+
+.aiAppMetaGrid .ant-typography {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.aiAppSourceList {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.aiAppFooter {
+  align-self: end;
+}
+
+.aiAppRoleBody {
+  display: grid;
+  gap: 10px;
+  min-height: 144px;
+  min-width: 0;
+}
+
+.aiAppRoleDescription {
+  min-height: 44px;
+  margin-bottom: 0 !important;
+  overflow: hidden;
+  line-height: 1.55;
 }
 
 .automationTaskCol {
@@ -618,6 +747,64 @@ button {
 }
 
 @media (max-width: 768px) {
+  .ant-pro-layout .ant-pro-layout-bg-list,
+  .ant-pro-layout .ant-pro-layout-header-fixed-header,
+  .ant-pro-layout .ant-pro-layout-header-header {
+    right: 0 !important;
+    left: 0 !important;
+    width: 100vw !important;
+    max-width: 100vw !important;
+  }
+
+  .ant-pro-layout .ant-pro-global-header {
+    width: calc(100vw - 32px) !important;
+    max-width: calc(100vw - 32px) !important;
+    min-width: 0;
+  }
+
+  .ant-pro-layout .ant-pro-global-header-header-actions,
+  .ant-pro-layout .ant-pro-global-header-header-actions-avatar {
+    min-width: 0;
+  }
+
+  .ant-pro-card-title,
+  .ant-pro-core-label-tip,
+  .ant-pro-core-label-tip-subtitle {
+    max-width: 100%;
+    min-width: 0;
+    white-space: normal;
+  }
+
+  .ant-pro-core-label-tip {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .ant-pro-core-label-tip-subtitle {
+    overflow-wrap: anywhere;
+  }
+
+  .userMenuButton {
+    max-width: calc(100vw - 132px);
+  }
+
+  .userMenuButton .ant-tag {
+    display: none;
+  }
+
+  .userMenuButton .ant-typography {
+    max-width: 96px;
+  }
+
+  .aiAppCardBody {
+    grid-template-rows: auto 68px auto auto auto;
+    min-height: 0;
+  }
+
+  .aiAppMetaGrid {
+    grid-template-columns: 1fr;
+  }
+
   .messageHeader {
     align-items: flex-start;
     flex-direction: column;

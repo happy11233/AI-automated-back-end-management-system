@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   ApiOutlined,
+  AppstoreOutlined,
   AuditOutlined,
   CheckCircleOutlined,
   CloudUploadOutlined,
@@ -107,6 +108,7 @@ type Role = "admin" | "employee";
 type ChatRoute = "refund_workflow" | "order_agent" | "knowledge_rag";
 type View =
   | "dashboard"
+  | "ai_apps"
   | "automation"
   | "automation_operations"
   | "automation_customer_service"
@@ -201,6 +203,20 @@ type NewUserForm = {
   department: string;
 };
 
+type AiAppRecord = {
+  id: string;
+  name: string;
+  description: string;
+  category: string;
+  position: Position | "platform";
+  positionLabel: string;
+  status: "enabled" | "planned";
+  dataSources: string[];
+  owner: string;
+  entryView: View;
+  entryLabel: string;
+};
+
 type DashboardMarket = "all" | "us" | "de" | "jp";
 type DashboardDateRange = "all" | "today" | "7d" | "30d";
 type DashboardStore = "all" | "us_store" | "de_store" | "jp_store";
@@ -228,6 +244,7 @@ const positionConfigs: Record<Position, { label: string; department: string; cap
 
 const navItems: NavItem[] = [
   { path: "/dashboard", id: "dashboard", name: "概览", icon: <DatabaseOutlined />, roles: ["admin", "employee"] },
+  { path: "/ai-apps", id: "ai_apps", name: "AI 应用中心", icon: <AppstoreOutlined />, roles: ["admin", "employee"] },
   {
     path: "/automation",
     id: "automation",
@@ -1437,6 +1454,17 @@ function App() {
                     onNavigate={navigateToView}
                   />
                 )}
+                {safeActiveView === "ai_apps" && (
+                  <AiAppsPanel
+                    role={role}
+                    position={position}
+                    tasks={automationTasks}
+                    erpResources={erpResources}
+                    pendingApprovals={pendingCount}
+                    chatMessageCount={messages.length}
+                    onNavigate={navigateToView}
+                  />
+                )}
                 {isAutomationView(safeActiveView) && (
                   <AutomationPanel
                     role={role}
@@ -2109,6 +2137,176 @@ function ChatPanel(props: {
         </div>
       </div>
     </ProCard>
+  );
+}
+
+function AiAppsPanel({
+  role,
+  position,
+  tasks,
+  erpResources,
+  pendingApprovals,
+  chatMessageCount,
+  onNavigate,
+}: {
+  role: Role;
+  position: Position | null;
+  tasks: AutomationTaskRecord[];
+  erpResources: ErpResourceItem[];
+  pendingApprovals: number;
+  chatMessageCount: number;
+  onNavigate: (view: View) => void;
+}) {
+  const apps = aiAppsForUser(role, position, tasks);
+  const enabledApps = apps.filter((item) => item.status === "enabled").length;
+  const visiblePositions = role === "admin"
+    ? (["operations", "customer_service", "finance"] as Position[])
+    : position ? [position] : [];
+
+  return (
+    <Space direction="vertical" size={16} className="pageStack">
+      <ProCard
+        title="AI 应用中心"
+        subTitle="统一查看企业内部 AI 自动化能力、岗位权限和可进入的工作台"
+        bordered
+      >
+        <Row gutter={[12, 12]} className="aiAppMetricRow">
+          <Col xs={24} md={12} xl={6}>
+            <Card size="small" className="aiAppMetricCard">
+              <Text type="secondary">可见应用</Text>
+              <Title level={3}>{apps.length}</Title>
+              <Text type="secondary">按当前账号权限过滤</Text>
+            </Card>
+          </Col>
+          <Col xs={24} md={12} xl={6}>
+            <Card size="small" className="aiAppMetricCard">
+              <Text type="secondary">已启用</Text>
+              <Title level={3}>{enabledApps}</Title>
+              <Text type="secondary">现有功能入口可直接使用</Text>
+            </Card>
+          </Col>
+          <Col xs={24} md={12} xl={6}>
+            <Card size="small" className="aiAppMetricCard">
+              <Text type="secondary">ERP 资源</Text>
+              <Title level={3}>{erpResources.length}</Title>
+              <Text type="secondary">来自真实岗位 ERP scope</Text>
+            </Card>
+          </Col>
+          <Col xs={24} md={12} xl={6}>
+            <Card size="small" className="aiAppMetricCard">
+              <Text type="secondary">待处理审批</Text>
+              <Title level={3}>{pendingApprovals}</Title>
+              <Text type="secondary">管理员可进入审批中心处理</Text>
+            </Card>
+          </Col>
+        </Row>
+      </ProCard>
+
+      <ProCard
+        title="岗位应用目录"
+        subTitle="当前 loop 先做只读目录；运行次数和成功率将在统一运行记录中心接入后显示真实数据"
+        bordered
+      >
+        {apps.length ? (
+          <Row gutter={[12, 12]}>
+            {apps.map((app) => (
+              <Col xs={24} lg={12} xl={8} key={app.id} className="aiAppCardCol">
+                <Card size="small" className="contextCard aiAppCard">
+                  <div className="aiAppCardBody">
+                    <div className="aiAppHeader">
+                      <Space size={8} className="aiAppTitleWrap">
+                        <AppstoreOutlined />
+                        <Text strong className="aiAppTitle">{app.name}</Text>
+                      </Space>
+                      <Tag color={app.status === "enabled" ? "green" : "gold"}>
+                        {app.status === "enabled" ? "已启用" : "规划中"}
+                      </Tag>
+                    </div>
+                    <Paragraph type="secondary" className="aiAppDescription">
+                      {app.description}
+                    </Paragraph>
+                    <div className="aiAppMetaGrid">
+                      <div>
+                        <Text type="secondary">岗位</Text>
+                        <Text strong>{app.positionLabel}</Text>
+                      </div>
+                      <div>
+                        <Text type="secondary">类别</Text>
+                        <Text strong>{app.category}</Text>
+                      </div>
+                      <div>
+                        <Text type="secondary">负责人</Text>
+                        <Text strong>{app.owner}</Text>
+                      </div>
+                      <div>
+                        <Text type="secondary">运行数据</Text>
+                        <Text strong>待接入</Text>
+                      </div>
+                    </div>
+                    <Space size={[6, 6]} wrap className="aiAppSourceList">
+                      {app.dataSources.map((item) => (
+                        <Tag key={`${app.id}-${item}`}>{item}</Tag>
+                      ))}
+                    </Space>
+                    <div className="aiAppFooter">
+                      <Button
+                        type="primary"
+                        onClick={() => onNavigate(app.entryView)}
+                        disabled={app.status !== "enabled"}
+                      >
+                        {app.entryLabel}
+                      </Button>
+                    </div>
+                  </div>
+                </Card>
+              </Col>
+            ))}
+          </Row>
+        ) : (
+          <Empty description="当前账号暂无可用 AI 应用，请联系管理员分配岗位" />
+        )}
+      </ProCard>
+
+      <ProCard title="岗位权限视图" bordered>
+        {visiblePositions.length ? (
+          <Row gutter={[12, 12]}>
+            {visiblePositions.map((item) => {
+              const config = positionConfigs[item];
+              const taskCount = tasks.filter((task) => task.position === item).length;
+
+              return (
+                <Col xs={24} xl={8} key={item} className="aiAppRoleCol">
+                  <Card size="small" className="contextCard aiAppRoleCard">
+                    <div className="aiAppRoleBody">
+                      <Space size={8}>
+                        <Tag color="blue">{config.label}</Tag>
+                        <Text strong>{config.department}</Text>
+                      </Space>
+                      <Paragraph type="secondary" className="aiAppRoleDescription">
+                        已接入 {taskCount} 个岗位自动化任务，允许访问 {config.erpScopes.length} 类 ERP 资源。
+                      </Paragraph>
+                      <Space size={[6, 6]} wrap>
+                        {config.erpScopes.map((scope) => (
+                          <Tag key={`${item}-${scope}`} color="geekblue">
+                            {scope}
+                          </Tag>
+                        ))}
+                      </Space>
+                    </div>
+                  </Card>
+                </Col>
+              );
+            })}
+          </Row>
+        ) : (
+          <Empty description="当前账号尚未绑定岗位" />
+        )}
+      </ProCard>
+
+      {chatMessageCount > 0 ? (
+        <Text type="secondary">当前浏览器会话已加载 {chatMessageCount} 条聊天消息，可在客服对话或会话详情继续查看。</Text>
+      ) : null}
+    </Space>
   );
 }
 
@@ -3183,10 +3381,10 @@ function dashboardShortcuts(role: Role, position: Position | null): Array<{
         icon: <SafetyCertificateOutlined />,
       },
       {
-        title: "ERP 诊断",
-        description: "检查 ERP provider、密钥配置和岗位资源映射。",
-        view: "erp",
-        icon: <ApiOutlined />,
+        title: "AI 应用中心",
+        description: "查看运营、客服、财务 AI 应用目录和岗位权限。",
+        view: "ai_apps",
+        icon: <AppstoreOutlined />,
       },
       {
         title: "知识库上传",
@@ -3208,7 +3406,7 @@ function dashboardShortcuts(role: Role, position: Position | null): Array<{
       {
         title: "运营 AI 自动化",
         description: "生成 Listing、标题、五点描述、关键词和促销文案。",
-        view: "automation",
+        view: "ai_apps",
         icon: <RobotOutlined />,
       },
       {
@@ -3231,7 +3429,7 @@ function dashboardShortcuts(role: Role, position: Position | null): Array<{
       {
         title: "财务 Excel 生成",
         description: "上传 Excel，生成处理摘要、数值汇总和 AI 建议。",
-        view: "automation",
+        view: "ai_apps",
         icon: <CloudUploadOutlined />,
       },
       {
@@ -3266,7 +3464,7 @@ function dashboardShortcuts(role: Role, position: Position | null): Array<{
       {
         title: "客服自动化",
         description: "生成智能客服回复、自动回复和退款售后话术。",
-        view: "automation",
+        view: "ai_apps",
         icon: <RobotOutlined />,
       },
     ];
@@ -3280,6 +3478,127 @@ function dashboardShortcuts(role: Role, position: Position | null): Array<{
       icon: <MessageOutlined />,
     },
   ];
+}
+
+function aiAppsForUser(
+  role: Role,
+  position: Position | null,
+  tasks: AutomationTaskRecord[],
+): AiAppRecord[] {
+  const allowedPositions = role === "admin"
+    ? (["operations", "customer_service", "finance"] as Position[])
+    : position ? [position] : [];
+  const apps: AiAppRecord[] = [];
+
+  allowedPositions.forEach((item) => {
+    const config = positionConfigs[item];
+    const taskApps = tasks
+      .filter((task) => task.position === item)
+      .map((task) => ({
+        id: `automation-${task.task_id}`,
+        name: task.label,
+        description: task.output_format || task.instruction,
+        category: "岗位自动化",
+        position: item,
+        positionLabel: config.label,
+        status: "enabled" as const,
+        dataSources: ["岗位输入", "大模型", ...config.erpScopes.slice(0, 2)],
+        owner: config.department,
+        entryView: automationViewForPosition(item),
+        entryLabel: "打开自动化",
+      }));
+
+    apps.push(...taskApps);
+
+    if (item === "finance") {
+      apps.push({
+        id: "finance-excel-transform",
+        name: "财务 Excel 生成",
+        description: "上传真实 Excel 文件，生成处理摘要、数值汇总、AI 建议和整理后的新工作簿。",
+        category: "文件自动化",
+        position: item,
+        positionLabel: config.label,
+        status: "enabled",
+        dataSources: ["Excel 文件", "财务规则", "大模型"],
+        owner: config.department,
+        entryView: "automation_finance",
+        entryLabel: "上传 Excel",
+      });
+    }
+
+    apps.push({
+      id: `${item}-erp-query`,
+      name: `${config.label} ERP 查询`,
+      description: `按${config.label}岗位权限查询 ERP 资源，并在 AI 对话和概览中引用真实记录。`,
+      category: "数据查询",
+      position: item,
+      positionLabel: config.label,
+      status: "enabled",
+      dataSources: config.erpScopes.slice(0, 4),
+      owner: config.department,
+      entryView: "erp_query",
+      entryLabel: "查询 ERP",
+    });
+
+    apps.push({
+      id: `${item}-chat-agent`,
+      name: `${config.label} AI 对话`,
+      description: `在${config.label}岗位权限内进行 RAG、ERP 和业务流程问答，越权问题会被拦截。`,
+      category: "AI Agent",
+      position: item,
+      positionLabel: config.label,
+      status: "enabled",
+      dataSources: ["RAG 知识库", "ERP 权限资源", "会话上下文"],
+      owner: config.department,
+      entryView: "chat",
+      entryLabel: "打开对话",
+    });
+  });
+
+  if (role === "admin") {
+    apps.push(
+      {
+        id: "admin-knowledge",
+        name: "知识库维护",
+        description: "上传企业规则、客服话术、财务制度和运营资料，进入真实 RAG 入库流程。",
+        category: "知识治理",
+        position: "platform",
+        positionLabel: "平台",
+        status: "enabled",
+        dataSources: ["DOCX", "PDF", "Excel", "Markdown"],
+        owner: "管理员",
+        entryView: "documents",
+        entryLabel: "维护知识库",
+      },
+      {
+        id: "admin-audit",
+        name: "审计与权限追踪",
+        description: "查看越权拦截、ERP 查询、用户创建、审批处理等真实审计事件。",
+        category: "安全治理",
+        position: "platform",
+        positionLabel: "平台",
+        status: "enabled",
+        dataSources: ["审计日志", "用户权限", "岗位元数据"],
+        owner: "管理员",
+        entryView: "audit",
+        entryLabel: "查看审计",
+      },
+    );
+  }
+
+  return apps;
+}
+
+function automationViewForPosition(position: Position): View {
+  if (position === "customer_service") {
+    return "automation_customer_service";
+  }
+
+  if (position === "finance") {
+    return "automation_finance";
+  }
+
+  return "automation_operations";
 }
 
 function readStoredRole(): Role {

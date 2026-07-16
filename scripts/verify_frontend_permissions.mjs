@@ -37,17 +37,33 @@ try {
     {
       label: "admin_erp_diagnostics_visible",
       account: ACCOUNTS.admin,
-      path: "/erp",
+      path: "/erp/diagnostics",
       waitFor: "岗位资源映射",
       visible: ["管理员 ERP 诊断", "ERPNext", "岗位资源映射"],
       hidden: [],
+    },
+    {
+      label: "admin_ai_apps_visible",
+      account: ACCOUNTS.admin,
+      path: "/ai-apps",
+      waitFor: "岗位应用目录",
+      visible: ["AI 应用中心", "岗位应用目录", "运营 ERP 查询", "客服 ERP 查询", "财务 ERP 查询", "知识库维护", "审计与权限追踪"],
+      hidden: [],
+    },
+    {
+      label: "finance_ai_apps_scoped",
+      account: ACCOUNTS.finance,
+      path: "/ai-apps",
+      waitFor: "财务 ERP 查询",
+      visible: ["AI 应用中心", "财务 ERP 查询", "财务 AI 对话", "财务 Excel 生成", "运行记录中心接入后显示真实数据"],
+      hidden: ["运营 ERP 查询", "客服 ERP 查询", "知识库维护", "审计与权限追踪"],
     },
     {
       label: "admin_dashboard_shortcuts_visible",
       account: ACCOUNTS.admin,
       path: "/dashboard",
       waitFor: "ERP 连接",
-      visible: ["管理员快捷入口", "用户管理", "ERP 诊断", "知识库上传", "审计日志", "平台数据概览", "ERP 连接", "全部", "美国", "德国", "日本", "全部时间", "今天", "近7天", "近30天", "全部店铺", "US Store", "DE Store", "JP Store"],
+      visible: ["管理员快捷入口", "用户管理", "AI 应用中心", "知识库上传", "审计日志", "平台数据概览", "ERP 连接", "全部", "美国", "德国", "日本", "全部时间", "今天", "近7天", "近30天", "全部店铺", "US Store", "DE Store", "JP Store"],
       hidden: [],
       afterChecks: async (page) => {
         await clickShortcut(page, "用户管理");
@@ -83,9 +99,9 @@ try {
       hidden: ["用户管理", "知识库上传", "客服 AI 对话", "运营 AI 自动化"],
       afterChecks: async (page) => {
         await clickShortcut(page, "财务 Excel 生成");
-        await page.waitForURL("**/automation", { timeout: 10000 });
+        await page.waitForURL("**/ai-apps", { timeout: 10000 });
         return {
-          ok: await isTextVisible(page, "上传 Excel 生成新表"),
+          ok: await isTextVisible(page, "AI 应用中心") && await isTextVisible(page, "财务 Excel 生成"),
           currentUrl: page.url(),
         };
       },
@@ -168,9 +184,9 @@ try {
       visible: ["财务岗位", "总账分录"],
       hidden: [],
       afterChecks: async (page) => {
-        await clickMenu(page, "岗位应用");
-        await page.waitForURL("**/automation", { timeout: 10000 });
-        const automationVisible = await isTextVisible(page, "财务 AI 自动化");
+        await page.goto(`${FRONTEND_URL}/ai-apps`, { waitUntil: "networkidle" });
+        await page.waitForURL("**/ai-apps", { timeout: 10000 });
+        const automationVisible = await isTextVisible(page, "财务 Excel 生成");
         await page.goBack({ waitUntil: "networkidle" });
         await page.waitForURL("**/erp", { timeout: 10000 });
         const erpVisible = await isTextVisible(page, "财务岗位");

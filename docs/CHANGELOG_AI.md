@@ -885,3 +885,43 @@
 
 #### 后续待做
 - Platform Loop 1：企业级导航与只读 AI 应用中心。
+
+### 日期：2026-07-17
+
+#### 本次目标
+- 完成 Platform Loop 1：新增企业级 AI 应用中心，把现有岗位自动化、ERP 查询、AI 对话、财务 Excel、知识库和审计能力统一展示为只读应用目录。
+
+#### 修改内容
+- 左侧导航新增“AI 应用中心”页面 `/ai-apps`。
+- 新增 `AiAppsPanel`，按真实登录账号权限展示应用目录。
+- 管理员可见运营、客服、财务和平台治理应用；财务等员工只可见本岗位应用。
+- 应用卡片展示应用名称、岗位、类别、负责人、数据源和入口按钮。
+- 页面明确标注运行数据将在统一运行记录中心接入后展示，不伪造运行次数或成功率。
+- 首页快捷入口中的岗位自动化入口改为进入 AI 应用中心，原岗位自动化执行页仍保留并可从应用卡进入。
+- 修复移动端 ProLayout 顶部用户区、ProCard 标题副标题导致的横向溢出问题。
+- 前端权限回归脚本增加 AI 应用中心用例，并将 ERP 诊断验证改为直达 `/erp/diagnostics`。
+
+#### 修改文件
+- `frontend/src/main.tsx`
+- `frontend/src/styles.css`
+- `scripts/verify_frontend_permissions.mjs`
+- `docs/TASKS.md`
+- `docs/CHANGELOG_AI.md`
+
+#### 验证方式
+- `npm run build`
+- 真实登录 API + 真实前端页面截图检查：
+  - `admin_demo / Admin123456` 打开 `/ai-apps`
+  - `finance_demo / Finance123456` 打开 `/ai-apps`
+  - 390px 移动端打开 `/ai-apps`
+- `NODE_PATH=/Users/xiaoxiang/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules node scripts/verify_frontend_permissions.mjs`
+
+#### 验证结果
+- 前端构建通过，仅保留 Vite chunk 体积警告。
+- 管理员桌面 AI 应用中心截图通过，22 个应用卡，无横向溢出。
+- 财务桌面 AI 应用中心截图通过，6 个应用卡，无横向溢出。
+- 财务 390px 移动端 AI 应用中心截图通过，无横向溢出。
+- 前端权限可见性真实回归全部通过，覆盖管理员、运营、客服、财务、ERP 诊断、AI 应用中心、首页快捷入口、路由后退和无权访问提示。
+
+#### 后续待做
+- Platform Loop 2：新增统一运行记录中心，用真实数据库记录 AI 应用和流程执行。
