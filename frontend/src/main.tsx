@@ -67,6 +67,7 @@ import {
   getErpScopes,
   getErpStatus,
   listAutomationTasks,
+  listRunRecords,
   sendPublicLLMChatStream,
   sendChatStream,
   uploadDocument,
@@ -75,6 +76,7 @@ import {
   listRefunds,
   listUsers,
   getThreadMessages,
+  getRunRecordDetail,
   queryErp,
   reviewApproval as reviewApprovalApi,
   type ApprovalItem,
@@ -90,6 +92,9 @@ import {
   type Position,
   type PublicLLMMessage,
   type RefundItem,
+  type RunRecordDetailResponse,
+  type RunRecordFilters,
+  type RunRecordItem,
   type ThreadMessageItem,
   type UserCreatePayload,
   type UserItem,
@@ -109,6 +114,7 @@ type ChatRoute = "refund_workflow" | "order_agent" | "knowledge_rag";
 type View =
   | "dashboard"
   | "ai_apps"
+  | "run_records"
   | "automation"
   | "automation_operations"
   | "automation_customer_service"
@@ -217,6 +223,15 @@ type AiAppRecord = {
   entryLabel: string;
 };
 
+type RunRecordFilterState = {
+  status: "all" | "running" | "succeeded" | "failed" | "blocked";
+  runType: string;
+  appId: string;
+  position: Position | "all";
+  resourceType: string;
+  resourceId: string;
+};
+
 type DashboardMarket = "all" | "us" | "de" | "jp";
 type DashboardDateRange = "all" | "today" | "7d" | "30d";
 type DashboardStore = "all" | "us_store" | "de_store" | "jp_store";
@@ -245,6 +260,7 @@ const positionConfigs: Record<Position, { label: string; department: string; cap
 const navItems: NavItem[] = [
   { path: "/dashboard", id: "dashboard", name: "概览", icon: <DatabaseOutlined />, roles: ["admin", "employee"] },
   { path: "/ai-apps", id: "ai_apps", name: "AI 应用中心", icon: <AppstoreOutlined />, roles: ["admin", "employee"] },
+  { path: "/run-records", id: "run_records", name: "运行记录", icon: <HistoryOutlined />, roles: ["admin", "employee"] },
   {
     path: "/automation",
     id: "automation",
@@ -373,6 +389,19 @@ function App() {
   const [auditActionFilter, setAuditActionFilter] = useState("");
   const [auditResourceFilter, setAuditResourceFilter] = useState("");
   const [auditPositionFilter, setAuditPositionFilter] = useState<Position | "all">("all");
+  const [runRecords, setRunRecords] = useState<RunRecordItem[]>([]);
+  const [runRecordFilters, setRunRecordFilters] = useState<RunRecordFilterState>({
+    status: "all",
+    runType: "",
+    appId: "",
+    position: "all",
+    resourceType: "",
+    resourceId: "",
+  });
+  const [runRecordDetail, setRunRecordDetail] = useState<RunRecordDetailResponse | null>(null);
+  const [isRunRecordDetailOpen, setIsRunRecordDetailOpen] = useState(false);
+  const [isRunRecordDetailLoading, setIsRunRecordDetailLoading] = useState(false);
+  const [isRunRecordsLoading, setIsRunRecordsLoading] = useState(false);
   const [users, setUsers] = useState<UserRecord[]>([]);
   const [automationTasks, setAutomationTasks] = useState<AutomationTaskRecord[]>([]);
   const [erpResources, setErpResources] = useState<ErpResourceItem[]>([]);
@@ -499,6 +528,7 @@ function App() {
     void refreshAutomationTasks(storedToken, position || undefined);
     void refreshErpScopes(storedToken, role);
     void refreshErpDashboardOverview(storedToken, erpDashboardMarket, erpDashboardDateRange, erpDashboardStore);
+    void refreshRunRecords(storedToken);
 
     if (role === "admin") {
       void refreshAdminData(storedToken);
@@ -543,6 +573,7 @@ function App() {
       await refreshAutomationTasks(result.access_token, nextPosition || undefined);
       await refreshErpScopes(result.access_token, nextRole);
       await refreshErpDashboardOverview(result.access_token, erpDashboardMarket, erpDashboardDateRange, erpDashboardStore);
+      await refreshRunRecords(result.access_token);
 
       setIsLoginModalOpen(false);
     } catch (error) {
@@ -571,6 +602,9 @@ function App() {
     setApprovals([]);
     setRefunds([]);
     setAuditLogs([]);
+    setRunRecords([]);
+    setRunRecordDetail(null);
+    setIsRunRecordDetailOpen(false);
     setUsers([]);
     setAutomationTasks([]);
     setFinanceExcelFile(null);
@@ -661,6 +695,67 @@ function App() {
       const text = error instanceof Error ? error.message : "审计日志刷新失败";
       setStatusMessage(text);
       message.error(text);
+    }
+  }
+
+  function runRecordFilterPayload(filters = runRecordFilters): RunRecordFilters {
+    return {
+      status: filters.status === "all" ? undefined : filters.status,
+      run_type: filters.runType.trim() || undefined,
+      app_id: filters.appId.trim() || undefined,
+      position: filters.position,
+      resource_type: filters.resourceType.trim() || undefined,
+      resource_id: filters.resourceId.trim() || undefined,
+      limit: 80,
+    };
+  }
+
+  async function refreshRunRecords(activeToken = token, filters = runRecordFilters) {
+    if (!activeToken) {
+      return;
+    }
+
+    setIsRunRecordsLoading(true);
+
+    try {
+      const result = await listRunRecords(activeToken, runRecordFilterPayload(filters));
+      setRunRecords(result.items);
+      setStatusMessage("运行记录已刷新");
+    } catch (error) {
+      if (isAuthExpiredError(error)) {
+        return;
+      }
+      const text = error instanceof Error ? error.message : "运行记录加载失败";
+      setStatusMessage(text);
+      message.error(text);
+    } finally {
+      setIsRunRecordsLoading(false);
+    }
+  }
+
+  async function openRunRecordDetail(runId: string) {
+    if (!token) {
+      setStatusMessage("请先登录");
+      message.warning("请先登录");
+      return;
+    }
+
+    setIsRunRecordDetailOpen(true);
+    setIsRunRecordDetailLoading(true);
+    setRunRecordDetail(null);
+
+    try {
+      setRunRecordDetail(await getRunRecordDetail(token, runId));
+      setStatusMessage("运行记录详情已加载");
+    } catch (error) {
+      if (isAuthExpiredError(error)) {
+        return;
+      }
+      const text = error instanceof Error ? error.message : "运行记录详情加载失败";
+      setStatusMessage(text);
+      message.error(text);
+    } finally {
+      setIsRunRecordDetailLoading(false);
     }
   }
 
@@ -868,6 +963,7 @@ function App() {
       } else {
         message.warning(result.message || "ERP 未返回可用数据");
       }
+      void refreshRunRecords();
     } catch (error) {
       if (isAuthExpiredError(error)) {
         return;
@@ -924,6 +1020,7 @@ function App() {
       );
       setStatusMessage(`${result.position_label}任务生成完成`);
       message.success("生成完成");
+      void refreshRunRecords();
     } catch (error) {
       if (isAuthExpiredError(error)) {
         return;
@@ -961,6 +1058,7 @@ function App() {
       downloadBlob(result.blob, result.filename);
       setStatusMessage("财务 Excel 已生成并开始下载");
       message.success("财务 Excel 已生成");
+      void refreshRunRecords();
     } catch (error) {
       if (isAuthExpiredError(error)) {
         return;
@@ -1111,6 +1209,7 @@ function App() {
       });
 
       setStatusMessage("聊天完成");
+      void refreshRunRecords();
 
       if (role === "admin") {
         await refreshAdminData();
@@ -1465,6 +1564,17 @@ function App() {
                     onNavigate={navigateToView}
                   />
                 )}
+                {safeActiveView === "run_records" && (
+                  <RunRecordsPanel
+                    role={role}
+                    records={runRecords}
+                    filters={runRecordFilters}
+                    setFilters={setRunRecordFilters}
+                    loading={isRunRecordsLoading}
+                    refreshRecords={() => refreshRunRecords()}
+                    openDetail={openRunRecordDetail}
+                  />
+                )}
                 {isAutomationView(safeActiveView) && (
                   <AutomationPanel
                     role={role}
@@ -1601,6 +1711,12 @@ function App() {
               loading={isErpRecordDetailLoading}
               detail={erpRecordDetail}
               onClose={() => setIsErpRecordDetailOpen(false)}
+            />
+            <RunRecordDetailModal
+              open={isRunRecordDetailOpen}
+              loading={isRunRecordDetailLoading}
+              detail={runRecordDetail}
+              onClose={() => setIsRunRecordDetailOpen(false)}
             />
           </ProLayout>
         </AntApp>
@@ -2204,7 +2320,7 @@ function AiAppsPanel({
 
       <ProCard
         title="岗位应用目录"
-        subTitle="当前 loop 先做只读目录；运行次数和成功率将在统一运行记录中心接入后显示真实数据"
+        subTitle="执行数据已接入运行记录页面；应用目录保留为岗位能力入口"
         bordered
       >
         {apps.length ? (
@@ -3149,6 +3265,337 @@ function AuditPanel({
   );
 }
 
+function RunRecordsPanel({
+  role,
+  records,
+  filters,
+  setFilters,
+  loading,
+  refreshRecords,
+  openDetail,
+}: {
+  role: Role;
+  records: RunRecordItem[];
+  filters: RunRecordFilterState;
+  setFilters: React.Dispatch<React.SetStateAction<RunRecordFilterState>>;
+  loading: boolean;
+  refreshRecords: () => void;
+  openDetail: (runId: string) => void;
+}) {
+  const statusCounts = {
+    succeeded: records.filter((item) => item.status === "succeeded").length,
+    failed: records.filter((item) => item.status === "failed").length,
+    blocked: records.filter((item) => item.status === "blocked").length,
+    running: records.filter((item) => item.status === "running").length,
+  };
+
+  return (
+    <Space direction="vertical" size={16} className="pageStack">
+      <Row gutter={[12, 12]} className="runRecordMetricRow">
+        <Col xs={12} lg={6}>
+          <Card size="small" className="runRecordMetricCard">
+            <Text type="secondary">记录总数</Text>
+            <Title level={3}>{records.length}</Title>
+          </Card>
+        </Col>
+        <Col xs={12} lg={6}>
+          <Card size="small" className="runRecordMetricCard">
+            <Text type="secondary">成功</Text>
+            <Title level={3}>{statusCounts.succeeded}</Title>
+          </Card>
+        </Col>
+        <Col xs={12} lg={6}>
+          <Card size="small" className="runRecordMetricCard">
+            <Text type="secondary">失败</Text>
+            <Title level={3}>{statusCounts.failed}</Title>
+          </Card>
+        </Col>
+        <Col xs={12} lg={6}>
+          <Card size="small" className="runRecordMetricCard">
+            <Text type="secondary">越权拦截</Text>
+            <Title level={3}>{statusCounts.blocked}</Title>
+          </Card>
+        </Col>
+      </Row>
+
+      <ProCard
+        title="运行记录"
+        subTitle={role === "admin" ? "管理员查看全平台脱敏摘要" : "当前账号只能查看自己的运行记录"}
+        bordered
+        extra={
+          <Button size="small" icon={<ReloadOutlined />} onClick={refreshRecords} loading={loading}>
+            刷新
+          </Button>
+        }
+      >
+        <div className="runRecordFilterGrid">
+          <Select
+            size="small"
+            value={filters.status}
+            onChange={(value) => setFilters((current) => ({ ...current, status: value }))}
+            options={[
+              { label: "全部状态", value: "all" },
+              { label: "成功", value: "succeeded" },
+              { label: "失败", value: "failed" },
+              { label: "拦截", value: "blocked" },
+              { label: "运行中", value: "running" },
+            ]}
+          />
+          <Input
+            size="small"
+            value={filters.runType}
+            placeholder="类型"
+            onChange={(event) => setFilters((current) => ({ ...current, runType: event.target.value }))}
+          />
+          <Input
+            size="small"
+            value={filters.appId}
+            placeholder="应用 ID"
+            onChange={(event) => setFilters((current) => ({ ...current, appId: event.target.value }))}
+          />
+          {role === "admin" && (
+            <Select
+              size="small"
+              value={filters.position}
+              onChange={(value) => setFilters((current) => ({ ...current, position: value }))}
+              options={[
+                { label: "全部岗位", value: "all" },
+                { label: "运营", value: "operations" },
+                { label: "客服", value: "customer_service" },
+                { label: "财务", value: "finance" },
+              ]}
+            />
+          )}
+          <Input
+            size="small"
+            value={filters.resourceType}
+            placeholder="资源类型"
+            onChange={(event) => setFilters((current) => ({ ...current, resourceType: event.target.value }))}
+          />
+          <Input
+            size="small"
+            value={filters.resourceId}
+            placeholder="资源 ID"
+            onChange={(event) => setFilters((current) => ({ ...current, resourceId: event.target.value }))}
+          />
+          <Button size="small" type="primary" icon={<SearchOutlined />} onClick={refreshRecords} loading={loading}>
+            查询
+          </Button>
+        </div>
+
+        <Table<RunRecordItem>
+          rowKey="id"
+          loading={loading}
+          dataSource={records}
+          className="runRecordTable"
+          scroll={{ x: 1080 }}
+          locale={{ emptyText: <Empty description="暂无运行记录" /> }}
+          columns={[
+            {
+              title: "应用",
+              dataIndex: "app_name",
+              width: 210,
+              render: (value, record) => (
+                <Space direction="vertical" size={2} className="runRecordCellStack">
+                  <Text strong className="runRecordText">{value}</Text>
+                  <Text type="secondary" className="runRecordMono">{record.app_id}</Text>
+                </Space>
+              ),
+            },
+            {
+              title: "状态",
+              dataIndex: "status",
+              width: 92,
+              render: (value) => <StatusTag value={String(value)} />,
+            },
+            {
+              title: "类型",
+              dataIndex: "run_type",
+              width: 150,
+              render: (value) => <Text className="runRecordMono">{String(value)}</Text>,
+            },
+            {
+              title: "用户/岗位",
+              dataIndex: "username",
+              width: 140,
+              render: (value, record) => (
+                <Space direction="vertical" size={2} className="runRecordCellStack">
+                  <Text>{value || "-"}</Text>
+                  {isPosition(record.position) ? <Tag color="purple">{positionLabel(record.position)}</Tag> : <Tag>管理员</Tag>}
+                </Space>
+              ),
+            },
+            {
+              title: "资源",
+              dataIndex: "resource_id",
+              width: 180,
+              render: (value, record) => (
+                <Space direction="vertical" size={2} className="runRecordCellStack">
+                  <Text type="secondary">{record.resource_type || "-"}</Text>
+                  <Text className="runRecordMono">{value || "-"}</Text>
+                </Space>
+              ),
+            },
+            {
+              title: "摘要",
+              dataIndex: "output_preview",
+              width: 260,
+              render: (value, record) => (
+                <Text className="runRecordPreview">
+                  {record.error_message || value || record.input_preview || "-"}
+                </Text>
+              ),
+            },
+            {
+              title: "耗时",
+              dataIndex: "duration_ms",
+              width: 90,
+              render: (value) => formatDuration(value),
+            },
+            {
+              title: "步骤/产物",
+              dataIndex: "step_count",
+              width: 100,
+              render: (value, record) => `${value}/${record.artifact_count}`,
+            },
+            {
+              title: "时间",
+              dataIndex: "started_at",
+              width: 170,
+              render: (value) => formatTime(value),
+            },
+            {
+              title: "操作",
+              dataIndex: "id",
+              fixed: "right",
+              width: 96,
+              render: (value) => (
+                <Button size="small" type="link" onClick={() => openDetail(String(value))}>
+                  详情
+                </Button>
+              ),
+            },
+          ]}
+        />
+      </ProCard>
+    </Space>
+  );
+}
+
+function RunRecordDetailModal({
+  open,
+  loading,
+  detail,
+  onClose,
+}: {
+  open: boolean;
+  loading: boolean;
+  detail: RunRecordDetailResponse | null;
+  onClose: () => void;
+}) {
+  return (
+    <Modal
+      open={open}
+      title={detail ? `运行记录 / ${detail.run.app_name}` : "运行记录"}
+      onCancel={onClose}
+      footer={[
+        <Button key="close" onClick={onClose}>
+          关闭
+        </Button>,
+      ]}
+      width={920}
+    >
+      {loading ? (
+        <Empty description="正在加载运行记录详情" />
+      ) : detail ? (
+        <Space direction="vertical" size={14} className="pageStack">
+          <div className="runRecordDetailGrid">
+            <RunRecordDetailItem label="状态" value={<StatusTag value={detail.run.status} />} />
+            <RunRecordDetailItem label="类型" value={detail.run.run_type} mono />
+            <RunRecordDetailItem label="应用 ID" value={detail.run.app_id} mono />
+            <RunRecordDetailItem label="入口" value={detail.run.entrypoint} mono />
+            <RunRecordDetailItem label="用户" value={detail.run.username || "-"} />
+            <RunRecordDetailItem label="岗位" value={isPosition(detail.run.position) ? positionLabel(detail.run.position) : "管理员"} />
+            <RunRecordDetailItem label="资源" value={`${detail.run.resource_type || "-"} / ${detail.run.resource_id || "-"}`} mono />
+            <RunRecordDetailItem label="耗时" value={formatDuration(detail.run.duration_ms)} />
+            <RunRecordDetailItem label="开始时间" value={formatTime(detail.run.started_at)} />
+            <RunRecordDetailItem label="结束时间" value={formatTime(detail.run.finished_at)} />
+          </div>
+
+          <ProCard title="输入输出摘要" bordered size="small">
+            <Row gutter={[12, 12]}>
+              <Col xs={24} md={12}>
+                <Text type="secondary">输入摘要</Text>
+                <Paragraph className="runRecordDetailPreview">{detail.run.input_preview || "-"}</Paragraph>
+              </Col>
+              <Col xs={24} md={12}>
+                <Text type="secondary">输出/错误摘要</Text>
+                <Paragraph className="runRecordDetailPreview">
+                  {detail.run.error_message || detail.run.output_preview || "-"}
+                </Paragraph>
+              </Col>
+            </Row>
+          </ProCard>
+
+          <ProCard title="执行步骤" bordered size="small">
+            <Table
+              rowKey="id"
+              dataSource={detail.steps}
+              pagination={false}
+              scroll={{ x: 760 }}
+              locale={{ emptyText: <Empty description="暂无步骤" /> }}
+              columns={[
+                { title: "序号", dataIndex: "step_order", width: 70 },
+                { title: "步骤", dataIndex: "step_name", width: 180, render: (value) => <Text className="runRecordMono">{String(value)}</Text> },
+                { title: "状态", dataIndex: "status", width: 92, render: (value) => <StatusTag value={String(value)} /> },
+                { title: "Provider", dataIndex: "provider", width: 120 },
+                { title: "资源", dataIndex: "resource_id", width: 160, render: (value) => <Text className="runRecordMono">{value || "-"}</Text> },
+                { title: "摘要", dataIndex: "output_preview", render: (value, record) => <Text className="runRecordPreview">{record.error_message || value || record.input_preview || "-"}</Text> },
+                { title: "耗时", dataIndex: "duration_ms", width: 90, render: (value) => formatDuration(value) },
+              ]}
+            />
+          </ProCard>
+
+          <ProCard title="产物与引用" bordered size="small">
+            <Table
+              rowKey="id"
+              dataSource={detail.artifacts}
+              pagination={false}
+              scroll={{ x: 680 }}
+              locale={{ emptyText: <Empty description="暂无产物引用" /> }}
+              columns={[
+                { title: "类型", dataIndex: "artifact_type", width: 130 },
+                { title: "名称", dataIndex: "name", render: (value) => <Text className="runRecordText">{String(value)}</Text> },
+                { title: "引用", dataIndex: "external_ref", width: 180, render: (value) => <Text className="runRecordMono">{value || "-"}</Text> },
+                { title: "大小", dataIndex: "size_bytes", width: 100, render: (value) => formatBytes(value) },
+              ]}
+            />
+          </ProCard>
+        </Space>
+      ) : (
+        <Empty description="请选择一条运行记录" />
+      )}
+    </Modal>
+  );
+}
+
+function RunRecordDetailItem({
+  label,
+  value,
+  mono = false,
+}: {
+  label: string;
+  value: React.ReactNode;
+  mono?: boolean;
+}) {
+  return (
+    <div className="runRecordDetailItem">
+      <Text type="secondary">{label}</Text>
+      <Text className={mono ? "runRecordMono" : "runRecordText"}>{value}</Text>
+    </div>
+  );
+}
+
 function ErpRecordDetailModal({
   open,
   loading,
@@ -3308,6 +3755,8 @@ function StatusTag({ value }: { value: string }) {
     rejected: "red",
     succeeded: "green",
     failed: "red",
+    blocked: "volcano",
+    running: "blue",
   };
 
   return <Tag color={colorMap[value] || "default"}>{labelForBadge(value)}</Tag>;
@@ -3936,6 +4385,42 @@ function formatDate(value: string) {
   });
 }
 
+function formatTime(value: string | null) {
+  if (!value) {
+    return "-";
+  }
+
+  return formatDate(value);
+}
+
+function formatDuration(value: unknown) {
+  if (typeof value !== "number") {
+    return "-";
+  }
+
+  if (value < 1000) {
+    return `${value}ms`;
+  }
+
+  return `${(value / 1000).toFixed(1)}s`;
+}
+
+function formatBytes(value: unknown) {
+  if (typeof value !== "number") {
+    return "-";
+  }
+
+  if (value < 1024) {
+    return `${value}B`;
+  }
+
+  if (value < 1024 * 1024) {
+    return `${(value / 1024).toFixed(1)}KB`;
+  }
+
+  return `${(value / 1024 / 1024).toFixed(1)}MB`;
+}
+
 function routeFromIntent(intent: string | null, riskLevel: string | null): ChatRoute | undefined {
   if (intent === "refund" || riskLevel === "high") {
     return "refund_workflow";
@@ -4013,6 +4498,8 @@ function labelForBadge(value: string) {
     rejected: "已拒绝",
     succeeded: "成功",
     failed: "失败",
+    blocked: "已拦截",
+    running: "运行中",
   };
 
   return labels[value] ?? value;

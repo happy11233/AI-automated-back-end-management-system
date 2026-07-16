@@ -30,7 +30,7 @@
 
 ## 当前状态
 
-项目已完成初步分析和岗位/ERP/权限/审计/首页概览等多轮最小闭环。后续目标升级为企业级 AI 自动化平台，应遵循 Loop Engineering：小步开发、多 Agent 分工、优先复用、真实测试、截图验收、同步更新文档。
+项目已完成初步分析和岗位/ERP/权限/审计/首页概览等多轮最小闭环。企业级 AI 自动化平台升级已完成 Platform Loop 0、Loop 1 和 Loop 2：Loop Engineering 规则、AI 应用中心、统一运行记录中心。后续仍应遵循 Loop Engineering：小步开发、多 Agent 分工、优先复用、真实测试、截图验收、同步更新文档。
 
 ### Loop Engineering 硬规则
 
@@ -200,6 +200,9 @@ docs/                       项目上下文、任务、变更记录、示例文�
 - `approval_requests`
 - `refund_transactions`
 - `audit_logs`
+- `automation_runs`
+- `automation_run_steps`
+- `automation_run_artifacts`
 
 未配置飞书工单时，外部工单会落到本地文件：
 

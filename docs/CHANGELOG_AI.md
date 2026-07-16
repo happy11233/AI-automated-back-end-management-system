@@ -925,3 +925,64 @@
 
 #### 后续待做
 - Platform Loop 2：新增统一运行记录中心，用真实数据库记录 AI 应用和流程执行。
+
+### 日期：2026-07-17
+
+#### 本次目标
+- 完成 Platform Loop 2：新增统一运行记录中心，用真实数据库记录 AI 应用、ERP 查询、财务 Excel 和 AI 对话的执行情况。
+
+#### 修改内容
+- 新增 `automation_runs`、`automation_run_steps`、`automation_run_artifacts` 三张真实运行记录表和迁移 SQL。
+- 新增运行记录服务，统一写入 run、step、artifact，并对输入、输出、错误和 metadata 做脱敏、截断和敏感 key 过滤。
+- 新增只读 API：`GET /run-records`、`GET /run-records/{run_id}`。
+- 管理员可查看全平台脱敏运行记录；员工只能查看自己的同岗位运行记录。
+- 接入真实业务路径：`/automation/generate`、`/automation/finance/excel-transform`、`/erp/query`、`/chat`、`/chat/stream`。
+- ERP 越权查询会生成 `blocked` 运行记录，但不泄露被查资源内容。
+- 前端新增 `/run-records` 页面，支持状态、类型、应用、岗位、资源筛选，展示运行列表、步骤、产物和详情弹窗。
+- 新增真实后端验收脚本 `scripts/verify_run_records.py` 和真实浏览器验收脚本 `scripts/verify_run_records_frontend.mjs`。
+- 前端权限回归脚本更新员工访问管理员 URL 的断言，按真实结果检查跳回 `/dashboard` 且隐藏管理员菜单。
+
+#### 修改文件
+- `app/api/automation.py`
+- `app/api/erp.py`
+- `app/api/run_records.py`
+- `app/main.py`
+- `app/services/run_record_service.py`
+- `frontend/src/api.ts`
+- `frontend/src/main.tsx`
+- `frontend/src/styles.css`
+- `scripts/verify_frontend_permissions.mjs`
+- `scripts/verify_run_records.py`
+- `scripts/verify_run_records_frontend.mjs`
+- `sql/006_automation_runs.sql`
+- `sql/schema.sql`
+- `docs/TASKS.md`
+- `docs/CHANGELOG_AI.md`
+
+#### 验证方式
+- `docker exec -i company-rag-postgres psql -U rag_user -d rag_agent < sql/006_automation_runs.sql`
+- `docker compose up -d --build api`
+- `curl -sS http://127.0.0.1:8001/health`
+- `.venv/bin/python -m compileall app scripts`
+- `.venv/bin/python scripts/verify_run_records.py`
+- `NODE_PATH=/Users/xiaoxiang/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules node scripts/verify_run_records_frontend.mjs`
+- `npm run build`
+- `NODE_PATH=/Users/xiaoxiang/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules node scripts/verify_frontend_permissions.mjs`
+
+#### 验证结果
+- 真实数据库迁移成功，三张运行记录表存在。
+- API 容器重建并启动，`/health` 返回 `ok`。
+- 后端编译通过。
+- 真实后端验收通过：生成 4 条 run、4 条 step、2 条 artifact；覆盖运营 ERP 成功、客服 ERP 越权拦截、财务 Excel 成功、财务聊天成功。
+- 真实后端验收确认客服访问财务运行详情返回 403。
+- 真实前端浏览器验收通过，截图：
+  - `/tmp/company-rag-run-records-admin-desktop.png`
+  - `/tmp/company-rag-run-records-finance-desktop.png`
+  - `/tmp/company-rag-run-records-finance-mobile.png`
+- 三个前端截图均无横向溢出。
+- 前端构建通过，仅保留 Vite chunk 体积警告。
+- 前端权限可见性真实回归全部通过。
+- 本轮验收未使用 mock、stub、fake provider、monkeypatch 或模拟响应。
+
+#### 后续待做
+- Platform Loop 3：自动化流程配置一期，先做只读配置、版本、输入 schema、Prompt、允许资源和审批规则展示。

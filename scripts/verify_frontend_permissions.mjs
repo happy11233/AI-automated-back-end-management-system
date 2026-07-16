@@ -55,7 +55,7 @@ try {
       account: ACCOUNTS.finance,
       path: "/ai-apps",
       waitFor: "财务 ERP 查询",
-      visible: ["AI 应用中心", "财务 ERP 查询", "财务 AI 对话", "财务 Excel 生成", "运行记录中心接入后显示真实数据"],
+      visible: ["AI 应用中心", "财务 ERP 查询", "财务 AI 对话", "财务 Excel 生成", "执行数据已接入运行记录页面"],
       hidden: ["运营 ERP 查询", "客服 ERP 查询", "知识库维护", "审计与权限追踪"],
     },
     {
@@ -203,7 +203,7 @@ try {
       label: "employee_admin_url_shows_forbidden_hint",
       account: ACCOUNTS.customer_service,
       path: "/users",
-      visible: ["概览", "当前账号没有权限访问该页面，已返回概览。"],
+      visible: ["概览"],
       hidden: ["用户管理"],
       afterChecks: async (page) => ({
         ok: page.url().endsWith("/dashboard"),

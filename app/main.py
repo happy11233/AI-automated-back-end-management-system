@@ -20,6 +20,7 @@ from app.api.approvals import router as approvals_router
 from app.api.automation import router as automation_router
 from app.api.erp import router as erp_router
 from app.api.refunds import router as refunds_router
+from app.api.run_records import router as run_records_router
 from app.api.threads import router as threads_router
 from app.api.users import router as users_router
 from app.permissions import ensure_chat_allowed_for_position
@@ -39,6 +40,14 @@ from app.services.mcp_service import (
     create_external_ticket,
     get_external_ticket,
     sync_document_system_to_rag,
+)
+from app.services.run_record_service import (
+    elapsed_ms,
+    finish_run,
+    now_ms,
+    record_artifact,
+    record_step,
+    start_run,
 )
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -73,6 +82,7 @@ app.include_router(automation_router)
 app.include_router(audit_logs_router)
 app.include_router(erp_router)
 app.include_router(refunds_router)
+app.include_router(run_records_router)
 app.include_router(threads_router)
 app.include_router(users_router)
 
@@ -320,7 +330,24 @@ def chat(request: ChatRequest,current_user: dict = Depends(get_current_user),):
         role="user",
         content=request.message,
     )
-    result = graph.invoke({
+    started_ms = now_ms()
+    position = current_user.get("position")
+    run_id = start_run(
+        run_type="chat",
+        app_id=f"{position or 'admin'}-chat-agent",
+        app_name=f"{position_label_for_run(position)} AI 对话",
+        entrypoint="/chat",
+        current_user=current_user,
+        thread_id=thread_id,
+        resource_type="thread",
+        resource_id=thread_id,
+        input_text=request.message,
+        metadata={
+            "context_summary_used": bool(context_bundle.get("summary", {}).get("summary")),
+            "recent_message_count": len(context_bundle.get("recent_messages", [])),
+        },
+    )
+    graph_input = {
         "thread_id": thread_id,
         "user_input": request.message,
         "user_id": current_user["id"],
@@ -329,7 +356,86 @@ def chat(request: ChatRequest,current_user: dict = Depends(get_current_user),):
         "position": current_user.get("position"),
         "username": current_user.get("username"),
         "context": context_bundle,
-    })
+    }
+    try:
+        step_started_ms = now_ms()
+        result = graph.invoke(graph_input)
+        erp_references = erp_references_from_result(result)
+        record_step(
+            run_id=run_id,
+            step_name="graph.invoke",
+            step_order=1,
+            status_value="succeeded",
+            provider="langgraph",
+            resource_type="thread",
+            resource_id=result.get("thread_id", thread_id),
+            input_text=request.message,
+            output_text=result.get("answer", ""),
+            duration_ms=elapsed_ms(step_started_ms),
+            metadata={
+                "intent": result.get("intent"),
+                "risk_level": result.get("risk_level"),
+                "erp_resource": result.get("erp_resource"),
+                "erp_reference_count": len(erp_references),
+            },
+        )
+        for index, reference in enumerate(erp_references[:10], start=1):
+            record_artifact(
+                run_id=run_id,
+                artifact_type="erp_reference",
+                name=str(reference.get("title") or reference.get("record_id") or "ERP 引用"),
+                external_ref=str(reference.get("record_id") or ""),
+                metadata={
+                    "resource": reference.get("resource"),
+                    "resource_label": reference.get("resource_label"),
+                    "provider": reference.get("provider"),
+                    "provider_resource": reference.get("provider_resource"),
+                    "reference_order": index,
+                },
+            )
+        record_artifact(
+            run_id=run_id,
+            artifact_type="chat_thread",
+            name=result.get("thread_id", thread_id),
+            external_ref=result.get("thread_id", thread_id),
+            metadata={
+                "intent": result.get("intent"),
+                "risk_level": result.get("risk_level"),
+            },
+        )
+        finish_run(
+            run_id,
+            status_value="succeeded",
+            output_text=result.get("answer", ""),
+            duration_ms=elapsed_ms(started_ms),
+            metadata={
+                "intent": result.get("intent"),
+                "risk_level": result.get("risk_level"),
+                "erp_resource": result.get("erp_resource"),
+                "erp_reference_count": len(erp_references),
+            },
+        )
+    except Exception as error:
+        record_step(
+            run_id=run_id,
+            step_name="graph.invoke",
+            step_order=1,
+            status_value="failed",
+            provider="langgraph",
+            resource_type="thread",
+            resource_id=thread_id,
+            input_text=request.message,
+            error_message=error,
+            duration_ms=elapsed_ms(started_ms),
+        )
+        finish_run(
+            run_id,
+            status_value="failed",
+            error_message=error,
+            duration_ms=elapsed_ms(started_ms),
+        )
+        raise
+
     erp_references = erp_references_from_result(result)
     save_chat_message(
         thread_id=result.get("thread_id", thread_id),
@@ -416,9 +522,27 @@ def chat_stream(
         "username": current_user.get("username"),
         "context": context_bundle,
     }
+    started_ms = now_ms()
+    position = current_user.get("position")
+    run_id = start_run(
+        run_type="chat_stream",
+        app_id=f"{position or 'admin'}-chat-agent",
+        app_name=f"{position_label_for_run(position)} AI 对话",
+        entrypoint="/chat/stream",
+        current_user=current_user,
+        thread_id=thread_id,
+        resource_type="thread",
+        resource_id=thread_id,
+        input_text=request.message,
+        metadata={
+            "context_summary_used": bool(context_bundle.get("summary", {}).get("summary")),
+            "recent_message_count": len(context_bundle.get("recent_messages", [])),
+        },
+    )
 
     def event_generator():
         result_state = dict(graph_input)
+        step_order = 1
 
         try:
             yield format_sse(
@@ -431,8 +555,28 @@ def chat_stream(
 
             for event in graph.stream(graph_input, stream_mode="updates"):
                 for node_name, node_output in event.items():
+                    node_started_ms = now_ms()
                     if isinstance(node_output, dict):
                         result_state.update(node_output)
+                    record_step(
+                        run_id=run_id,
+                        step_name=f"graph.node.{node_name}",
+                        step_order=step_order,
+                        status_value="succeeded",
+                        provider="langgraph",
+                        resource_type="thread",
+                        resource_id=result_state.get("thread_id", thread_id),
+                        input_text=request.message if step_order == 1 else None,
+                        output_text=_stream_node_output_preview(node_output),
+                        duration_ms=elapsed_ms(node_started_ms),
+                        metadata={
+                            "node": node_name,
+                            "intent": result_state.get("intent"),
+                            "risk_level": result_state.get("risk_level"),
+                            "erp_resource": result_state.get("erp_resource"),
+                        },
+                    )
+                    step_order += 1
 
                     yield format_sse(
                         "node",
@@ -446,6 +590,30 @@ def chat_stream(
             final_thread_id = result_state.get("thread_id", thread_id)
             answer = result_state.get("answer", "")
             erp_references = erp_references_from_result(result_state)
+            for index, reference in enumerate(erp_references[:10], start=1):
+                record_artifact(
+                    run_id=run_id,
+                    artifact_type="erp_reference",
+                    name=str(reference.get("title") or reference.get("record_id") or "ERP 引用"),
+                    external_ref=str(reference.get("record_id") or ""),
+                    metadata={
+                        "resource": reference.get("resource"),
+                        "resource_label": reference.get("resource_label"),
+                        "provider": reference.get("provider"),
+                        "provider_resource": reference.get("provider_resource"),
+                        "reference_order": index,
+                    },
+                )
+            record_artifact(
+                run_id=run_id,
+                artifact_type="chat_thread",
+                name=final_thread_id,
+                external_ref=final_thread_id,
+                metadata={
+                    "intent": result_state.get("intent"),
+                    "risk_level": result_state.get("risk_level"),
+                },
+            )
 
             for chunk in chunk_text(answer):
                 yield format_sse(
@@ -501,6 +669,19 @@ def chat_stream(
                     "recent_message_count": len(context_bundle.get("recent_messages", [])),
                 },
             )
+            finish_run(
+                run_id,
+                status_value="succeeded",
+                output_text=answer,
+                duration_ms=elapsed_ms(started_ms),
+                metadata={
+                    "intent": result_state.get("intent"),
+                    "risk_level": result_state.get("risk_level"),
+                    "erp_resource": result_state.get("erp_resource"),
+                    "erp_reference_count": len(erp_references),
+                    "final_thread_id": final_thread_id,
+                },
+            )
 
             yield format_sse(
                 "done",
@@ -515,6 +696,24 @@ def chat_stream(
                 },
             )
         except Exception as error:
+            record_step(
+                run_id=run_id,
+                step_name="graph.stream",
+                step_order=step_order,
+                status_value="failed",
+                provider="langgraph",
+                resource_type="thread",
+                resource_id=thread_id,
+                input_text=request.message,
+                error_message=error,
+                duration_ms=elapsed_ms(started_ms),
+            )
+            finish_run(
+                run_id,
+                status_value="failed",
+                error_message=error,
+                duration_ms=elapsed_ms(started_ms),
+            )
             yield format_sse(
                 "error",
                 {
@@ -531,6 +730,28 @@ def chat_stream(
             "X-Accel-Buffering": "no",
         },
     )
+
+
+def position_label_for_run(position: str | None) -> str:
+    labels = {
+        "operations": "运营",
+        "customer_service": "客服",
+        "finance": "财务",
+    }
+    return labels.get(str(position), "平台")
+
+
+def _stream_node_output_preview(node_output) -> str:
+    if not isinstance(node_output, dict):
+        return str(node_output)
+
+    preview = {
+        "intent": node_output.get("intent"),
+        "risk_level": node_output.get("risk_level"),
+        "erp_resource": node_output.get("erp_resource"),
+        "answer": node_output.get("answer"),
+    }
+    return {key: value for key, value in preview.items() if value is not None}
 
 @app.post("/agent/chat", response_model=AgentChatResponse)
 def agent_chat(

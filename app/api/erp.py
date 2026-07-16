@@ -23,6 +23,13 @@ from app.permissions import (
     is_valid_position,
 )
 from app.services.logging_service import write_audit_log
+from app.services.run_record_service import (
+    elapsed_ms,
+    finish_run,
+    now_ms,
+    record_step,
+    start_run,
+)
 
 
 router = APIRouter(
@@ -411,14 +418,62 @@ def query_erp(
             detail="未知 ERP 资源，请从当前岗位允许的资源中选择。",
         )
 
-    ensure_erp_resource_allowed(current_user, resource)
-
     provider = get_active_provider()
     provider_resource = provider_resource_for(resource, provider.provider_id)
     definition = ERP_RESOURCE_CATALOG[resource]
+    position = current_user.get("position")
+    position_label = POSITION_LABELS.get(str(position), "管理员")
+    run_id = start_run(
+        run_type="erp_query",
+        app_id=f"{position or 'admin'}-erp-query",
+        app_name=f"{position_label} ERP 查询",
+        entrypoint="/erp/query",
+        current_user=current_user,
+        resource_type="erp",
+        resource_id=resource,
+        input_text=request.query,
+        metadata={
+            "provider": provider.provider_id,
+            "provider_label": provider.provider_label,
+            "resource": resource,
+            "resource_label": definition["label"],
+            "provider_resource": provider_resource,
+            "filters": request.filters,
+            "limit": request.limit,
+        },
+    )
+    started_ms = now_ms()
+
+    try:
+        ensure_erp_resource_allowed(current_user, resource)
+    except HTTPException as error:
+        status_value = "blocked" if error.status_code == status.HTTP_403_FORBIDDEN else "failed"
+        record_step(
+            run_id=run_id,
+            step_name="permission_check",
+            step_order=1,
+            status_value=status_value,
+            provider=provider.provider_id,
+            resource_type="erp",
+            resource_id=resource,
+            input_text=request.query,
+            error_message=error.detail,
+            duration_ms=elapsed_ms(started_ms),
+            metadata={
+                "status_code": error.status_code,
+                "provider_resource": provider_resource,
+            },
+        )
+        finish_run(
+            run_id,
+            status_value=status_value,
+            error_message=error.detail,
+            duration_ms=elapsed_ms(started_ms),
+        )
+        raise
 
     if provider_resource is None:
-        return _build_response(
+        response = _build_response(
             provider=provider,
             resource=resource,
             provider_resource="",
@@ -428,7 +483,35 @@ def query_erp(
             message=f"{provider.provider_label} 暂未映射资源 {resource}",
             items=[],
         )
+        record_step(
+            run_id=run_id,
+            step_name="query_erp",
+            step_order=2,
+            status_value="failed",
+            provider=provider.provider_id,
+            resource_type="erp",
+            resource_id=resource,
+            error_message=response["message"],
+            duration_ms=elapsed_ms(started_ms),
+            metadata={
+                "provider_resource": None,
+                "result_count": 0,
+            },
+        )
+        finish_run(
+            run_id,
+            status_value="failed",
+            error_message=response["message"],
+            duration_ms=elapsed_ms(started_ms),
+            metadata={
+                "provider": provider.provider_id,
+                "provider_resource": None,
+                "result_count": 0,
+            },
+        )
+        return response
 
+    step_started_ms = now_ms()
     try:
         result = provider.query_resource(
             resource=resource,
@@ -457,6 +540,39 @@ def query_erp(
         message=str(result.get("message") or ""),
         items=result.get("items") if isinstance(result.get("items"), list) else [],
         raw=result.get("raw") if isinstance(result.get("raw"), dict) else None,
+    )
+    record_step(
+        run_id=run_id,
+        step_name="query_erp",
+        step_order=2,
+        status_value="succeeded" if response["ok"] else "failed",
+        provider=provider.provider_id,
+        resource_type="erp",
+        resource_id=resource,
+        input_text=request.query,
+        output_text=response["message"],
+        error_message=None if response["ok"] else response["message"],
+        duration_ms=elapsed_ms(step_started_ms),
+        metadata={
+            "provider_resource": provider_resource,
+            "status": response["status"],
+            "configured": response["configured"],
+            "result_count": len(response["items"]),
+        },
+    )
+    finish_run(
+        run_id,
+        status_value="succeeded" if response["ok"] else "failed",
+        output_text=response["message"],
+        error_message=None if response["ok"] else response["message"],
+        duration_ms=elapsed_ms(started_ms),
+        metadata={
+            "provider": provider.provider_id,
+            "provider_resource": provider_resource,
+            "status": response["status"],
+            "configured": response["configured"],
+            "result_count": len(response["items"]),
+        },
     )
 
     write_audit_log(

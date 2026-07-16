@@ -18,6 +18,14 @@ from app.services.finance_excel_service import (
     transform_finance_excel,
 )
 from app.services.logging_service import write_audit_log
+from app.services.run_record_service import (
+    elapsed_ms,
+    finish_run,
+    now_ms,
+    record_artifact,
+    record_step,
+    start_run,
+)
 
 
 router = APIRouter(
@@ -112,7 +120,79 @@ def generate_automation(
         task_id=request.task_id,
         input_text=request.input_text,
     )
-    answer = chat(prompt)
+    started_ms = now_ms()
+    run_id = start_run(
+        run_type="automation_generate",
+        app_id=f"automation-{request.task_id}",
+        app_name=task["label"],
+        entrypoint="/automation/generate",
+        current_user=current_user,
+        resource_type="automation",
+        resource_id=request.task_id,
+        input_text=request.input_text,
+        metadata={
+            "task_id": request.task_id,
+            "task_label": task["label"],
+            "position": task["position"],
+            "position_label": task["position_label"],
+        },
+    )
+
+    try:
+        step_started_ms = now_ms()
+        answer = chat(prompt)
+        record_step(
+            run_id=run_id,
+            step_name="llm_chat",
+            step_order=1,
+            status_value="succeeded",
+            provider="dashscope",
+            resource_type="automation",
+            resource_id=request.task_id,
+            input_text=request.input_text,
+            output_text=answer,
+            duration_ms=elapsed_ms(step_started_ms),
+            metadata={
+                "task_id": request.task_id,
+                "task_label": task["label"],
+                "prompt_built": True,
+            },
+        )
+        finish_run(
+            run_id,
+            status_value="succeeded",
+            output_text=answer,
+            duration_ms=elapsed_ms(started_ms),
+            metadata={
+                "task_id": request.task_id,
+                "task_label": task["label"],
+                "position": task["position"],
+            },
+        )
+    except Exception as error:
+        record_step(
+            run_id=run_id,
+            step_name="llm_chat",
+            step_order=1,
+            status_value="failed",
+            provider="dashscope",
+            resource_type="automation",
+            resource_id=request.task_id,
+            input_text=request.input_text,
+            error_message=error,
+            duration_ms=elapsed_ms(started_ms),
+            metadata={
+                "task_id": request.task_id,
+                "task_label": task["label"],
+            },
+        )
+        finish_run(
+            run_id,
+            status_value="failed",
+            error_message=error,
+            duration_ms=elapsed_ms(started_ms),
+        )
+        raise
 
     write_audit_log(
         user_id=current_user["id"],
@@ -164,13 +244,81 @@ async def transform_finance_excel_file(
             detail="Excel 文件不能超过 8MB。",
         )
 
+    run_id = start_run(
+        run_type="finance_excel_transform",
+        app_id="finance-excel-transform",
+        app_name="财务 Excel 生成",
+        entrypoint="/automation/finance/excel-transform",
+        current_user=current_user,
+        resource_type="automation",
+        resource_id="finance_excel_transform",
+        input_text=instruction,
+        metadata={
+            "source_filename": file.filename or "finance.xlsx",
+            "source_bytes": len(content),
+        },
+    )
+    started_ms = now_ms()
+
     try:
+        step_started_ms = now_ms()
         result = transform_finance_excel(
             source_filename=file.filename or "finance.xlsx",
             content=content,
             instruction=instruction,
         )
+        record_step(
+            run_id=run_id,
+            step_name="finance_excel_transform",
+            step_order=1,
+            status_value="succeeded",
+            provider="pandas_openpyxl_dashscope",
+            resource_type="automation",
+            resource_id="finance_excel_transform",
+            input_text=instruction,
+            output_text=result.filename,
+            duration_ms=elapsed_ms(step_started_ms),
+            metadata=result.metadata,
+        )
+        record_artifact(
+            run_id=run_id,
+            artifact_type="excel_file",
+            name=result.filename,
+            mime_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            size_bytes=len(result.content),
+            external_ref=result.filename,
+            metadata=result.metadata,
+        )
+        finish_run(
+            run_id,
+            status_value="succeeded",
+            output_text=f"已生成 {result.filename}",
+            duration_ms=elapsed_ms(started_ms),
+            metadata=result.metadata,
+        )
     except ValueError as error:
+        record_step(
+            run_id=run_id,
+            step_name="finance_excel_transform",
+            step_order=1,
+            status_value="failed",
+            provider="pandas_openpyxl_dashscope",
+            resource_type="automation",
+            resource_id="finance_excel_transform",
+            input_text=instruction,
+            error_message=error,
+            duration_ms=elapsed_ms(started_ms),
+            metadata={
+                "source_filename": file.filename or "finance.xlsx",
+                "source_bytes": len(content),
+            },
+        )
+        finish_run(
+            run_id,
+            status_value="failed",
+            error_message=error,
+            duration_ms=elapsed_ms(started_ms),
+        )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(error),

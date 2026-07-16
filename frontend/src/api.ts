@@ -281,6 +281,82 @@ export type ErpRecordDetailResponse = {
   item: Record<string, unknown> | null;
 };
 
+export type RunRecordItem = {
+  id: string;
+  run_type: string;
+  app_id: string;
+  app_name: string;
+  entrypoint: string;
+  status: "running" | "succeeded" | "failed" | "blocked";
+  user_id: string | null;
+  username: string | null;
+  role: "admin" | "employee" | null;
+  position: Position | null;
+  thread_id: string | null;
+  resource_type: string | null;
+  resource_id: string | null;
+  input_preview: string | null;
+  output_preview: string | null;
+  error_message: string | null;
+  duration_ms: number | null;
+  metadata: Record<string, unknown>;
+  started_at: string | null;
+  finished_at: string | null;
+  created_at: string | null;
+  step_count: number;
+  artifact_count: number;
+};
+
+export type RunRecordStepItem = {
+  id: string;
+  run_id: string;
+  step_order: number;
+  step_name: string;
+  status: "running" | "succeeded" | "failed" | "blocked";
+  provider: string | null;
+  resource_type: string | null;
+  resource_id: string | null;
+  input_preview: string | null;
+  output_preview: string | null;
+  error_message: string | null;
+  duration_ms: number | null;
+  metadata: Record<string, unknown>;
+  started_at: string | null;
+  finished_at: string | null;
+};
+
+export type RunRecordArtifactItem = {
+  id: string;
+  run_id: string;
+  artifact_type: string;
+  name: string;
+  mime_type: string | null;
+  size_bytes: number | null;
+  external_ref: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string | null;
+};
+
+export type RunRecordsResponse = {
+  items: RunRecordItem[];
+};
+
+export type RunRecordDetailResponse = {
+  run: RunRecordItem;
+  steps: RunRecordStepItem[];
+  artifacts: RunRecordArtifactItem[];
+};
+
+export type RunRecordFilters = {
+  status?: string;
+  run_type?: string;
+  app_id?: string;
+  position?: Position | "all";
+  resource_type?: string;
+  resource_id?: string;
+  limit?: number;
+};
+
 export async function sendPublicLLMChatStream(
   message: string,
   history: PublicLLMMessage[],
@@ -802,6 +878,49 @@ export async function queryErp(token: string, payload: ErpQueryPayload) {
       },
       body: JSON.stringify(payload),
     },
+    token,
+  );
+}
+
+export async function listRunRecords(
+  token: string,
+  filters: RunRecordFilters = {},
+) {
+  const params = new URLSearchParams();
+
+  if (filters.status?.trim()) {
+    params.set("status", filters.status.trim());
+  }
+
+  if (filters.run_type?.trim()) {
+    params.set("run_type", filters.run_type.trim());
+  }
+
+  if (filters.app_id?.trim()) {
+    params.set("app_id", filters.app_id.trim());
+  }
+
+  if (filters.position && filters.position !== "all") {
+    params.set("position", filters.position);
+  }
+
+  if (filters.resource_type?.trim()) {
+    params.set("resource_type", filters.resource_type.trim());
+  }
+
+  if (filters.resource_id?.trim()) {
+    params.set("resource_id", filters.resource_id.trim());
+  }
+
+  params.set("limit", String(filters.limit || 80));
+
+  return requestJson<RunRecordsResponse>(`/run-records?${params}`, {}, token);
+}
+
+export async function getRunRecordDetail(token: string, runId: string) {
+  return requestJson<RunRecordDetailResponse>(
+    `/run-records/${encodeURIComponent(runId)}`,
+    {},
     token,
   );
 }

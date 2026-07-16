@@ -442,6 +442,94 @@ button {
   line-height: 1.55;
 }
 
+.runRecordMetricRow .ant-col {
+  display: flex;
+}
+
+.runRecordMetricCard {
+  width: 100%;
+  margin-top: 0;
+}
+
+.runRecordMetricCard .ant-card-body {
+  display: grid;
+  min-height: 96px;
+  gap: 6px;
+}
+
+.runRecordMetricCard h3 {
+  margin: 0 !important;
+}
+
+.runRecordFilterGrid {
+  display: grid;
+  grid-template-columns: 140px repeat(4, minmax(120px, 1fr)) 96px;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 14px;
+}
+
+.runRecordTable .ant-table-cell {
+  vertical-align: top;
+}
+
+.runRecordCellStack {
+  max-width: 100%;
+  min-width: 0;
+}
+
+.runRecordText,
+.runRecordMono,
+.runRecordPreview {
+  display: block;
+  max-width: 100%;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.runRecordMono {
+  color: #4b5563;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+}
+
+.runRecordPreview {
+  display: -webkit-box;
+  overflow: hidden;
+  color: #4b5563;
+  line-height: 1.55;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.runRecordDetailGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.runRecordDetailItem {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 10px 12px;
+  background: #f8fafc;
+  border: 1px solid rgba(15, 23, 42, 0.06);
+  border-radius: 6px;
+}
+
+.runRecordDetailPreview {
+  min-height: 72px;
+  margin: 6px 0 0 !important;
+  padding: 10px 12px;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  background: #f8fafc;
+  border: 1px solid rgba(15, 23, 42, 0.06);
+  border-radius: 6px;
+}
+
 .automationTaskCol {
   display: flex;
 }
@@ -802,6 +890,11 @@ button {
   }
 
   .aiAppMetaGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .runRecordFilterGrid,
+  .runRecordDetailGrid {
     grid-template-columns: 1fr;
   }
 

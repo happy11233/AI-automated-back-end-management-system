@@ -328,11 +328,14 @@
 
 ### Platform Loop 2：统一运行记录中心
 
-- [ ] 新增真实数据库运行记录表
-- [ ] 记录自动化生成、财务 Excel、ERP 查询、AI 对话 ERP 查询等真实执行
-- [ ] 新增运行记录页面
-- [ ] 运行详情展示输入预览、输出预览、状态、耗时、岗位、用户、ERP/RAG 引用和错误原因
-- [ ] 审计日志继续用于合规，不替代运行记录
+- [x] 新增真实数据库运行记录表 `automation_runs`、`automation_run_steps`、`automation_run_artifacts`
+- [x] 记录自动化生成、财务 Excel、ERP 查询、AI 对话 ERP 查询等真实执行
+- [x] 新增 `/run-records` 运行记录页面
+- [x] 运行详情展示输入预览、输出预览、状态、耗时、岗位、用户、ERP 引用、产物和错误原因
+- [x] 审计日志继续用于合规，不替代运行记录
+- [x] 运行记录服务统一做脱敏、截断和敏感 key 过滤，不保存 token、密钥、Excel 原文或 ERP raw 全量响应
+- [x] 新增 `scripts/verify_run_records.py`，用真实登录、真实 ERPNext、真实 Excel 上传、真实聊天、真实 PostgreSQL 验收
+- [x] 新增 `scripts/verify_run_records_frontend.mjs`，用真实浏览器验证管理员/财务运行记录页面、详情弹窗和移动端无横向溢出
 
 ### Platform Loop 3：自动化流程配置一期
 
