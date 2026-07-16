@@ -455,11 +455,20 @@ button {
   width: 100%;
 }
 
+.dashboardOverviewCard {
+  display: flex;
+  flex-direction: column;
+}
+
 .dashboardShortcutCard > .ant-card-body,
-.dashboardOverviewCard > .ant-card-body,
 .dashboardTableCard > .ant-pro-card-body,
 .capabilityCard > .ant-card-body {
   height: 100%;
+}
+
+.dashboardOverviewCard > .ant-card-body {
+  flex: 1;
+  min-height: 0;
 }
 
 .dashboardShortcutBody {
@@ -510,10 +519,11 @@ button {
 
 .dashboardOverviewBody {
   display: grid;
-  grid-template-rows: 44px auto;
-  min-height: 252px;
+  grid-template-rows: 44px 28px minmax(0, 1fr);
+  min-height: 268px;
   height: 100%;
   gap: 8px;
+  min-width: 0;
 }
 
 .dashboardOverviewDescription {
@@ -525,6 +535,21 @@ button {
 
 .capabilityCard {
   margin-top: 0;
+}
+
+.dashboardRecordList {
+  display: grid;
+  grid-auto-rows: 58px;
+  gap: 8px;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.dashboardOverviewEmpty {
+  display: grid;
+  min-height: 120px;
+  place-items: center;
 }
 
 .splitCardCol {
@@ -541,8 +566,10 @@ button {
 
 .compactRecord {
   display: grid;
+  grid-template-rows: 24px 20px;
   gap: 2px;
-  min-height: 48px;
+  height: 58px;
+  min-width: 0;
   padding: 8px;
   overflow: hidden;
   background: #f8fafc;
@@ -551,6 +578,8 @@ button {
 }
 
 .compactRecord .ant-typography {
+  display: block;
+  min-height: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -561,6 +590,13 @@ button {
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 8px;
   align-items: center;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.compactRecordPrimary,
+.compactRecordSecondary {
+  min-width: 0;
 }
 
 .erpReferenceList {

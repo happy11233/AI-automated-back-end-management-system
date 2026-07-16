@@ -1955,26 +1955,32 @@ function Dashboard({
                             </Tag>
                           ) : null}
                         </Space>
-                        {section.items.length ? (
-                          section.items.slice(0, 3).map((item, index) => (
-                            <div className="compactRecord" key={`${section.resource}-${index}`}>
-                              <div className="compactRecordHeader">
-                                <Text strong>{overviewPrimaryText(item)}</Text>
-                                <Button
-                                  size="small"
-                                  type="link"
-                                  aria-label={`查看 ${section.title} ERP 详情`}
-                                  onClick={() => onOpenRecordDetail(section.resource, item)}
-                                >
-                                  详情
-                                </Button>
+                        <div className="dashboardRecordList">
+                          {section.items.length ? (
+                            section.items.slice(0, 3).map((item, index) => (
+                              <div className="compactRecord" key={`${section.resource}-${index}`}>
+                                <div className="compactRecordHeader">
+                                  <Text strong className="compactRecordPrimary">{overviewPrimaryText(item)}</Text>
+                                  <Button
+                                    size="small"
+                                    type="link"
+                                    aria-label={`查看 ${section.title} ERP 详情`}
+                                    onClick={() => onOpenRecordDetail(section.resource, item)}
+                                  >
+                                    详情
+                                  </Button>
+                                </div>
+                                <Text type="secondary" className="compactRecordSecondary">
+                                  {overviewSecondaryText(item)}
+                                </Text>
                               </div>
-                              <Text type="secondary">{overviewSecondaryText(item)}</Text>
+                            ))
+                          ) : (
+                            <div className="dashboardOverviewEmpty">
+                              <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无记录" />
                             </div>
-                          ))
-                        ) : (
-                          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无记录" />
-                        )}
+                          )}
+                        </div>
                       </div>
                     </Card>
                   </Col>
