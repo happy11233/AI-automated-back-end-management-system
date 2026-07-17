@@ -1593,6 +1593,42 @@ export async function transformFinanceExcel(
   };
 }
 
+export async function reconcileFinanceFiles(
+  token: string,
+  files: File[],
+  instruction: string,
+  baseCurrency: string,
+) {
+  const formData = new FormData();
+
+  files.forEach((file) => {
+    formData.append("files", file);
+  });
+  formData.append("instruction", instruction.trim());
+  formData.append("base_currency", baseCurrency.trim() || "CNY");
+
+  const headers = new Headers();
+  headers.set("Authorization", `Bearer ${token}`);
+
+  const response = await fetch(`${API_BASE_URL}/automation/finance/reconciliation`, {
+    method: "POST",
+    headers,
+    body: formData,
+  });
+
+  if (!response.ok) {
+    throw await buildRequestError(response, true);
+  }
+
+  const blob = await response.blob();
+  const disposition = response.headers.get("content-disposition") || "";
+
+  return {
+    blob,
+    filename: parseDownloadFilename(disposition) || "finance_reconciliation_result.xlsx",
+  };
+}
+
 export async function listErpProviders(token: string) {
   return requestJson<ErpProvidersResponse>("/erp/providers", {}, token);
 }

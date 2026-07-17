@@ -149,6 +149,20 @@ def main() -> None:
             "contains": ["只有财务岗位或管理员可以使用财务 Excel 生成功能"],
         },
         {
+            "label": "customer_service_cannot_run_finance_reconciliation",
+            "fn": lambda: _request_bytes(
+                "/automation/finance/reconciliation",
+                token=tokens["customer_service"],
+                method="POST",
+                body=_build_reconciliation_multipart_body(),
+                headers={
+                    "Content-Type": f"multipart/form-data; boundary={_reconciliation_boundary()}",
+                },
+            ),
+            "status": 403,
+            "contains": ["只有财务岗位或管理员可以使用财务对账自动化"],
+        },
+        {
             "label": "employee_cannot_access_admin_users",
             "fn": lambda: _request_json(
                 "/admin/users",
@@ -392,6 +406,44 @@ def _build_excel_multipart_body() -> bytes:
         (
             'Content-Disposition: form-data; name="file"; '
             'filename="salary.xlsx"\r\n'
+        ).encode(),
+        b"Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet\r\n\r\n",
+        content,
+        b"\r\n",
+        f"--{boundary}--\r\n".encode(),
+    ]
+    return b"".join(chunks)
+
+
+def _reconciliation_boundary() -> str:
+    return "----codex-position-permission-reconciliation"
+
+
+def _build_reconciliation_multipart_body() -> bytes:
+    boundary = _reconciliation_boundary()
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Amazon结算"
+    sheet.append(["订单号", "SKU", "销售额"])
+    sheet.append(["AMZ-PERM-001", "SKU-PERM", 100])
+
+    output = BytesIO()
+    workbook.save(output)
+    content = output.getvalue()
+
+    chunks = [
+        f"--{boundary}\r\n".encode(),
+        b'Content-Disposition: form-data; name="instruction"\r\n\r\n',
+        "生成订单利润表。".encode("utf-8"),
+        b"\r\n",
+        f"--{boundary}\r\n".encode(),
+        b'Content-Disposition: form-data; name="base_currency"\r\n\r\n',
+        b"CNY",
+        b"\r\n",
+        f"--{boundary}\r\n".encode(),
+        (
+            'Content-Disposition: form-data; name="files"; '
+            'filename="amazon_settlement.xlsx"\r\n'
         ).encode(),
         b"Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet\r\n\r\n",
         content,

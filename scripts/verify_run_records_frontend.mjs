@@ -2,7 +2,7 @@ import { createRequire } from "node:module";
 
 
 const require = createRequire(import.meta.url);
-const { chromium } = require("playwright");
+const { chromium } = requirePlaywright();
 
 const FRONTEND_URL = (process.env.VERIFY_FRONTEND_URL || "http://127.0.0.1:5173").replace(/\/$/, "");
 const API_BASE_URL = (process.env.VERIFY_API_BASE_URL || "http://127.0.0.1:8001").replace(/\/$/, "");
@@ -30,7 +30,7 @@ try {
     account: ACCOUNTS.admin,
     viewport: { width: 1440, height: 960 },
     screenshot: "/tmp/company-rag-run-records-admin-desktop.png",
-    visible: ["运行记录", "财务 Excel 生成", "客服岗位无权查询 ERP 资源", "详情"],
+    visible: ["运行记录", "财务 Excel 生成", "财务对账自动化", "客服岗位无权查询 ERP 资源", "详情"],
     hidden: [],
     openDetail: true,
   });
@@ -40,7 +40,7 @@ try {
     account: ACCOUNTS.finance,
     viewport: { width: 1366, height: 900 },
     screenshot: "/tmp/company-rag-run-records-finance-desktop.png",
-    visible: ["运行记录", "财务 Excel 生成", "财务 AI 对话"],
+    visible: ["运行记录", "财务 Excel 生成", "财务对账自动化", "财务 AI 对话"],
     hidden: ["运营 ERP 查询", "客服岗位无权查询 ERP 资源"],
     openDetail: true,
   });
@@ -168,4 +168,38 @@ async function runRunRecordCase({ label, account, viewport, screenshot, visible,
     screenshot,
     overflow,
   };
+}
+
+function requirePlaywright() {
+  const fs = require("node:fs");
+  const os = require("node:os");
+  const path = require("node:path");
+  const candidates = [
+    "playwright",
+    `${process.cwd()}/node_modules/playwright`,
+    `${process.cwd()}/frontend/node_modules/playwright`,
+    process.env.PLAYWRIGHT_MODULE_PATH,
+    ...findNpxPlaywrightInstalls(fs, os, path),
+  ].filter(Boolean);
+
+  for (const candidate of candidates) {
+    try {
+      return require(candidate);
+    } catch {
+      // Try the next real installation path.
+    }
+  }
+
+  throw new Error("Cannot find Playwright. Run with: npx -p playwright node scripts/verify_run_records_frontend.mjs");
+}
+
+function findNpxPlaywrightInstalls(fs, os, path) {
+  const npxRoot = path.join(os.homedir(), ".npm", "_npx");
+  if (!fs.existsSync(npxRoot)) {
+    return [];
+  }
+
+  return fs.readdirSync(npxRoot)
+    .map((entry) => path.join(npxRoot, entry, "node_modules", "playwright"))
+    .filter((candidate) => fs.existsSync(path.join(candidate, "package.json")));
 }

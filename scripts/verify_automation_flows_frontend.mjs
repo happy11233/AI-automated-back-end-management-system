@@ -44,7 +44,7 @@ try {
     viewport: { width: 1366, height: 900 },
     screenshot: "/tmp/company-rag-automation-flows-operations-desktop.png",
     visible: ["自动化流程配置", "生成 Listing", "竞品分析", "运营 ERP 查询"],
-    hidden: ["退款售后话术", "财务 Excel 生成", "分析财务报表"],
+    hidden: ["退款售后话术", "财务 Excel 生成", "财务对账自动化", "分析财务报表"],
     openDetailText: "竞品分析",
   });
 
@@ -53,7 +53,7 @@ try {
     account: ACCOUNTS.finance,
     viewport: { width: 390, height: 844 },
     screenshot: "/tmp/company-rag-automation-flows-finance-mobile.png",
-    visible: ["自动化流程配置", "财务 Excel 生成", "分析财务报表", "财务 ERP 查询"],
+    visible: ["自动化流程配置", "财务 Excel 生成", "财务对账自动化", "分析财务报表", "财务 ERP 查询"],
     hidden: ["生成 Listing", "退款售后话术"],
     openDetailText: "财务 Excel 生成",
   });

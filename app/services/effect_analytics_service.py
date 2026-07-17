@@ -11,6 +11,7 @@ from app.services.run_record_service import isoformat, sanitize_metadata
 SAVED_MINUTES_BY_RUN_TYPE = {
     "automation_generate": 12,
     "finance_excel_transform": 35,
+    "finance_reconciliation": 60,
     "erp_query": 8,
     "chat": 10,
     "chat_stream": 10,
@@ -103,6 +104,7 @@ def _build_summary(where_clause: str, params: list[Any]) -> dict[str, Any]:
                         CASE run_type
                             WHEN 'automation_generate' THEN {SAVED_MINUTES_BY_RUN_TYPE["automation_generate"]}
                             WHEN 'finance_excel_transform' THEN {SAVED_MINUTES_BY_RUN_TYPE["finance_excel_transform"]}
+                            WHEN 'finance_reconciliation' THEN {SAVED_MINUTES_BY_RUN_TYPE["finance_reconciliation"]}
                             WHEN 'erp_query' THEN {SAVED_MINUTES_BY_RUN_TYPE["erp_query"]}
                             WHEN 'chat' THEN {SAVED_MINUTES_BY_RUN_TYPE["chat"]}
                             WHEN 'chat_stream' THEN {SAVED_MINUTES_BY_RUN_TYPE["chat_stream"]}
@@ -191,6 +193,7 @@ def _position_ranking(where_clause: str, params: list[Any]) -> list[dict[str, An
                         CASE run_type
                             WHEN 'automation_generate' THEN {SAVED_MINUTES_BY_RUN_TYPE["automation_generate"]}
                             WHEN 'finance_excel_transform' THEN {SAVED_MINUTES_BY_RUN_TYPE["finance_excel_transform"]}
+                            WHEN 'finance_reconciliation' THEN {SAVED_MINUTES_BY_RUN_TYPE["finance_reconciliation"]}
                             WHEN 'erp_query' THEN {SAVED_MINUTES_BY_RUN_TYPE["erp_query"]}
                             WHEN 'chat' THEN {SAVED_MINUTES_BY_RUN_TYPE["chat"]}
                             WHEN 'chat_stream' THEN {SAVED_MINUTES_BY_RUN_TYPE["chat_stream"]}
@@ -449,6 +452,7 @@ def _run_type_label(run_type: str) -> str:
     labels = {
         "automation_generate": "岗位文本自动化",
         "finance_excel_transform": "财务 Excel 自动化",
+        "finance_reconciliation": "财务对账自动化",
         "erp_query": "ERP 查询",
         "chat": "AI 对话",
         "chat_stream": "流式 AI 对话",

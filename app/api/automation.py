@@ -17,6 +17,13 @@ from app.services.finance_excel_service import (
     MAX_EXCEL_BYTES,
     transform_finance_excel,
 )
+from app.services.finance_reconciliation_service import (
+    MAX_RECONCILIATION_FILE_BYTES,
+    MAX_RECONCILIATION_FILES,
+    MAX_RECONCILIATION_TOTAL_BYTES,
+    FinanceReconciliationInputFile,
+    reconcile_finance_workbooks,
+)
 from app.services.logging_service import write_audit_log
 from app.services.run_record_service import (
     elapsed_ms,
@@ -329,6 +336,164 @@ async def transform_finance_excel_file(
         action="automation.finance_excel_transform",
         resource_type="automation",
         resource_id="finance_excel_transform",
+        metadata={
+            "username": current_user["username"],
+            "role": current_user["role"],
+            "position": current_user.get("position"),
+            **result.metadata,
+        },
+    )
+
+    encoded_filename = quote(result.filename)
+    return Response(
+        content=result.content,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": (
+                f"attachment; filename={result.filename}; filename*=UTF-8''{encoded_filename}"
+            ),
+        },
+    )
+
+
+@router.post("/finance/reconciliation")
+async def reconcile_finance_files(
+    files: list[UploadFile] = File(...),
+    instruction: str = Form(default=""),
+    base_currency: str = Form(default="CNY"),
+    current_user: dict = Depends(get_current_user),
+):
+    if current_user.get("role") != "admin" and current_user.get("position") != "finance":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="只有财务岗位或管理员可以使用财务对账自动化。",
+        )
+
+    if not files:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="请至少上传 1 个对账 Excel 文件。",
+        )
+
+    if len(files) > MAX_RECONCILIATION_FILES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"一次最多上传 {MAX_RECONCILIATION_FILES} 个 Excel 文件。",
+        )
+
+    input_files: list[FinanceReconciliationInputFile] = []
+    total_bytes = 0
+    for file in files:
+        content = await file.read()
+        filename = file.filename or "finance_reconciliation.xlsx"
+        if not content:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"{filename} 是空文件。",
+            )
+        if len(content) > MAX_RECONCILIATION_FILE_BYTES:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail=f"{filename} 超过 8MB。",
+            )
+        total_bytes += len(content)
+        input_files.append(FinanceReconciliationInputFile(filename=filename, content=content))
+
+    if total_bytes > MAX_RECONCILIATION_TOTAL_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="对账文件总大小不能超过 32MB。",
+        )
+
+    run_id = start_run(
+        run_type="finance_reconciliation",
+        app_id="finance-reconciliation",
+        app_name="财务对账自动化",
+        entrypoint="/automation/finance/reconciliation",
+        current_user=current_user,
+        resource_type="automation",
+        resource_id="finance_reconciliation",
+        input_text=instruction,
+        metadata={
+            "source_file_count": len(input_files),
+            "source_filenames": [item.filename for item in input_files],
+            "source_bytes": total_bytes,
+            "base_currency": base_currency,
+        },
+    )
+    started_ms = now_ms()
+
+    try:
+        step_started_ms = now_ms()
+        result = reconcile_finance_workbooks(
+            files=input_files,
+            instruction=instruction,
+            base_currency=base_currency,
+        )
+        record_step(
+            run_id=run_id,
+            step_name="finance_reconciliation",
+            step_order=1,
+            status_value="succeeded",
+            provider="pandas_openpyxl",
+            resource_type="automation",
+            resource_id="finance_reconciliation",
+            input_text=instruction,
+            output_text=result.filename,
+            duration_ms=elapsed_ms(step_started_ms),
+            metadata=result.metadata,
+        )
+        record_artifact(
+            run_id=run_id,
+            artifact_type="excel_file",
+            name=result.filename,
+            mime_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            size_bytes=len(result.content),
+            external_ref=result.filename,
+            metadata=result.metadata,
+        )
+        finish_run(
+            run_id,
+            status_value="succeeded",
+            output_text=f"已生成 {result.filename}",
+            duration_ms=elapsed_ms(started_ms),
+            metadata=result.metadata,
+        )
+    except ValueError as error:
+        record_step(
+            run_id=run_id,
+            step_name="finance_reconciliation",
+            step_order=1,
+            status_value="failed",
+            provider="pandas_openpyxl",
+            resource_type="automation",
+            resource_id="finance_reconciliation",
+            input_text=instruction,
+            error_message=error,
+            duration_ms=elapsed_ms(started_ms),
+            metadata={
+                "source_file_count": len(input_files),
+                "source_filenames": [item.filename for item in input_files],
+                "source_bytes": total_bytes,
+                "base_currency": base_currency,
+            },
+        )
+        finish_run(
+            run_id,
+            status_value="failed",
+            error_message=error,
+            duration_ms=elapsed_ms(started_ms),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(error),
+        ) from error
+
+    write_audit_log(
+        user_id=current_user["id"],
+        action="automation.finance_reconciliation",
+        resource_type="automation",
+        resource_id="finance_reconciliation",
         metadata={
             "username": current_user["username"],
             "role": current_user["role"],

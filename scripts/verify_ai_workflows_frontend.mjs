@@ -33,7 +33,7 @@ try {
     account: ACCOUNTS.admin,
     viewport: { width: 1440, height: 960 },
     screenshot: "/tmp/company-rag-ai-workflows-admin-desktop.png",
-    visible: ["AI 工作流中心", "运营 Listing 上架准备", "客服退款售后处理", "客服消息自动化闭环", "财务 Excel 结算整理", "可见工作流"],
+    visible: ["AI 工作流中心", "运营 Listing 上架准备", "客服退款售后处理", "客服消息自动化闭环", "财务 Excel 结算整理", "财务对账自动化", "可见工作流"],
     hidden: ["Bearer abc.def.ghi", "api_key=secret-value", "buyer@example.com", "13812345678"],
     openDetailText: "客服退款售后处理",
   });
@@ -44,7 +44,7 @@ try {
     viewport: { width: 1366, height: 900 },
     screenshot: "/tmp/company-rag-ai-workflows-operations-desktop.png",
     visible: ["AI 工作流中心", "运营 Listing 上架准备", "运营竞品分析", "运行工作流"],
-    hidden: ["客服退款售后处理", "财务工资统计", "财务 Excel 结算整理"],
+    hidden: ["客服退款售后处理", "财务工资统计", "财务 Excel 结算整理", "财务对账自动化"],
     openDetailText: "运营竞品分析",
   });
 
@@ -53,7 +53,7 @@ try {
     account: ACCOUNTS.finance,
     viewport: { width: 390, height: 844 },
     screenshot: "/tmp/company-rag-ai-workflows-finance-mobile.png",
-    visible: ["AI 工作流中心", "财务报表分析", "财务工资统计", "财务 Excel 结算整理"],
+    visible: ["AI 工作流中心", "财务报表分析", "财务工资统计", "财务 Excel 结算整理", "财务对账自动化"],
     hidden: ["运营竞品分析", "客服退款售后处理"],
     openDetailText: "财务 Excel 结算整理",
   });

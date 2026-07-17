@@ -24,6 +24,7 @@ def list_flow_configs(current_user: dict) -> list[dict[str, Any]]:
         flows.append(_chat_flow(position))
         if position == "finance":
             flows.append(_finance_excel_flow())
+            flows.append(_finance_reconciliation_flow())
 
     if current_user.get("role") == "admin":
         flows.extend(_admin_platform_flows())
@@ -158,6 +159,73 @@ def _finance_excel_flow() -> dict[str, Any]:
             _step("llm_finance_suggestion", "调用大模型生成财务建议", ["summary"]),
             _step("write_workbook", "生成新的 Excel 文件", ["workbook"]),
             _step("record_artifact", "写入文件产物摘要", ["filename", "metadata"]),
+        ],
+    )
+
+
+def _finance_reconciliation_flow() -> dict[str, Any]:
+    return _base_flow(
+        flow_id="automation:finance:reconciliation",
+        app_id="finance-reconciliation",
+        name="财务对账自动化",
+        description="上传 Amazon 结算表、物流账单、采购成本表、广告费表和汇率表，按订单号/SKU 自动匹配并生成订单利润表和异常账单。",
+        category="财务对账",
+        position="finance",
+        trigger_type="manual_file_upload",
+        entrypoint="/automation/finance/reconciliation",
+        input_schema=[
+            {
+                "name": "files",
+                "label": "对账 Excel 文件",
+                "type": "file_list",
+                "required": True,
+                "accept": [".xlsx", ".xls"],
+                "max_files": 8,
+                "max_bytes_each": 8 * 1024 * 1024,
+                "max_bytes_total": 32 * 1024 * 1024,
+            },
+            {
+                "name": "instruction",
+                "label": "对账要求",
+                "type": "textarea",
+                "required": False,
+                "max_length": 2000,
+            },
+            {
+                "name": "base_currency",
+                "label": "基础币种",
+                "type": "select",
+                "required": False,
+                "default": "CNY",
+            },
+        ],
+        output_schema=[
+            {"name": "summary", "label": "对账摘要", "type": "sheet"},
+            {"name": "profit_table", "label": "订单利润表", "type": "sheet"},
+            {"name": "anomalies", "label": "异常账单", "type": "sheet"},
+            {"name": "field_mapping", "label": "字段识别", "type": "sheet"},
+            {"name": "workbook", "label": "财务对账 Excel", "type": "xlsx"},
+        ],
+        prompt_summary="该流程使用确定性表格规则完成字段识别、订单/SKU 匹配、费用归集、利润计算和异常标记，不依赖大模型生成财务数字。",
+        prompt_template_preview="无独立 Prompt；AI 后续可用于解释异常，但对账计算由 pandas/openpyxl 规则完成。",
+        allowed_tools=["pandas.read_excel", "field_mapping", "order_sku_matching", "profit_calculation", "openpyxl.write_workbook"],
+        allowed_erp_resources=[],
+        permission_rules=[
+            "仅财务岗位或管理员可以上传财务对账文件",
+            "文件大小限制：单个 8MB，总计 32MB，最多 8 个文件",
+            "运行记录只保存文件名、行数、利润合计、异常数量和产物信息，不保存完整账单原文",
+        ],
+        approval_policy="生成结果需财务复核后使用，不自动入账、不自动付款。",
+        failure_strategy="字段无法识别、文件格式不支持或生成失败时返回真实错误，并写入失败运行记录。",
+        steps=[
+            _step("validate_files", "校验多文件类型、大小和岗位权限", ["files"]),
+            _step("read_workbooks", "读取真实 Excel workbook 和 sheet", ["files"]),
+            _step("detect_fields", "识别订单号、SKU、金额、费用、汇率等字段", ["sheets"]),
+            _step("match_order_sku", "按订单号/SKU 匹配结算、物流、采购和广告费用", ["order_no", "sku"]),
+            _step("calculate_profit", "计算净收入、总成本、利润和利润率", ["matched_rows"]),
+            _step("detect_anomalies", "标记负利润、缺成本、缺物流费、缺汇率和未匹配费用", ["profit_rows"]),
+            _step("write_workbook", "生成对账摘要、订单利润表、异常账单和字段识别", ["workbook"]),
+            _step("record_artifact", "写入运行记录和文件产物摘要", ["filename", "metadata"]),
         ],
     )
 

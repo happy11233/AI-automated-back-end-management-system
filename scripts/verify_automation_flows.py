@@ -25,19 +25,19 @@ def main() -> None:
     customer_flows = get_json(tokens["customer_service"], "/automation-flows")["items"]
     finance_flows = get_json(tokens["finance"], "/automation-flows")["items"]
 
-    assert_flow_names(admin_flows, ["生成 Listing", "退款售后话术", "财务 Excel 生成", "知识库维护"])
+    assert_flow_names(admin_flows, ["生成 Listing", "退款售后话术", "财务 Excel 生成", "财务对账自动化", "知识库维护"])
     assert_positions(admin_flows, {"operations", "customer_service", "finance", None})
 
     assert_positions(operations_flows, {"operations"})
     assert_flow_names(operations_flows, ["生成 Listing", "竞品分析", "运营 ERP 查询"])
-    assert_not_flow_names(operations_flows, ["退款售后话术", "分析财务报表", "财务 Excel 生成"])
+    assert_not_flow_names(operations_flows, ["退款售后话术", "分析财务报表", "财务 Excel 生成", "财务对账自动化"])
 
     assert_positions(customer_flows, {"customer_service"})
     assert_flow_names(customer_flows, ["智能客服", "退款售后话术", "客服 ERP 查询"])
-    assert_not_flow_names(customer_flows, ["生成 Listing", "财务 Excel 生成", "分析财务报表"])
+    assert_not_flow_names(customer_flows, ["生成 Listing", "财务 Excel 生成", "财务对账自动化", "分析财务报表"])
 
     assert_positions(finance_flows, {"finance"})
-    assert_flow_names(finance_flows, ["分析财务报表", "统计工资", "财务 Excel 生成", "财务 ERP 查询"])
+    assert_flow_names(finance_flows, ["分析财务报表", "统计工资", "财务 Excel 生成", "财务对账自动化", "财务 ERP 查询"])
     assert_not_flow_names(finance_flows, ["生成 Listing", "退款售后话术"])
 
     finance_detail = get_json(tokens["finance"], flow_detail_path(finance_flows, "财务 Excel 生成"))["item"]
@@ -45,6 +45,10 @@ def main() -> None:
     assert finance_detail["input_schema"], finance_detail
     assert finance_detail["output_schema"], finance_detail
     assert finance_detail["steps"], finance_detail
+
+    reconciliation_detail = get_json(tokens["finance"], flow_detail_path(finance_flows, "财务对账自动化"))["item"]
+    assert reconciliation_detail["entrypoint"] == "/automation/finance/reconciliation"
+    assert any(step["id"] == "calculate_profit" for step in reconciliation_detail["steps"]), reconciliation_detail
 
     operation_finance_detail = requests.get(
         f"{API_BASE_URL}{flow_detail_path(finance_flows, '财务 Excel 生成')}",

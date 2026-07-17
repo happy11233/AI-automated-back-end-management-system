@@ -38,6 +38,7 @@ POSITION_CAPABILITIES: dict[str, list[str]] = {
         "分析财务报表",
         "统计工资",
         "上传 Excel 后按财务要求生成新 Excel 表",
+        "财务对账自动化",
     ],
 }
 

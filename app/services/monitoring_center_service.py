@@ -552,6 +552,7 @@ def _run_type_label(run_type: str) -> str:
     labels = {
         "automation_generate": "岗位文本自动化",
         "finance_excel_transform": "财务 Excel 自动化",
+        "finance_reconciliation": "财务对账自动化",
         "erp_query": "ERP 查询",
         "chat": "AI 对话",
         "chat_stream": "流式 AI 对话",

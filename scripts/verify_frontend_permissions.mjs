@@ -55,7 +55,7 @@ try {
       account: ACCOUNTS.finance,
       path: "/ai-apps",
       waitFor: "财务 ERP 查询",
-      visible: ["AI 应用中心", "财务 ERP 查询", "财务 AI 对话", "财务 Excel 生成", "执行数据已接入运行记录页面"],
+      visible: ["AI 应用中心", "财务 ERP 查询", "财务 AI 对话", "财务 Excel 生成", "财务对账自动化", "执行数据已接入运行记录页面"],
       hidden: ["运营 ERP 查询", "客服 ERP 查询", "知识库维护", "审计与权限追踪"],
     },
     {
@@ -87,7 +87,7 @@ try {
       account: ACCOUNTS.finance,
       path: "/automation",
       waitFor: "上传 Excel 生成新表",
-      visible: ["财务 AI 自动化", "上传 Excel 生成新表", "生成并下载 Excel"],
+      visible: ["财务 AI 自动化", "上传 Excel 生成新表", "生成并下载 Excel", "财务对账自动化", "生成订单利润表"],
       hidden: ["客服 AI 自动化", "运营 AI 自动化", "用户管理", "知识库"],
     },
     {
@@ -95,7 +95,7 @@ try {
       account: ACCOUNTS.finance,
       path: "/dashboard",
       waitFor: "财务数据概览",
-      visible: ["岗位快捷入口", "财务 Excel 生成", "财务 ERP 查询", "财务 AI 对话", "岗位数据概览", "财务数据概览", "全部站点", "全部店铺", "全部时间", "销售发票", "收付款单", "总账分录", "匹配"],
+      visible: ["岗位快捷入口", "财务 Excel 生成", "财务对账自动化", "财务 ERP 查询", "财务 AI 对话", "岗位数据概览", "财务数据概览", "全部站点", "全部店铺", "全部时间", "销售发票", "收付款单", "总账分录", "匹配"],
       hidden: ["用户管理", "知识库上传", "客服 AI 对话", "运营 AI 自动化"],
       afterChecks: async (page) => {
         await clickShortcut(page, "财务 Excel 生成");
@@ -112,7 +112,7 @@ try {
       path: "/automation",
       waitFor: "退款售后话术",
       visible: ["客服 AI 自动化", "退款售后话术"],
-      hidden: ["上传 Excel 生成新表", "财务 AI 自动化", "用户管理", "知识库"],
+      hidden: ["上传 Excel 生成新表", "财务对账自动化", "财务 AI 自动化", "用户管理", "知识库"],
     },
     {
       label: "customer_service_dashboard_shortcuts_visible",
@@ -120,7 +120,7 @@ try {
       path: "/dashboard",
       waitFor: "客服数据概览",
       visible: ["岗位快捷入口", "客服自动化收件箱", "客服 AI 对话", "客服 ERP 查询", "岗位数据概览", "客服数据概览", "全部站点", "全部店铺", "全部时间", "物流/出库单", "售后工单", "客户资料", "匹配"],
-      hidden: ["用户管理", "知识库上传", "财务 Excel 生成", "运营 AI 自动化"],
+      hidden: ["用户管理", "知识库上传", "财务 Excel 生成", "财务对账自动化", "运营 AI 自动化"],
     },
     {
       label: "operations_position_visible_only",
@@ -128,7 +128,7 @@ try {
       path: "/automation",
       waitFor: "竞品分析",
       visible: ["运营 AI 自动化", "竞品分析"],
-      hidden: ["客服 AI 自动化", "财务 AI 自动化", "上传 Excel 生成新表", "用户管理", "知识库"],
+      hidden: ["客服 AI 自动化", "财务 AI 自动化", "上传 Excel 生成新表", "财务对账自动化", "用户管理", "知识库"],
     },
     {
       label: "operations_dashboard_shortcuts_visible",
@@ -136,7 +136,7 @@ try {
       path: "/dashboard",
       waitFor: "运营数据概览",
       visible: ["岗位快捷入口", "运营 AI 自动化", "运营 ERP 查询", "AI 对话", "岗位数据概览", "运营数据概览", "全部站点", "全部店铺", "全部时间", "销售订单", "商品资料", "商品价格", "匹配", "订单金额"],
-      hidden: ["用户管理", "知识库上传", "财务 Excel 生成", "客服 AI 对话"],
+      hidden: ["用户管理", "知识库上传", "财务 Excel 生成", "财务对账自动化", "客服 AI 对话"],
       afterChecks: async (page) => {
         await clickSegmentedItem(page, "德国");
         await clickSegmentedItem(page, "近30天");
@@ -153,14 +153,22 @@ try {
           state: "visible",
           timeout: 15000,
         });
+        const marketVisible = await isTextVisible(page, "德国站");
+        const dateVisible = await isTextVisible(page, "近 30 天") || await isTextVisible(page, "近30天");
+        const storeVisible = await isTextVisible(page, "DE Store");
         await page.locator(".dashboardOverviewCard").first().getByRole("button", { name: /ERP 详情/ }).first().click();
         await page.getByText("ERP 记录详情", { exact: false }).first().waitFor({
           state: "visible",
           timeout: 15000,
         });
+        const detailVisible = await isTextVisible(page, "ERP 记录详情");
         return {
-          ok: await isTextVisible(page, "德国站") && await isTextVisible(page, "近 30 天") && await isTextVisible(page, "DE Store") && await isTextVisible(page, "ERP 记录详情"),
+          ok: marketVisible && dateVisible && storeVisible && detailVisible,
           currentUrl: page.url(),
+          marketVisible,
+          dateVisible,
+          storeVisible,
+          detailVisible,
         };
       },
     },

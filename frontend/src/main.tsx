@@ -69,6 +69,7 @@ import {
   getCustomerServiceMessageDetail,
   isAuthExpiredError,
   listCustomerServiceMessages,
+  reconcileFinanceFiles,
   transformFinanceExcel,
   getErpDashboardOverview,
   getErpDiagnostics,
@@ -587,6 +588,12 @@ function App() {
     "请整理财务表格，生成数值汇总，标记需要人工复核的异常。",
   );
   const [isTransformingFinanceExcel, setIsTransformingFinanceExcel] = useState(false);
+  const [financeReconciliationFiles, setFinanceReconciliationFiles] = useState<File[]>([]);
+  const [financeReconciliationInstruction, setFinanceReconciliationInstruction] = useState(
+    "请按订单号和 SKU 匹配 Amazon 结算表、物流账单、采购成本表、广告费表和汇率表，生成订单利润表并标记异常账单。",
+  );
+  const [financeReconciliationCurrency, setFinanceReconciliationCurrency] = useState("CNY");
+  const [isReconcilingFinance, setIsReconcilingFinance] = useState(false);
 
   const [documentFile, setDocumentFile] = useState<File | null>(null);
   const [documentVisibility, setDocumentVisibility] = useState<Role>("employee");
@@ -1710,6 +1717,45 @@ function App() {
     }
   }
 
+  async function handleReconcileFinanceFiles() {
+    if (!token) {
+      setStatusMessage("请先登录");
+      message.warning("请先登录");
+      return;
+    }
+
+    if (financeReconciliationFiles.length === 0) {
+      setStatusMessage("请选择对账 Excel 文件");
+      message.warning("请选择对账 Excel 文件");
+      return;
+    }
+
+    setIsReconcilingFinance(true);
+    setStatusMessage("正在生成财务对账表");
+
+    try {
+      const result = await reconcileFinanceFiles(
+        token,
+        financeReconciliationFiles,
+        financeReconciliationInstruction,
+        financeReconciliationCurrency,
+      );
+      downloadBlob(result.blob, result.filename);
+      setStatusMessage("财务对账表已生成并开始下载");
+      message.success("财务对账表已生成");
+      void refreshRunRecords();
+    } catch (error) {
+      if (isAuthExpiredError(error)) {
+        return;
+      }
+      const text = error instanceof Error ? error.message : "财务对账失败";
+      setStatusMessage(text);
+      message.error(text);
+    } finally {
+      setIsReconcilingFinance(false);
+    }
+  }
+
   async function handleCreateUser() {
     if (!token) {
       setStatusMessage("请先登录管理员账号");
@@ -2290,8 +2336,16 @@ function App() {
                     financeExcelInstruction={financeExcelInstruction}
                     setFinanceExcelInstruction={setFinanceExcelInstruction}
                     isTransformingFinanceExcel={isTransformingFinanceExcel}
+                    financeReconciliationFiles={financeReconciliationFiles}
+                    setFinanceReconciliationFiles={setFinanceReconciliationFiles}
+                    financeReconciliationInstruction={financeReconciliationInstruction}
+                    setFinanceReconciliationInstruction={setFinanceReconciliationInstruction}
+                    financeReconciliationCurrency={financeReconciliationCurrency}
+                    setFinanceReconciliationCurrency={setFinanceReconciliationCurrency}
+                    isReconcilingFinance={isReconcilingFinance}
                     onGenerate={handleGenerateAutomation}
                     onTransformFinanceExcel={handleTransformFinanceExcel}
+                    onReconcileFinanceFiles={handleReconcileFinanceFiles}
                     onInputChange={(taskId, value) =>
                       setAutomationTasks((current) =>
                         current.map((item) =>
@@ -3600,8 +3654,16 @@ function AutomationPanel({
   financeExcelInstruction,
   setFinanceExcelInstruction,
   isTransformingFinanceExcel,
+  financeReconciliationFiles,
+  setFinanceReconciliationFiles,
+  financeReconciliationInstruction,
+  setFinanceReconciliationInstruction,
+  financeReconciliationCurrency,
+  setFinanceReconciliationCurrency,
+  isReconcilingFinance,
   onGenerate,
   onTransformFinanceExcel,
+  onReconcileFinanceFiles,
   onInputChange,
   loadingTaskId,
 }: {
@@ -3614,8 +3676,16 @@ function AutomationPanel({
   financeExcelInstruction: string;
   setFinanceExcelInstruction: (value: string) => void;
   isTransformingFinanceExcel: boolean;
+  financeReconciliationFiles: File[];
+  setFinanceReconciliationFiles: React.Dispatch<React.SetStateAction<File[]>>;
+  financeReconciliationInstruction: string;
+  setFinanceReconciliationInstruction: (value: string) => void;
+  financeReconciliationCurrency: string;
+  setFinanceReconciliationCurrency: (value: string) => void;
+  isReconcilingFinance: boolean;
   onGenerate: (taskId: string, inputText: string) => void;
   onTransformFinanceExcel: () => void;
+  onReconcileFinanceFiles: () => void;
   onInputChange: (taskId: string, value: string) => void;
   loadingTaskId: string;
 }) {
@@ -3643,6 +3713,11 @@ function AutomationPanel({
               },
             ]
           : [];
+        const reconciliationFileList: UploadFile[] = financeReconciliationFiles.map((file) => ({
+          uid: file.name,
+          name: file.name,
+          status: "done",
+        }));
 
         return (
           <ProCard
@@ -3733,6 +3808,77 @@ function AutomationPanel({
                               onClick={onTransformFinanceExcel}
                             >
                               生成并下载 Excel
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </Card>
+                </Col>
+              ) : null}
+              {item === "finance" ? (
+                <Col xs={24} className="automationTaskCol">
+                  <Card size="small" className="contextCard automationTaskCard financeUploadTaskCard">
+                    <div className="financeUploadTaskBody">
+                      <Text strong className="automationTaskTitle">财务对账自动化</Text>
+                      <Paragraph type="secondary" className="automationTaskDescription">
+                        上传 Amazon 结算表、物流账单、采购成本表、广告费表和汇率表，系统会按订单号/SKU 自动匹配，生成订单利润表和异常账单。
+                      </Paragraph>
+                      <div className="financeUploadControls">
+                        <Upload.Dragger
+                          className="financeUploadDragger"
+                          accept=".xlsx,.xls"
+                          multiple
+                          maxCount={8}
+                          fileList={reconciliationFileList}
+                          beforeUpload={(file) => {
+                            setFinanceReconciliationFiles((current) => {
+                              const withoutDuplicate = current.filter((itemFile) => itemFile.name !== file.name);
+                              return [...withoutDuplicate, file];
+                            });
+                            return false;
+                          }}
+                          onRemove={(file) => {
+                            setFinanceReconciliationFiles((current) =>
+                              current.filter((itemFile) => itemFile.name !== file.name)
+                            );
+                          }}
+                        >
+                          <p className="uploadIcon">
+                            <CloudUploadOutlined />
+                          </p>
+                          <p className="uploadTitle">选择对账 Excel</p>
+                          <p className="uploadHint">支持 Amazon 结算、物流、采购、广告、汇率等多张 .xlsx / .xls</p>
+                        </Upload.Dragger>
+                        <div className="financeUploadActionPane">
+                          <Select
+                            className="fullWidthControl"
+                            value={financeReconciliationCurrency}
+                            options={[
+                              { label: "人民币 CNY", value: "CNY" },
+                              { label: "美元 USD", value: "USD" },
+                              { label: "欧元 EUR", value: "EUR" },
+                              { label: "日元 JPY", value: "JPY" },
+                            ]}
+                            onChange={setFinanceReconciliationCurrency}
+                          />
+                          <Input.TextArea
+                            className="financeUploadInstruction"
+                            value={financeReconciliationInstruction}
+                            placeholder="输入对账要求，例如：按订单号/SKU 匹配，输出亏损订单、缺采购成本、缺物流费和未匹配广告费。"
+                            autoSize={false}
+                            rows={3}
+                            onChange={(event) => setFinanceReconciliationInstruction(event.target.value)}
+                          />
+                          <div className="automationTaskFooter">
+                            <Button
+                              type="primary"
+                              icon={<CloudUploadOutlined />}
+                              loading={isReconcilingFinance}
+                              disabled={financeReconciliationFiles.length === 0 || isReconcilingFinance}
+                              onClick={onReconcileFinanceFiles}
+                            >
+                              生成订单利润表
                             </Button>
                           </div>
                         </div>
@@ -7074,6 +7220,12 @@ function dashboardShortcuts(role: Role, position: Position | null): Array<{
         icon: <CloudUploadOutlined />,
       },
       {
+        title: "财务对账自动化",
+        description: "合并结算、物流、采购、广告和汇率表，生成订单利润表。",
+        view: "automation_finance",
+        icon: <AuditOutlined />,
+      },
+      {
         title: "财务 ERP 查询",
         description: "查询总账分录、收付款、工资单和发票。",
         view: "erp",
@@ -7170,6 +7322,19 @@ function aiAppsForUser(
         owner: config.department,
         entryView: "automation_finance",
         entryLabel: "上传 Excel",
+      });
+      apps.push({
+        id: "finance-reconciliation",
+        name: "财务对账自动化",
+        description: "上传 Amazon 结算表、物流账单、采购成本表、广告费表和汇率表，自动生成订单利润表和异常账单。",
+        category: "财务对账",
+        position: item,
+        positionLabel: config.label,
+        status: "enabled",
+        dataSources: ["Amazon 结算表", "物流账单", "采购成本表", "广告费表", "汇率表"],
+        owner: config.department,
+        entryView: "automation_finance",
+        entryLabel: "打开对账中心",
       });
     }
 

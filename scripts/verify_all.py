@@ -57,6 +57,10 @@ def main() -> None:
             lambda: _run_node(["node", "scripts/verify_customer_service_inbox_frontend.mjs"]),
         ),
         ("财务 Excel 生成回归", lambda: _check_finance_excel_transform(api_base_url)),
+        (
+            "财务对账自动化回归",
+            lambda: _run([str(python_bin), "scripts/verify_finance_reconciliation.py"]),
+        ),
         ("前端构建", lambda: _run(["npm", "run", "build"], cwd=FRONTEND_DIR)),
         ("前端权限可见性回归", lambda: _check_frontend_permissions()),
     ]

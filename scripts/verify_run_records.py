@@ -82,6 +82,29 @@ def main() -> None:
     assert excel_response.status_code == 200, excel_response.text[:500]
     assert excel_response.content[:2] == b"PK"
 
+    reconciliation_response = requests.post(
+        f"{API_BASE_URL}/automation/finance/reconciliation",
+        headers=auth_headers(finance_token),
+        files=[
+            (
+                "files",
+                (
+                    f"{test_run_id}_{filename}",
+                    content,
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                ),
+            )
+            for filename, content in build_reconciliation_excels().items()
+        ],
+        data={
+            "instruction": f"{test_run_id} 请生成订单利润表和异常账单，只保存摘要。",
+            "base_currency": "CNY",
+        },
+        timeout=180,
+    )
+    assert reconciliation_response.status_code == 200, reconciliation_response.text[:500]
+    assert reconciliation_response.content[:2] == b"PK"
+
     chat_thread_id = f"thread-{test_run_id}"
     chat_response = post_json(
         finance_token,
@@ -99,6 +122,7 @@ def main() -> None:
     assert_has_run(admin_runs, "erp_query", "operations", "succeeded")
     assert_has_run(admin_runs, "erp_query", "customer_service", "blocked")
     assert_has_run(admin_runs, "finance_excel_transform", "finance", "succeeded")
+    assert_has_run(admin_runs, "finance_reconciliation", "finance", "succeeded")
     assert_has_run(admin_runs, "chat", "finance", "succeeded")
 
     finance_runs = get_json(finance_token, "/run-records?limit=120")["items"]
@@ -177,6 +201,46 @@ def build_excel() -> bytes:
     )
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
         frame.to_excel(writer, index=False, sheet_name="Finance")
+    return output.getvalue()
+
+
+def build_reconciliation_excels() -> dict[str, bytes]:
+    return {
+        "amazon_settlement.xlsx": dataframe_to_excel(
+            "Amazon结算",
+            [
+                {"订单号": "AMZ-RUN-001", "SKU": "SKU-RUN-01", "数量": 2, "币种": "USD", "销售额": 100, "退款": 0, "平台手续费": 15},
+                {"订单号": "AMZ-RUN-002", "SKU": "SKU-RUN-02", "数量": 1, "币种": "USD", "销售额": 30, "退款": 0, "平台手续费": 6},
+            ],
+        ),
+        "logistics.xlsx": dataframe_to_excel(
+            "物流账单",
+            [
+                {"订单号": "AMZ-RUN-001", "物流费": 70, "币种": "CNY"},
+                {"订单号": "AMZ-RUN-002", "物流费": 20, "币种": "CNY"},
+            ],
+        ),
+        "purchase.xlsx": dataframe_to_excel(
+            "采购成本",
+            [
+                {"SKU": "SKU-RUN-01", "采购成本": 120, "币种": "CNY"},
+                {"SKU": "SKU-RUN-02", "采购成本": 180, "币种": "CNY"},
+            ],
+        ),
+        "rates.xlsx": dataframe_to_excel(
+            "汇率",
+            [
+                {"币种": "USD", "汇率": 7.2},
+                {"币种": "CNY", "汇率": 1},
+            ],
+        ),
+    }
+
+
+def dataframe_to_excel(sheet_name: str, rows: list[dict[str, Any]]) -> bytes:
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        pd.DataFrame(rows).to_excel(writer, index=False, sheet_name=sheet_name)
     return output.getvalue()
 
 
