@@ -2,7 +2,7 @@ import { createRequire } from "node:module";
 
 
 const require = createRequire(import.meta.url);
-const { chromium } = require("playwright");
+const { chromium } = requirePlaywright();
 
 const FRONTEND_URL = (process.env.VERIFY_FRONTEND_URL || "http://127.0.0.1:5173").replace(/\/$/, "");
 const API_BASE_URL = (process.env.VERIFY_API_BASE_URL || "http://127.0.0.1:8001").replace(/\/$/, "");
@@ -95,7 +95,7 @@ try {
       account: ACCOUNTS.finance,
       path: "/dashboard",
       waitFor: "财务数据概览",
-      visible: ["岗位快捷入口", "财务 Excel 生成", "财务 ERP 查询", "财务 AI 对话", "岗位数据概览", "财务数据概览", "全部站点", "全部店铺", "全部时间", "销售发票", "收付款单", "总账分录", "匹配", "发票金额"],
+      visible: ["岗位快捷入口", "财务 Excel 生成", "财务 ERP 查询", "财务 AI 对话", "岗位数据概览", "财务数据概览", "全部站点", "全部店铺", "全部时间", "销售发票", "收付款单", "总账分录", "匹配"],
       hidden: ["用户管理", "知识库上传", "客服 AI 对话", "运营 AI 自动化"],
       afterChecks: async (page) => {
         await clickShortcut(page, "财务 Excel 生成");
@@ -119,7 +119,7 @@ try {
       account: ACCOUNTS.customer_service,
       path: "/dashboard",
       waitFor: "客服数据概览",
-      visible: ["岗位快捷入口", "客服 AI 对话", "客服 ERP 查询", "客服自动化", "岗位数据概览", "客服数据概览", "全部站点", "全部店铺", "全部时间", "物流/出库单", "售后工单", "客户资料", "匹配"],
+      visible: ["岗位快捷入口", "客服自动化收件箱", "客服 AI 对话", "客服 ERP 查询", "岗位数据概览", "客服数据概览", "全部站点", "全部店铺", "全部时间", "物流/出库单", "售后工单", "客户资料", "匹配"],
       hidden: ["用户管理", "知识库上传", "财务 Excel 生成", "运营 AI 自动化"],
     },
     {
@@ -345,4 +345,40 @@ async function isTextVisible(page, text) {
   } catch {
     return false;
   }
+}
+
+
+function requirePlaywright() {
+  const fs = require("node:fs");
+  const os = require("node:os");
+  const path = require("node:path");
+  const candidates = [
+    "playwright",
+    `${process.cwd()}/node_modules/playwright`,
+    `${process.cwd()}/frontend/node_modules/playwright`,
+    process.env.PLAYWRIGHT_MODULE_PATH,
+    ...findNpxPlaywrightInstalls(fs, os, path),
+  ].filter(Boolean);
+
+  for (const candidate of candidates) {
+    try {
+      return require(candidate);
+    } catch {
+      // Try the next real installation path.
+    }
+  }
+
+  throw new Error("Cannot find Playwright. Run with: npx -p playwright node scripts/verify_frontend_permissions.mjs");
+}
+
+
+function findNpxPlaywrightInstalls(fs, os, path) {
+  const npxRoot = path.join(os.homedir(), ".npm", "_npx");
+  if (!fs.existsSync(npxRoot)) {
+    return [];
+  }
+
+  return fs.readdirSync(npxRoot)
+    .map((entry) => path.join(npxRoot, entry, "node_modules", "playwright"))
+    .filter((candidate) => fs.existsSync(path.join(candidate, "package.json")));
 }

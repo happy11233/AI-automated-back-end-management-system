@@ -33,7 +33,7 @@ try {
     account: ACCOUNTS.admin,
     viewport: { width: 1440, height: 960 },
     screenshot: "/tmp/company-rag-ai-workflows-admin-desktop.png",
-    visible: ["AI 工作流中心", "运营 Listing 上架准备", "客服退款售后处理", "财务 Excel 结算整理", "可见工作流"],
+    visible: ["AI 工作流中心", "运营 Listing 上架准备", "客服退款售后处理", "客服消息自动化闭环", "财务 Excel 结算整理", "可见工作流"],
     hidden: ["Bearer abc.def.ghi", "api_key=secret-value", "buyer@example.com", "13812345678"],
     openDetailText: "客服退款售后处理",
   });

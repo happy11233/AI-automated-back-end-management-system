@@ -43,6 +43,86 @@ export type ChatStreamHandlers = {
   onError?: (payload: ChatStreamPayload) => void;
 };
 
+export type CustomerServiceMessageItem = {
+  id: string;
+  channel: string;
+  external_id: string | null;
+  buyer_name: string | null;
+  buyer_email: string | null;
+  buyer_language: string;
+  marketplace: string | null;
+  order_no: string | null;
+  tracking_no: string | null;
+  sku: string | null;
+  subject: string | null;
+  message: string;
+  intent: string | null;
+  risk_level: string;
+  status: string;
+  automation_decision: string | null;
+  reply_draft: string | null;
+  handoff_reason: string | null;
+  erp_summary: string | null;
+  rag_summary: string | null;
+  erp_references: ErpReference[];
+  citations: Array<Record<string, unknown>>;
+  approval_id: string | null;
+  run_id: string | null;
+  assigned_to: string | null;
+  created_by: string | null;
+  processed_by: string | null;
+  processed_at: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string | null;
+  updated_at: string | null;
+};
+
+export type CustomerServiceMessageEventItem = {
+  id: string;
+  message_id: string;
+  event_type: string;
+  actor_id: string | null;
+  content: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string | null;
+};
+
+export type CustomerServiceMessagesResponse = {
+  items: CustomerServiceMessageItem[];
+};
+
+export type CustomerServiceMessageDetailResponse = {
+  item: CustomerServiceMessageItem;
+  events: CustomerServiceMessageEventItem[];
+};
+
+export type CustomerServiceMessageCreatePayload = {
+  channel: "manual" | "amazon" | "email" | "ticket" | "api";
+  external_id?: string | null;
+  buyer_name?: string | null;
+  buyer_email?: string | null;
+  buyer_language?: string;
+  marketplace?: string | null;
+  order_no?: string | null;
+  tracking_no?: string | null;
+  sku?: string | null;
+  subject?: string | null;
+  message: string;
+  metadata?: Record<string, unknown>;
+};
+
+export type CustomerServiceProcessResponse = {
+  item: CustomerServiceMessageItem;
+  run_id: string;
+  steps: Array<{
+    step_order: number;
+    step_name: string;
+    status: string;
+    duration_ms: number;
+  }>;
+  events: CustomerServiceMessageEventItem[];
+};
+
 export type ApprovalItem = {
   id: string;
   thread_id: string;
@@ -1326,6 +1406,59 @@ export async function generateAutomation(
         task_id: taskId,
         input_text: inputText,
       }),
+    },
+    token,
+  );
+}
+
+export async function listCustomerServiceMessages(
+  token: string,
+  filters: { status?: string; risk_level?: string; limit?: number } = {},
+) {
+  const params = new URLSearchParams();
+
+  if (filters.status && filters.status !== "all") {
+    params.set("status", filters.status);
+  }
+
+  if (filters.risk_level && filters.risk_level !== "all") {
+    params.set("risk_level", filters.risk_level);
+  }
+
+  params.set("limit", String(filters.limit || 50));
+  return requestJson<CustomerServiceMessagesResponse>(`/customer-service/messages?${params}`, {}, token);
+}
+
+export async function createCustomerServiceMessage(
+  token: string,
+  payload: CustomerServiceMessageCreatePayload,
+) {
+  return requestJson<CustomerServiceMessageDetailResponse>(
+    "/customer-service/messages",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    },
+    token,
+  );
+}
+
+export async function getCustomerServiceMessageDetail(token: string, messageId: string) {
+  return requestJson<CustomerServiceMessageDetailResponse>(
+    `/customer-service/messages/${encodeURIComponent(messageId)}`,
+    {},
+    token,
+  );
+}
+
+export async function processCustomerServiceMessage(token: string, messageId: string) {
+  return requestJson<CustomerServiceProcessResponse>(
+    `/customer-service/messages/${encodeURIComponent(messageId)}/process`,
+    {
+      method: "POST",
     },
     token,
   );

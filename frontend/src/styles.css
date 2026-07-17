@@ -1565,6 +1565,86 @@ button {
   margin-top: 2px;
 }
 
+.fullWidthControl {
+  width: 100%;
+}
+
+.customerInboxMessageCell {
+  width: 100%;
+  min-width: 0;
+}
+
+.customerInboxToolbar {
+  justify-content: flex-end;
+  width: 100%;
+}
+
+.customerInboxPreview {
+  display: block;
+  max-width: 100%;
+  color: rgba(15, 23, 42, 0.62);
+  white-space: normal;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  line-height: 1.55;
+}
+
+.customerInboxDetailGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.customerInboxDetailItem {
+  min-width: 0;
+  padding: 10px 12px;
+  overflow: hidden;
+  background: #f8fafc;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 8px;
+}
+
+.customerInboxDetailItem .ant-typography {
+  display: block;
+  min-width: 0;
+  white-space: normal;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.customerInboxResultBlock {
+  min-width: 0;
+  padding: 12px;
+  overflow: hidden;
+  background: #ffffff;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 8px;
+}
+
+.customerInboxResultText {
+  max-height: 260px;
+  margin-top: 8px;
+  margin-bottom: 0 !important;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  line-height: 1.62;
+}
+
+.customerInboxEvent {
+  display: grid;
+  grid-template-columns: minmax(72px, max-content) minmax(84px, max-content) minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.22);
+}
+
+.customerInboxEvent:last-child {
+  border-bottom: 0;
+}
+
 .financeUploadTaskBody {
   display: grid;
   grid-template-rows: 22px auto 142px;
@@ -1907,9 +1987,14 @@ button {
 	  .flowConfigFilterGrid,
 	  .flowConfigFilterGrid.admin,
 	  .flowConfigDetailGrid,
-  .connectorDetailGrid {
+  .connectorDetailGrid,
+  .customerInboxDetailGrid {
     grid-template-columns: 1fr;
     max-width: none;
+  }
+
+  .customerInboxEvent {
+    grid-template-columns: 1fr;
   }
 
   .effectAuditSummary,

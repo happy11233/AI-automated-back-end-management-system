@@ -48,6 +48,14 @@ def main() -> None:
             "发布前稳定化回归",
             lambda: _run([str(python_bin), "scripts/verify_release_ready.py"]),
         ),
+        (
+            "客服自动化闭环回归",
+            lambda: _run([str(python_bin), "scripts/verify_customer_service_automation.py"]),
+        ),
+        (
+            "客服自动化收件箱前端回归",
+            lambda: _run_node(["node", "scripts/verify_customer_service_inbox_frontend.mjs"]),
+        ),
         ("财务 Excel 生成回归", lambda: _check_finance_excel_transform(api_base_url)),
         ("前端构建", lambda: _run(["npm", "run", "build"], cwd=FRONTEND_DIR)),
         ("前端权限可见性回归", lambda: _check_frontend_permissions()),

@@ -37,14 +37,18 @@ def main() -> None:
     customer_items = get_json(tokens["customer_service"], "/ai-workflows")["items"]
     finance_items = get_json(tokens["finance"], "/ai-workflows")["items"]
 
-    assert len(admin_items) == 7, admin_items
+    assert len(admin_items) == 8, admin_items
     assert_positions(admin_items, {"operations", "customer_service", "finance"})
     assert_positions(operations_items, {"operations"})
     assert_positions(customer_items, {"customer_service"})
     assert_positions(finance_items, {"finance"})
 
     assert_workflows(operations_items, ["operations_listing_launch", "operations_competitor_analysis"])
-    assert_workflows(customer_items, ["customer_service_refund_reply", "customer_service_logistics_reply"])
+    assert_workflows(customer_items, [
+        "customer_service_refund_reply",
+        "customer_service_logistics_reply",
+        "customer_service_message_loop",
+    ])
     assert_workflows(finance_items, ["finance_report_analysis", "finance_salary_summary", "finance_excel_settlement"])
 
     cross_detail = requests.get(

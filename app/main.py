@@ -15,6 +15,7 @@ from app.api.auth import router as auth_router
 from app.api.ai_workflows import router as ai_workflows_router
 from app.api.automation_flows import router as automation_flows_router
 from app.api.connectors import router as connectors_router
+from app.api.customer_service import router as customer_service_router
 from app.api.effect_analytics import router as effect_analytics_router
 from app.api.evaluation_center import router as evaluation_center_router
 from app.api.monitoring_center import router as monitoring_center_router
@@ -40,6 +41,7 @@ from app.services.context_service import (
     build_context_bundle,
     update_context_after_turn,
 )
+from app.services.customer_service_automation_service import ensure_customer_service_automation_schema
 from app.services.erp_service import query_erp_for_current_user, summarize_erp_items
 from app.services.logging_service import (ensure_chat_thread,save_chat_message,write_audit_log,)
 from app.services.mcp_service import (
@@ -58,6 +60,7 @@ from app.services.run_record_service import (
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     open_pool()
+    ensure_customer_service_automation_schema()
     yield
     close_pool()
 
@@ -88,6 +91,7 @@ app.include_router(approvals_router)
 app.include_router(automation_router)
 app.include_router(automation_flows_router)
 app.include_router(connectors_router)
+app.include_router(customer_service_router)
 app.include_router(effect_analytics_router)
 app.include_router(evaluation_center_router)
 app.include_router(monitoring_center_router)

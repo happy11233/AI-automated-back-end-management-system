@@ -65,7 +65,10 @@ import {
   getConnectorDetail,
   getAutomationFlowDetail,
   generateAutomation,
+  createCustomerServiceMessage,
+  getCustomerServiceMessageDetail,
   isAuthExpiredError,
+  listCustomerServiceMessages,
   transformFinanceExcel,
   getErpDashboardOverview,
   getErpDiagnostics,
@@ -87,6 +90,7 @@ import {
   listAutomationFlows,
   listAiWorkflows,
   queryErp,
+  processCustomerServiceMessage,
   runRagEvaluation,
   runAiWorkflow,
   reviewApproval as reviewApprovalApi,
@@ -102,6 +106,10 @@ import {
   type ConnectorDetailResponse,
   type ConnectorItem,
   type ConnectorsResponse,
+  type CustomerServiceMessageCreatePayload,
+  type CustomerServiceMessageDetailResponse,
+  type CustomerServiceMessageItem,
+  type CustomerServiceProcessResponse,
   type EffectAnalyticsResponse,
   type EvaluationCenterResponse,
   type MonitoringCenterResponse,
@@ -148,6 +156,7 @@ type View =
   | "automation"
   | "automation_operations"
   | "automation_customer_service"
+  | "customer_service_inbox"
   | "automation_finance"
   | "erp"
   | "erp_query"
@@ -277,6 +286,24 @@ type AiWorkflowFilterState = {
   category: string;
 };
 
+type CustomerServiceInboxForm = {
+  channel: "manual" | "amazon" | "email" | "ticket" | "api";
+  buyerName: string;
+  buyerEmail: string;
+  buyerLanguage: string;
+  marketplace: string;
+  orderNo: string;
+  trackingNo: string;
+  sku: string;
+  subject: string;
+  message: string;
+};
+
+type CustomerServiceInboxFilters = {
+  status: string;
+  riskLevel: string;
+};
+
 type MonitoringCenterFilterState = {
   dateRange: "7d" | "30d" | "90d" | "all";
 };
@@ -336,6 +363,14 @@ const navItems: NavItem[] = [
         id: "automation_customer_service",
         name: "客服 AI 自动化",
         icon: <MessageOutlined />,
+        roles: ["admin", "employee"],
+        positions: ["customer_service"],
+      },
+      {
+        path: "/automation/customer-service-inbox",
+        id: "customer_service_inbox",
+        name: "客服自动化收件箱",
+        icon: <CommentOutlined />,
         roles: ["admin", "employee"],
         positions: ["customer_service"],
       },
@@ -492,6 +527,28 @@ function App() {
   const [isAutomationFlowDetailOpen, setIsAutomationFlowDetailOpen] = useState(false);
   const [isAutomationFlowDetailLoading, setIsAutomationFlowDetailLoading] = useState(false);
   const [isAutomationFlowsLoading, setIsAutomationFlowsLoading] = useState(false);
+  const [customerMessages, setCustomerMessages] = useState<CustomerServiceMessageItem[]>([]);
+  const [customerMessageDetail, setCustomerMessageDetail] = useState<CustomerServiceMessageDetailResponse | null>(null);
+  const [customerProcessResult, setCustomerProcessResult] = useState<CustomerServiceProcessResponse | null>(null);
+  const [customerInboxFilters, setCustomerInboxFilters] = useState<CustomerServiceInboxFilters>({
+    status: "all",
+    riskLevel: "all",
+  });
+  const [customerInboxForm, setCustomerInboxForm] = useState<CustomerServiceInboxForm>({
+    channel: "manual",
+    buyerName: "",
+    buyerEmail: "",
+    buyerLanguage: "auto",
+    marketplace: "Amazon US",
+    orderNo: "",
+    trackingNo: "",
+    sku: "",
+    subject: "",
+    message: "Where is my order? My order number is AMZ-US-001.",
+  });
+  const [isCustomerInboxLoading, setIsCustomerInboxLoading] = useState(false);
+  const [isCreatingCustomerMessage, setIsCreatingCustomerMessage] = useState(false);
+  const [processingCustomerMessageId, setProcessingCustomerMessageId] = useState("");
   const [connectors, setConnectors] = useState<ConnectorItem[]>([]);
   const [connectorSummary, setConnectorSummary] = useState<ConnectorsResponse["summary"] | null>(null);
   const [connectorDetail, setConnectorDetail] = useState<ConnectorDetailResponse | null>(null);
@@ -628,6 +685,9 @@ function App() {
     void refreshEffectAnalytics(storedToken);
     void refreshAiWorkflows(storedToken);
     void refreshAutomationFlows(storedToken);
+    if (canUseCustomerServiceInbox(role, position)) {
+      void refreshCustomerServiceMessages(storedToken);
+    }
 
     if (role === "admin") {
       void refreshAdminData(storedToken);
@@ -683,6 +743,13 @@ function App() {
       setAiWorkflowFilters(defaultAiWorkflowFilters(nextRole, nextPosition));
       await refreshAiWorkflows(result.access_token);
       await refreshAutomationFlows(result.access_token, defaultAutomationFlowFilters(nextRole, nextPosition));
+      if (canUseCustomerServiceInbox(nextRole, nextPosition)) {
+        await refreshCustomerServiceMessages(result.access_token);
+      } else {
+        setCustomerMessages([]);
+        setCustomerMessageDetail(null);
+        setCustomerProcessResult(null);
+      }
 
       setIsLoginModalOpen(false);
     } catch (error) {
@@ -731,6 +798,11 @@ function App() {
     setAutomationFlowDetail(null);
     setIsAutomationFlowDetailOpen(false);
     setAutomationFlowFilters({ position: "all", category: "" });
+    setCustomerMessages([]);
+    setCustomerMessageDetail(null);
+    setCustomerProcessResult(null);
+    setCustomerInboxFilters({ status: "all", riskLevel: "all" });
+    setProcessingCustomerMessageId("");
     setConnectors([]);
     setConnectorSummary(null);
     setConnectorDetail(null);
@@ -1131,6 +1203,148 @@ function App() {
       message.error(text);
     } finally {
       setIsAutomationFlowDetailLoading(false);
+    }
+  }
+
+  async function refreshCustomerServiceMessages(activeToken = token, filters = customerInboxFilters) {
+    if (!activeToken || !canUseCustomerServiceInbox(role, position)) {
+      return;
+    }
+
+    setIsCustomerInboxLoading(true);
+
+    try {
+      const result = await listCustomerServiceMessages(activeToken, {
+        status: filters.status,
+        risk_level: filters.riskLevel,
+        limit: 80,
+      });
+      setCustomerMessages(result.items);
+      setStatusMessage("客服自动化收件箱已刷新");
+    } catch (error) {
+      if (isAuthExpiredError(error)) {
+        return;
+      }
+      const text = error instanceof Error ? error.message : "客服收件箱加载失败";
+      setStatusMessage(text);
+      message.error(text);
+    } finally {
+      setIsCustomerInboxLoading(false);
+    }
+  }
+
+  async function openCustomerServiceMessageDetail(messageId: string) {
+    if (!token) {
+      setStatusMessage("请先登录");
+      message.warning("请先登录");
+      return;
+    }
+
+    try {
+      const detail = await getCustomerServiceMessageDetail(token, messageId);
+      setCustomerMessageDetail(detail);
+      setStatusMessage("客服消息详情已加载");
+    } catch (error) {
+      if (isAuthExpiredError(error)) {
+        return;
+      }
+      const text = error instanceof Error ? error.message : "客服消息详情加载失败";
+      setStatusMessage(text);
+      message.error(text);
+    }
+  }
+
+  async function handleCreateCustomerMessage() {
+    if (!token) {
+      setStatusMessage("请先登录");
+      message.warning("请先登录");
+      return;
+    }
+
+    if (!customerInboxForm.message.trim()) {
+      setStatusMessage("请输入客户原话");
+      message.warning("请输入客户原话");
+      return;
+    }
+
+    const payload: CustomerServiceMessageCreatePayload = {
+      channel: customerInboxForm.channel,
+      buyer_name: customerInboxForm.buyerName.trim() || null,
+      buyer_email: customerInboxForm.buyerEmail.trim() || null,
+      buyer_language: customerInboxForm.buyerLanguage || "auto",
+      marketplace: customerInboxForm.marketplace.trim() || null,
+      order_no: customerInboxForm.orderNo.trim() || null,
+      tracking_no: customerInboxForm.trackingNo.trim() || null,
+      sku: customerInboxForm.sku.trim() || null,
+      subject: customerInboxForm.subject.trim() || null,
+      message: customerInboxForm.message.trim(),
+    };
+
+    setIsCreatingCustomerMessage(true);
+
+    try {
+      const detail = await createCustomerServiceMessage(token, payload);
+      setCustomerMessageDetail(detail);
+      setCustomerMessages((current) => [detail.item, ...current]);
+      setStatusMessage("客户消息已进入收件箱");
+      message.success("客户消息已进入收件箱");
+      setCustomerInboxForm((current) => ({
+        ...current,
+        subject: "",
+        message: "",
+      }));
+    } catch (error) {
+      if (isAuthExpiredError(error)) {
+        return;
+      }
+      const text = error instanceof Error ? error.message : "创建客户消息失败";
+      setStatusMessage(text);
+      message.error(text);
+    } finally {
+      setIsCreatingCustomerMessage(false);
+    }
+  }
+
+  async function handleProcessCustomerMessage(messageId: string) {
+    if (!token) {
+      setStatusMessage("请先登录");
+      message.warning("请先登录");
+      return;
+    }
+
+    setProcessingCustomerMessageId(messageId);
+    setStatusMessage("AI 正在处理客服消息");
+
+    try {
+      const result = await processCustomerServiceMessage(token, messageId);
+      setCustomerProcessResult(result);
+      setCustomerMessageDetail({ item: result.item, events: result.events });
+      setCustomerMessages((current) =>
+        current.map((item) => item.id === result.item.id ? result.item : item),
+      );
+      setStatusMessage("客服消息处理完成");
+      message.success("客服消息处理完成");
+      void refreshRunRecords(token, {
+        status: "all",
+        runType: "customer_service_automation",
+        appId: "",
+        position: "all",
+        resourceType: "",
+        resourceId: "",
+      });
+      if (role === "admin") {
+        void refreshAdminData(token);
+      }
+    } catch (error) {
+      if (isAuthExpiredError(error)) {
+        return;
+      }
+      const text = error instanceof Error ? error.message : "客服消息处理失败";
+      setStatusMessage(text);
+      message.error(text);
+      void refreshCustomerServiceMessages(token);
+    } finally {
+      setProcessingCustomerMessageId("");
     }
   }
 
@@ -2088,6 +2302,26 @@ function App() {
                       )
                     }
                     loadingTaskId={automationLoadingTaskId}
+                  />
+                )}
+                {safeActiveView === "customer_service_inbox" && (
+                  <CustomerServiceInboxPanel
+                    role={role}
+                    position={position}
+                    messages={customerMessages}
+                    detail={customerMessageDetail}
+                    processResult={customerProcessResult}
+                    filters={customerInboxFilters}
+                    setFilters={setCustomerInboxFilters}
+                    form={customerInboxForm}
+                    setForm={setCustomerInboxForm}
+                    loading={isCustomerInboxLoading}
+                    creating={isCreatingCustomerMessage}
+                    processingMessageId={processingCustomerMessageId}
+                    refreshMessages={(nextFilters) => refreshCustomerServiceMessages(token, nextFilters || customerInboxFilters)}
+                    createMessage={handleCreateCustomerMessage}
+                    processMessage={handleProcessCustomerMessage}
+                    openDetail={openCustomerServiceMessageDetail}
                   />
                 )}
                 {isErpView(safeActiveView) && (
@@ -3512,6 +3746,373 @@ function AutomationPanel({
         );
       })}
     </Space>
+  );
+}
+
+function CustomerServiceInboxPanel({
+  role,
+  position,
+  messages,
+  detail,
+  processResult,
+  filters,
+  setFilters,
+  form,
+  setForm,
+  loading,
+  creating,
+  processingMessageId,
+  refreshMessages,
+  createMessage,
+  processMessage,
+  openDetail,
+}: {
+  role: Role;
+  position: Position | null;
+  messages: CustomerServiceMessageItem[];
+  detail: CustomerServiceMessageDetailResponse | null;
+  processResult: CustomerServiceProcessResponse | null;
+  filters: CustomerServiceInboxFilters;
+  setFilters: (value: CustomerServiceInboxFilters) => void;
+  form: CustomerServiceInboxForm;
+  setForm: (value: CustomerServiceInboxForm | ((current: CustomerServiceInboxForm) => CustomerServiceInboxForm)) => void;
+  loading: boolean;
+  creating: boolean;
+  processingMessageId: string;
+  refreshMessages: (nextFilters?: CustomerServiceInboxFilters) => void;
+  createMessage: () => void;
+  processMessage: (messageId: string) => void;
+  openDetail: (messageId: string) => void;
+}) {
+  if (!canUseCustomerServiceInbox(role, position)) {
+    return (
+      <ProCard title="客服自动化收件箱" bordered>
+        <Empty description="当前账号无权使用客服自动化收件箱" />
+      </ProCard>
+    );
+  }
+
+  const selected = detail?.item || null;
+  const stats = [
+    { title: "消息总数", value: messages.length, status: "processing" },
+    { title: "低风险待发送", value: messages.filter((item) => item.status === "auto_reply_ready").length, status: "success" },
+    { title: "转人工", value: messages.filter((item) => item.status === "human_handoff").length, status: "warning" },
+    { title: "处理失败", value: messages.filter((item) => item.status === "failed").length, status: "error" },
+  ];
+
+  return (
+    <Space direction="vertical" size={16} className="pageStack">
+      <Row gutter={[12, 12]}>
+        {stats.map((item) => (
+          <Col xs={12} md={6} key={item.title}>
+            <StatisticCard
+              statistic={{
+                title: item.title,
+                value: item.value,
+                suffix: "条",
+                status: metricStatus(item.status),
+              }}
+            />
+          </Col>
+        ))}
+      </Row>
+
+      <ProCard
+        title="客户消息录入"
+        subTitle="后续可由 Amazon、邮箱或 n8n webhook 写入；当前页面用于真实闭环测试"
+        bordered
+      >
+        <Row gutter={[12, 12]} align="top">
+          <Col xs={24} md={6}>
+            <Select
+              className="fullWidthControl"
+              value={form.channel}
+              options={[
+                { label: "手动录入", value: "manual" },
+                { label: "Amazon", value: "amazon" },
+                { label: "邮箱", value: "email" },
+                { label: "工单", value: "ticket" },
+                { label: "API", value: "api" },
+              ]}
+              onChange={(value) => setForm((current) => ({ ...current, channel: value }))}
+            />
+          </Col>
+          <Col xs={24} md={6}>
+            <Input
+              value={form.buyerName}
+              placeholder="客户姓名"
+              onChange={(event) => setForm((current) => ({ ...current, buyerName: event.target.value }))}
+            />
+          </Col>
+          <Col xs={24} md={6}>
+            <Input
+              value={form.buyerEmail}
+              placeholder="客户邮箱"
+              onChange={(event) => setForm((current) => ({ ...current, buyerEmail: event.target.value }))}
+            />
+          </Col>
+          <Col xs={24} md={6}>
+            <Select
+              className="fullWidthControl"
+              value={form.buyerLanguage}
+              options={[
+                { label: "自动识别", value: "auto" },
+                { label: "English", value: "English" },
+                { label: "中文", value: "Chinese" },
+                { label: "Deutsch", value: "German" },
+                { label: "日本語", value: "Japanese" },
+              ]}
+              onChange={(value) => setForm((current) => ({ ...current, buyerLanguage: value }))}
+            />
+          </Col>
+          <Col xs={24} md={6}>
+            <Input
+              value={form.marketplace}
+              placeholder="站点，例如 Amazon US"
+              onChange={(event) => setForm((current) => ({ ...current, marketplace: event.target.value }))}
+            />
+          </Col>
+          <Col xs={24} md={6}>
+            <Input
+              value={form.orderNo}
+              placeholder="订单号"
+              onChange={(event) => setForm((current) => ({ ...current, orderNo: event.target.value }))}
+            />
+          </Col>
+          <Col xs={24} md={6}>
+            <Input
+              value={form.trackingNo}
+              placeholder="物流单号"
+              onChange={(event) => setForm((current) => ({ ...current, trackingNo: event.target.value }))}
+            />
+          </Col>
+          <Col xs={24} md={6}>
+            <Input
+              value={form.sku}
+              placeholder="SKU"
+              onChange={(event) => setForm((current) => ({ ...current, sku: event.target.value }))}
+            />
+          </Col>
+          <Col xs={24} md={8}>
+            <Input
+              value={form.subject}
+              placeholder="主题"
+              onChange={(event) => setForm((current) => ({ ...current, subject: event.target.value }))}
+            />
+          </Col>
+          <Col xs={24} md={16}>
+            <Input.TextArea
+              value={form.message}
+              placeholder="客户原话，例如：Where is my order?"
+              autoSize={false}
+              rows={3}
+              onChange={(event) => setForm((current) => ({ ...current, message: event.target.value }))}
+            />
+          </Col>
+          <Col xs={24}>
+            <Space wrap>
+              <Button type="primary" icon={<MessageOutlined />} loading={creating} onClick={createMessage}>
+                加入收件箱
+              </Button>
+              <Button icon={<ReloadOutlined />} loading={loading} onClick={() => refreshMessages()}>
+                刷新列表
+              </Button>
+            </Space>
+          </Col>
+        </Row>
+      </ProCard>
+
+      <Row gutter={[12, 12]} align="top">
+        <Col xs={24} xl={14}>
+          <ProCard
+            title="消息队列"
+            subTitle="低风险进入待发送，高风险进入人工处理"
+            bordered
+          >
+            <Space direction="vertical" size={12} className="pageStack">
+              <Space wrap className="customerInboxToolbar">
+                <Select
+                  value={filters.status}
+                  style={{ width: 132 }}
+                  options={[
+                    { label: "全部状态", value: "all" },
+                    { label: "新消息", value: "new" },
+                    { label: "处理中", value: "processing" },
+                    { label: "草稿", value: "drafted" },
+                    { label: "待发送", value: "auto_reply_ready" },
+                    { label: "转人工", value: "human_handoff" },
+                    { label: "失败", value: "failed" },
+                  ]}
+                  onChange={(value) => {
+                    const next = { ...filters, status: value };
+                    setFilters(next);
+                    refreshMessages(next);
+                  }}
+                />
+                <Select
+                  value={filters.riskLevel}
+                  style={{ width: 120 }}
+                  options={[
+                    { label: "全部风险", value: "all" },
+                    { label: "未处理", value: "unprocessed" },
+                    { label: "低风险", value: "low" },
+                    { label: "中风险", value: "medium" },
+                    { label: "高风险", value: "high" },
+                  ]}
+                  onChange={(value) => {
+                    const next = { ...filters, riskLevel: value };
+                    setFilters(next);
+                    refreshMessages(next);
+                  }}
+                />
+              </Space>
+            <Table<CustomerServiceMessageItem>
+              rowKey="id"
+              size="small"
+              dataSource={messages}
+              loading={loading}
+              pagination={{ pageSize: 8 }}
+              scroll={{ x: 980 }}
+              columns={[
+                {
+                  title: "客户消息",
+                  dataIndex: "message",
+                  width: 310,
+                  render: (_, record) => (
+                    <Space direction="vertical" size={2} className="customerInboxMessageCell">
+                      <Text strong ellipsis>{record.subject || record.buyer_name || record.channel}</Text>
+                      <Text type="secondary" className="customerInboxPreview">{record.message}</Text>
+                      <Space size={[4, 4]} wrap>
+                        {record.order_no ? <Tag>{record.order_no}</Tag> : null}
+                        {record.tracking_no ? <Tag color="geekblue">{record.tracking_no}</Tag> : null}
+                      </Space>
+                    </Space>
+                  ),
+                },
+                { title: "意图", dataIndex: "intent", width: 130, render: (value) => <Tag>{customerIntentLabel(String(value || "未识别"))}</Tag> },
+                { title: "风险", dataIndex: "risk_level", width: 100, render: (value) => <RiskTag value={String(value)} /> },
+                { title: "状态", dataIndex: "status", width: 110, render: (value) => <CustomerStatusTag value={String(value)} /> },
+                { title: "渠道", dataIndex: "channel", width: 90, render: (value) => <Tag color="blue">{String(value)}</Tag> },
+                { title: "创建时间", dataIndex: "created_at", width: 130, render: (value) => formatTime(String(value || "")) },
+                {
+                  title: "操作",
+                  key: "actions",
+                  fixed: "right",
+                  width: 170,
+                  render: (_, record) => (
+                    <Space size={6} wrap>
+                      <Button size="small" onClick={() => openDetail(record.id)}>
+                        详情
+                      </Button>
+                      <Button
+                        size="small"
+                        type="primary"
+                        loading={processingMessageId === record.id}
+                        disabled={processingMessageId === record.id}
+                        onClick={() => processMessage(record.id)}
+                      >
+                        AI 处理
+                      </Button>
+                    </Space>
+                  ),
+                },
+              ]}
+            />
+            </Space>
+          </ProCard>
+        </Col>
+
+        <Col xs={24} xl={10}>
+          <ProCard title="处理结果" bordered>
+            {selected ? (
+              <Space direction="vertical" size={12} className="pageStack">
+                <Space size={[6, 6]} wrap>
+                  <CustomerStatusTag value={selected.status} />
+                  <RiskTag value={selected.risk_level} />
+                  {selected.intent ? <Tag>{customerIntentLabel(selected.intent)}</Tag> : null}
+                  {selected.automation_decision ? <Tag color="purple">{customerDecisionLabel(selected.automation_decision)}</Tag> : null}
+                </Space>
+
+                <div className="customerInboxDetailGrid">
+                  <DetailText label="订单号" value={selected.order_no || "-"} />
+                  <DetailText label="物流单号" value={selected.tracking_no || "-"} />
+                  <DetailText label="站点" value={selected.marketplace || "-"} />
+                  <DetailText label="语言" value={selected.buyer_language || "-"} />
+                  <DetailText label="运行记录" value={selected.run_id || "-"} mono />
+                  <DetailText label="审批 ID" value={selected.approval_id || "-"} mono />
+                </div>
+
+                <ResultBlock title="客户原话" content={selected.message} />
+                <ResultBlock title="AI 回复草稿" content={selected.reply_draft || "尚未处理"} />
+                <ResultBlock title="ERP 摘要" content={selected.erp_summary || "暂无 ERP 摘要"} />
+                <ResultBlock title="知识库摘要" content={selected.rag_summary || "暂无知识库摘要"} />
+                {selected.handoff_reason ? (
+                  <ResultBlock title="转人工原因" content={selected.handoff_reason} />
+                ) : null}
+
+                {selected.erp_references.length ? (
+                  <Space size={[6, 6]} wrap>
+                    {selected.erp_references.map((reference) => (
+                      <Tag color="geekblue" key={`${reference.resource}-${reference.record_id}`}>
+                        {reference.resource_label} / {reference.record_id}
+                      </Tag>
+                    ))}
+                  </Space>
+                ) : null}
+
+                {detail?.events.length ? (
+                  <ProCard title="事件时间线" bordered size="small">
+                    <Space direction="vertical" size={8} className="pageStack">
+                      {detail.events.map((event) => (
+                        <div className="customerInboxEvent" key={event.id}>
+                          <Text strong>{customerEventLabel(event.event_type)}</Text>
+                          <Text type="secondary">{formatTime(event.created_at)}</Text>
+                          <Text className="customerInboxPreview">{event.content}</Text>
+                        </div>
+                      ))}
+                    </Space>
+                  </ProCard>
+                ) : null}
+
+                {processResult?.item.id === selected.id ? (
+                  <Table
+                    rowKey={(record) => `${record.step_order}-${record.step_name}`}
+                    size="small"
+                    dataSource={processResult.steps}
+                    pagination={false}
+                    columns={[
+                      { title: "步骤", dataIndex: "step_name", render: (value) => <Text className="aiWorkflowMono">{String(value)}</Text> },
+                      { title: "状态", dataIndex: "status", width: 92, render: (value) => <StatusTag value={String(value)} /> },
+                      { title: "耗时", dataIndex: "duration_ms", width: 92, render: (value) => formatDuration(value) },
+                    ]}
+                  />
+                ) : null}
+              </Space>
+            ) : (
+              <Empty description="请选择或创建一条客户消息" />
+            )}
+          </ProCard>
+        </Col>
+      </Row>
+    </Space>
+  );
+}
+
+function DetailText({ label, value, mono = false }: { label: string; value: React.ReactNode; mono?: boolean }) {
+  return (
+    <div className="customerInboxDetailItem">
+      <Text type="secondary">{label}</Text>
+      <Text className={mono ? "aiWorkflowMono" : "aiWorkflowText"}>{value}</Text>
+    </div>
+  );
+}
+
+function ResultBlock({ title, content }: { title: string; content: string }) {
+  return (
+    <div className="customerInboxResultBlock">
+      <Text strong>{title}</Text>
+      <Paragraph className="customerInboxResultText">{content}</Paragraph>
+    </div>
   );
 }
 
@@ -6212,6 +6813,31 @@ function StatusTag({ value }: { value: string }) {
   return <Tag color={colorMap[value] || "default"}>{labelForBadge(value)}</Tag>;
 }
 
+function RiskTag({ value }: { value: string }) {
+  const colorMap: Record<string, string> = {
+    unprocessed: "default",
+    low: "green",
+    medium: "gold",
+    high: "red",
+  };
+
+  return <Tag color={colorMap[value] || "default"}>{riskLabel(value)}</Tag>;
+}
+
+function CustomerStatusTag({ value }: { value: string }) {
+  const colorMap: Record<string, string> = {
+    new: "blue",
+    processing: "processing",
+    drafted: "gold",
+    auto_reply_ready: "green",
+    human_handoff: "red",
+    closed: "default",
+    failed: "volcano",
+  };
+
+  return <Tag color={colorMap[value] || "default"}>{customerStatusLabel(value)}</Tag>;
+}
+
 function defaultAutomationFlowFilters(role: Role, position: Position | null): AutomationFlowFilterState {
   return {
     position: role === "admin" ? "all" : position || "all",
@@ -6262,6 +6888,10 @@ function groupAiWorkflows(items: AiWorkflowItem[]) {
 }
 
 function workflowEntryView(value: string): View {
+  if (value === "customer_service_inbox") {
+    return "customer_service_inbox";
+  }
+
   if (value === "automation_customer_service") {
     return "automation_customer_service";
   }
@@ -6292,6 +6922,7 @@ function workflowAutomationLevelLabel(value: string) {
     draft_auto: "草稿自动化",
     assist_auto: "辅助自动化",
     tool_auto: "工具自动化",
+    case_loop_auto: "闭环自动化",
   };
 
   return labels[value] ?? value;
@@ -6301,6 +6932,7 @@ function workflowTriggerLabel(value: string) {
   const labels: Record<string, string> = {
     manual_form: "人工表单触发",
     manual_file_upload: "人工文件上传",
+    external_message: "外部消息触发",
   };
 
   return labels[value] ?? value;
@@ -6443,6 +7075,12 @@ function dashboardShortcuts(role: Role, position: Position | null): Array<{
   if (position === "customer_service") {
     return [
       {
+        title: "客服自动化收件箱",
+        description: "客户消息进入后自动识别意图、查 ERP/RAG、生成回复并判断转人工。",
+        view: "customer_service_inbox",
+        icon: <CommentOutlined />,
+      },
+      {
         title: "客服 AI 对话",
         description: "处理物流、售后、退款话术和多语言回复。",
         view: "chat",
@@ -6516,6 +7154,22 @@ function aiAppsForUser(
         owner: config.department,
         entryView: "automation_finance",
         entryLabel: "上传 Excel",
+      });
+    }
+
+    if (item === "customer_service") {
+      apps.push({
+        id: "customer-service-message-loop",
+        name: "客服消息自动化闭环",
+        description: "客户消息进入收件箱后，AI 自动识别意图、查订单/物流/知识库、生成对应语种回复，并按风险进入待发送或转人工。",
+        category: "客服售后",
+        position: item,
+        positionLabel: config.label,
+        status: "enabled",
+        dataSources: ["客户消息", "ERP 客服资源", "RAG 知识库", "运行记录"],
+        owner: config.department,
+        entryView: "customer_service_inbox",
+        entryLabel: "打开收件箱",
       });
     }
 
@@ -6645,7 +7299,7 @@ function pathForView(view: View) {
   if (view === "automation") {
     const storedPosition = readStoredPosition();
     if (storedPosition === "customer_service") {
-      return "/automation/customer-service";
+      return "/automation/customer-service-inbox";
     }
     if (storedPosition === "finance") {
       return "/automation/finance";
@@ -6688,7 +7342,7 @@ function resolveNavTargetView(item: NavItem, role: Role, position: Position | nu
   }
 
   if (position === "customer_service") {
-    return "automation_customer_service";
+    return "customer_service_inbox";
   }
 
   if (position === "finance") {
@@ -6747,6 +7401,10 @@ function isAutomationView(view: View) {
     || view === "automation_operations"
     || view === "automation_customer_service"
     || view === "automation_finance";
+}
+
+function canUseCustomerServiceInbox(role: Role, position: Position | null) {
+  return role === "admin" || position === "customer_service";
 }
 
 function isErpView(view: View) {
@@ -7074,6 +7732,71 @@ function labelForBadge(value: string) {
     failed: "失败",
     blocked: "已拦截",
     running: "运行中",
+  };
+
+  return labels[value] ?? value;
+}
+
+function riskLabel(value: string) {
+  const labels: Record<string, string> = {
+    unprocessed: "未处理",
+    low: "低风险",
+    medium: "中风险",
+    high: "高风险",
+  };
+
+  return labels[value] ?? value;
+}
+
+function customerStatusLabel(value: string) {
+  const labels: Record<string, string> = {
+    new: "新消息",
+    processing: "处理中",
+    drafted: "草稿待确认",
+    auto_reply_ready: "待发送",
+    human_handoff: "转人工",
+    closed: "已关闭",
+    failed: "失败",
+  };
+
+  return labels[value] ?? value;
+}
+
+function customerIntentLabel(value: string) {
+  const labels: Record<string, string> = {
+    logistics: "物流查询",
+    return_policy: "退货规则",
+    size_advice: "尺码建议",
+    exchange: "换货",
+    shipping_time: "发货时效",
+    promo_code: "优惠码",
+    refund: "退款",
+    complaint: "投诉",
+    bad_review: "差评",
+    chargeback: "拒付",
+    general_question: "普通问题",
+    未识别: "未识别",
+  };
+
+  return labels[value] ?? value;
+}
+
+function customerDecisionLabel(value: string) {
+  const labels: Record<string, string> = {
+    handoff_required: "必须转人工",
+    draft_only: "仅生成草稿",
+    low_risk_auto_reply_ready: "低风险待发送",
+  };
+
+  return labels[value] ?? value;
+}
+
+function customerEventLabel(value: string) {
+  const labels: Record<string, string> = {
+    created: "创建",
+    processing_started: "开始处理",
+    processed: "处理完成",
+    failed: "失败",
   };
 
   return labels[value] ?? value;

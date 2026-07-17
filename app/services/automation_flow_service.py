@@ -18,6 +18,8 @@ def list_flow_configs(current_user: dict) -> list[dict[str, Any]]:
 
     for position in positions:
         flows.extend(_automation_task_flows(position))
+        if position == "customer_service":
+            flows.append(_customer_service_message_loop_flow())
         flows.append(_erp_query_flow(position))
         flows.append(_chat_flow(position))
         if position == "finance":
@@ -156,6 +158,58 @@ def _finance_excel_flow() -> dict[str, Any]:
             _step("llm_finance_suggestion", "调用大模型生成财务建议", ["summary"]),
             _step("write_workbook", "生成新的 Excel 文件", ["workbook"]),
             _step("record_artifact", "写入文件产物摘要", ["filename", "metadata"]),
+        ],
+    )
+
+
+def _customer_service_message_loop_flow() -> dict[str, Any]:
+    resources = list_resource_definitions(erp_scopes_for_position("customer_service"))
+    return _base_flow(
+        flow_id="automation:customer_service:message-loop",
+        app_id="customer-service-message-loop",
+        name="客服消息自动化闭环",
+        description="把客户消息变成可追踪工单：AI 识别意图、查订单/物流/知识库、生成回复草稿，并按风险转自动回复待发送或人工介入。",
+        category="客服售后",
+        position="customer_service",
+        trigger_type="manual_case_or_webhook",
+        entrypoint="/customer-service/messages",
+        input_schema=[
+            {"name": "channel", "label": "消息渠道", "type": "select", "required": True},
+            {"name": "message", "label": "客户原话", "type": "textarea", "required": True, "max_length": 10000},
+            {"name": "order_no", "label": "订单号", "type": "text", "required": False},
+            {"name": "tracking_no", "label": "物流单号", "type": "text", "required": False},
+            {"name": "buyer_language", "label": "客户语言", "type": "select", "required": False},
+        ],
+        output_schema=[
+            {"name": "intent", "label": "意图", "type": "text"},
+            {"name": "risk_level", "label": "风险等级", "type": "text"},
+            {"name": "reply_draft", "label": "回复草稿", "type": "markdown_text"},
+            {"name": "automation_decision", "label": "自动化决策", "type": "text"},
+            {"name": "erp_references", "label": "ERP 引用", "type": "json_array"},
+        ],
+        prompt_summary="收件箱消息处理时先按客服岗位权限查 ERP/RAG，再调用 LLM 生成回复，并用规则控制低风险/高风险流转。",
+        prompt_template_preview=(
+            "你是跨境电商企业内部的客服自动化助手。\n"
+            "基于客户原话、ERP 查询摘要和知识库摘要，生成回复草稿和人工处理建议。"
+        ),
+        allowed_tools=["customer_service.messages", "erp.provider.query", "rag.retrieve", "llm.chat", "approval.request"],
+        allowed_erp_resources=resources,
+        permission_rules=[
+            "只有客服岗位和管理员可使用客服消息闭环",
+            "ERP 查询只能访问客服岗位资源",
+            "低风险问题只进入待发送状态，不伪装已经外部发送",
+            "退款、投诉、差评、拒付等高风险必须转人工/审批",
+        ],
+        approval_policy="高风险售后消息创建审批/人工介入记录，外部退款、赔付、删除评价等动作禁止自动执行。",
+        failure_strategy="任一步失败会保留客户消息并标记 failed，同时写入运行记录和事件时间线。",
+        steps=[
+            _step("create_message", "客户消息进入客服自动化收件箱", ["message", "channel"]),
+            _step("classify_intent_and_risk", "识别物流、退货、尺码、换货、优惠码、退款、投诉等意图和风险", ["message"]),
+            _step("erp_permission_query", "按客服岗位权限查询订单、物流、工单或退货请求", ["order_no", "tracking_no"]),
+            _step("rag_policy_lookup", "检索客服知识库和公司政策", ["message"]),
+            _step("generate_reply_draft", "生成对应语种回复草稿和内部建议", ["erp_summary", "rag_summary"]),
+            _step("route_decision", "低风险进入待发送，高风险转人工/审批", ["risk_level"]),
+            _step("record_timeline", "写入事件、运行记录和审计日志", ["message_id", "run_id"]),
         ],
     )
 

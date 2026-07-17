@@ -118,6 +118,29 @@ WORKFLOW_DEFINITIONS: list[dict[str, Any]] = [
         "saved_minutes": 8,
     },
     {
+        "id": "customer_service_message_loop",
+        "name": "客服消息自动化闭环",
+        "position": "customer_service",
+        "category": "客服售后",
+        "scenario": "客户消息进入收件箱后，自动识别意图、查 ERP/RAG、生成回复草稿，并按风险决定低风险待发送或高风险转人工。",
+        "business_value": "减少客服复制订单号、查物流、翻规则、写英文回复和判断升级的重复操作。",
+        "trigger_type": "manual_form",
+        "automation_level": "case_loop_auto",
+        "execution_mode": "external_existing_endpoint",
+        "entry_view": "customer_service_inbox",
+        "entry_label": "打开客服自动化收件箱",
+        "source_task_id": "customer_service_message_loop",
+        "input_placeholder": "请到客服自动化收件箱录入真实客户消息，或后续由 Amazon/邮箱/n8n webhook 写入。",
+        "output_contract": "意图、风险等级、ERP/RAG 摘要、回复草稿、自动回复/转人工决策、审批记录和运行记录。",
+        "requires_approval": True,
+        "approval_policy": "低风险只生成待发送回复；退款、投诉、差评、拒付等高风险必须转人工或审批，不自动执行赔付/退款。",
+        "tools": ["customer_service.messages", "erp.provider.query", "rag.retrieve", "llm.chat", "approval.request", "run_records"],
+        "erp_resources": ["Customer", "Sales Order", "Delivery Note", "Issue", "Return request"],
+        "writeback_target": "写入 customer_service_messages、message_events、automation_runs；外部发送由正式渠道连接器执行。",
+        "notification_target": "客服在收件箱查看待发送、草稿和转人工消息。",
+        "saved_minutes": 15,
+    },
+    {
         "id": "finance_report_analysis",
         "name": "财务报表分析",
         "position": "finance",
@@ -499,6 +522,7 @@ def _trigger_label(value: str) -> str:
     labels = {
         "manual_form": "员工在工作流中心输入任务内容后触发。",
         "manual_file_upload": "员工在专用页面上传真实文件后触发。",
+        "external_message": "外部客户消息或内部收件箱触发。",
     }
     return labels.get(value, value)
 
