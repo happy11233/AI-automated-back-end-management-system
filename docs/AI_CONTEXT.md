@@ -439,3 +439,20 @@ AI 对话 ERP 引用状态：
 - 岗位越权回归当前覆盖：自动化任务跨岗位调用、ERP 资源跨岗位查询、聊天敏感词、财务 Excel 上传、管理员用户接口、ERP 诊断接口、岗位首页概览资源隔离、站点筛选、店铺筛选、时间范围筛选和 ERP 记录详情权限。
 - 前端权限可见性回归当前覆盖：管理员/员工 ERP 页面差异、财务 Excel 上传入口、运营/客服/财务岗位应用互斥展示、员工菜单隐藏用户管理和知识库、四类账号首页快捷入口隔离、四类账号首页 ERP 概览、站点/店铺/时间筛选、金额指标、记录详情弹窗和审计筛选控件。
 - 发布前稳定化回归脚本：`python3 scripts/verify_release_ready.py`，覆盖店铺筛选 + 金额指标、记录详情权限、AI 对话 ERP 引用和管理员审计筛选。
+
+### AI 工作流中心状态
+
+- 后端接口：`GET /ai-workflows`、`GET /ai-workflows/{workflow_id}`、`POST /ai-workflows/{workflow_id}/run`。
+- 前端页面：`/ai-workflows`，导航名为“AI 工作流”。
+- 已注册 7 个工作流：`operations_listing_launch`、`operations_competitor_analysis`、`customer_service_refund_reply`、`customer_service_logistics_reply`、`finance_report_analysis`、`finance_salary_summary`、`finance_excel_settlement`。
+- `llm_generate` 和 `erp_then_llm` 可在工作流中心直接运行，并写入运行记录和审计日志。
+- `finance_excel_settlement` 是文件上传型工作流，页面展示为专用入口，运行接口返回 400，用户需进入财务 AI 自动化页使用真实 Excel 上传。
+- 管理员可见全部工作流；员工只可见自己岗位；跨岗位 detail 返回 404，跨岗位 run 返回 403。
+- ERP 型工作流执行时会同时取“执行岗位 ERP scope”和工作流声明的 `erp_resources` 交集，不允许工作流查询声明外 ERP 资源。
+- 管理员执行某个岗位工作流时，运行记录和 ERP 查询按该工作流岗位归属记录，避免管理员全量 ERP scope 扩大工作流执行边界。
+- 工作流输入先做敏感串脱敏再进入 LLM/ERP 上下文；审计日志 metadata 也复用运行记录脱敏逻辑。
+- 前端会展示阶段链路：触发、读数据、AI 判断、工具执行、审批、写回、通知、记录。
+- 最近运行结果会展示 `run_id`、步骤状态、耗时、ERP 引用和 AI 输出；即使 ERP 步骤被 blocked，页面也能看到步骤状态。
+- 真实 API 验证脚本：`.venv/bin/python scripts/verify_ai_workflows.py`。
+- 真实浏览器验证脚本：`node scripts/verify_ai_workflows_frontend.mjs`。
+- 截图路径：`/tmp/company-rag-ai-workflows-admin-desktop.png`、`/tmp/company-rag-ai-workflows-operations-desktop.png`、`/tmp/company-rag-ai-workflows-finance-mobile.png`、`/tmp/company-rag-ai-workflows-operations-run.png`。

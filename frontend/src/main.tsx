@@ -61,6 +61,7 @@ import {
   getEffectAnalytics,
   getEvaluationCenter,
   getMonitoringCenter,
+  getAiWorkflowDetail,
   getConnectorDetail,
   getAutomationFlowDetail,
   generateAutomation,
@@ -84,9 +85,15 @@ import {
   getRunRecordDetail,
   listConnectors,
   listAutomationFlows,
+  listAiWorkflows,
   queryErp,
   runRagEvaluation,
+  runAiWorkflow,
   reviewApproval as reviewApprovalApi,
+  type AiWorkflowDetailResponse,
+  type AiWorkflowItem,
+  type AiWorkflowRunResponse,
+  type AiWorkflowRunStep,
   type ApprovalItem,
   type AuditLogItem,
   type AutomationFlowDetailResponse,
@@ -135,6 +142,7 @@ type View =
   | "effect_analytics"
   | "evaluation_center"
   | "monitoring_center"
+  | "ai_workflows"
   | "automation_flows"
   | "connectors"
   | "automation"
@@ -264,6 +272,11 @@ type AutomationFlowFilterState = {
   category: string;
 };
 
+type AiWorkflowFilterState = {
+  position: Position | "all";
+  category: string;
+};
+
 type MonitoringCenterFilterState = {
   dateRange: "7d" | "30d" | "90d" | "all";
 };
@@ -300,6 +313,7 @@ const navItems: NavItem[] = [
   { path: "/effect-analytics", id: "effect_analytics", name: "效果分析", icon: <AuditOutlined />, roles: ["admin", "employee"] },
   { path: "/evaluation-center", id: "evaluation_center", name: "AI 评测中心", icon: <CheckCircleOutlined />, roles: ["admin"] },
   { path: "/monitoring-center", id: "monitoring_center", name: "监控中心", icon: <SafetyCertificateOutlined />, roles: ["admin"] },
+  { path: "/ai-workflows", id: "ai_workflows", name: "AI 工作流", icon: <RobotOutlined />, roles: ["admin", "employee"] },
   { path: "/automation-flows", id: "automation_flows", name: "流程配置", icon: <AuditOutlined />, roles: ["admin", "employee"] },
   { path: "/connectors", id: "connectors", name: "连接器中心", icon: <ApiOutlined />, roles: ["admin"] },
   {
@@ -457,6 +471,18 @@ function App() {
     dateRange: "30d",
   });
   const [isMonitoringCenterLoading, setIsMonitoringCenterLoading] = useState(false);
+  const [aiWorkflows, setAiWorkflows] = useState<AiWorkflowItem[]>([]);
+  const [aiWorkflowFilters, setAiWorkflowFilters] = useState<AiWorkflowFilterState>({
+    position: "all",
+    category: "",
+  });
+  const [aiWorkflowInputs, setAiWorkflowInputs] = useState<Record<string, string>>({});
+  const [aiWorkflowRunResult, setAiWorkflowRunResult] = useState<AiWorkflowRunResponse | null>(null);
+  const [aiWorkflowDetail, setAiWorkflowDetail] = useState<AiWorkflowDetailResponse | null>(null);
+  const [isAiWorkflowDetailOpen, setIsAiWorkflowDetailOpen] = useState(false);
+  const [isAiWorkflowDetailLoading, setIsAiWorkflowDetailLoading] = useState(false);
+  const [isAiWorkflowsLoading, setIsAiWorkflowsLoading] = useState(false);
+  const [runningAiWorkflowId, setRunningAiWorkflowId] = useState("");
   const [automationFlows, setAutomationFlows] = useState<AutomationFlowItem[]>([]);
   const [automationFlowFilters, setAutomationFlowFilters] = useState<AutomationFlowFilterState>({
     position: "all",
@@ -600,6 +626,7 @@ function App() {
     void refreshErpDashboardOverview(storedToken, erpDashboardMarket, erpDashboardDateRange, erpDashboardStore);
     void refreshRunRecords(storedToken);
     void refreshEffectAnalytics(storedToken);
+    void refreshAiWorkflows(storedToken);
     void refreshAutomationFlows(storedToken);
 
     if (role === "admin") {
@@ -653,6 +680,8 @@ function App() {
       await refreshErpDashboardOverview(result.access_token, erpDashboardMarket, erpDashboardDateRange, erpDashboardStore);
       await refreshRunRecords(result.access_token);
       await refreshEffectAnalytics(result.access_token, defaultEffectAnalyticsFilters(nextRole, nextPosition));
+      setAiWorkflowFilters(defaultAiWorkflowFilters(nextRole, nextPosition));
+      await refreshAiWorkflows(result.access_token);
       await refreshAutomationFlows(result.access_token, defaultAutomationFlowFilters(nextRole, nextPosition));
 
       setIsLoginModalOpen(false);
@@ -691,6 +720,13 @@ function App() {
     setRunningEvaluationId("");
     setMonitoringCenter(null);
     setMonitoringCenterFilters({ dateRange: "30d" });
+    setAiWorkflows([]);
+    setAiWorkflowDetail(null);
+    setIsAiWorkflowDetailOpen(false);
+    setAiWorkflowRunResult(null);
+    setAiWorkflowInputs({});
+    setAiWorkflowFilters({ position: "all", category: "" });
+    setRunningAiWorkflowId("");
     setAutomationFlows([]);
     setAutomationFlowDetail(null);
     setIsAutomationFlowDetailOpen(false);
@@ -954,6 +990,98 @@ function App() {
       message.error(text);
     } finally {
       setRunningEvaluationId("");
+    }
+  }
+
+  async function refreshAiWorkflows(activeToken = token) {
+    if (!activeToken) {
+      return;
+    }
+
+    setIsAiWorkflowsLoading(true);
+
+    try {
+      const result = await listAiWorkflows(activeToken);
+      setAiWorkflows(result.items);
+      setStatusMessage("AI 工作流已刷新");
+    } catch (error) {
+      if (isAuthExpiredError(error)) {
+        return;
+      }
+      const text = error instanceof Error ? error.message : "AI 工作流加载失败";
+      setStatusMessage(text);
+      message.error(text);
+    } finally {
+      setIsAiWorkflowsLoading(false);
+    }
+  }
+
+  async function openAiWorkflowDetail(workflowId: string) {
+    if (!token) {
+      setStatusMessage("请先登录");
+      message.warning("请先登录");
+      return;
+    }
+
+    setIsAiWorkflowDetailOpen(true);
+    setIsAiWorkflowDetailLoading(true);
+    setAiWorkflowDetail(null);
+
+    try {
+      setAiWorkflowDetail(await getAiWorkflowDetail(token, workflowId));
+      setStatusMessage("AI 工作流详情已加载");
+    } catch (error) {
+      if (isAuthExpiredError(error)) {
+        return;
+      }
+      const text = error instanceof Error ? error.message : "AI 工作流详情加载失败";
+      setStatusMessage(text);
+      message.error(text);
+    } finally {
+      setIsAiWorkflowDetailLoading(false);
+    }
+  }
+
+  async function handleRunAiWorkflow(workflowId: string) {
+    if (!token) {
+      setStatusMessage("请先登录");
+      message.warning("请先登录");
+      return;
+    }
+
+    const inputText = (aiWorkflowInputs[workflowId] || "").trim();
+    if (!inputText) {
+      setStatusMessage("请输入工作流任务内容");
+      message.warning("请输入工作流任务内容");
+      return;
+    }
+
+    setRunningAiWorkflowId(workflowId);
+    setStatusMessage("AI 工作流正在运行");
+
+    try {
+      const result = await runAiWorkflow(token, workflowId, inputText);
+      setAiWorkflowRunResult(result);
+      setStatusMessage(`${result.workflow.name}运行完成`);
+      message.success("AI 工作流运行完成");
+      await refreshRunRecords(token, {
+        status: "all",
+        runType: "ai_workflow",
+        appId: "",
+        position: "all",
+        resourceType: "",
+        resourceId: "",
+      });
+      void refreshEffectAnalytics(token);
+    } catch (error) {
+      if (isAuthExpiredError(error)) {
+        return;
+      }
+      const text = error instanceof Error ? error.message : "AI 工作流运行失败";
+      setStatusMessage(text);
+      message.error(text);
+    } finally {
+      setRunningAiWorkflowId("");
     }
   }
 
@@ -1900,6 +2028,23 @@ function App() {
                     refreshMonitoringCenter={() => refreshMonitoringCenter()}
                   />
                 )}
+                {safeActiveView === "ai_workflows" && (
+                  <AiWorkflowsPanel
+                    role={role}
+                    workflows={aiWorkflows}
+                    filters={aiWorkflowFilters}
+                    setFilters={setAiWorkflowFilters}
+                    inputs={aiWorkflowInputs}
+                    setInputs={setAiWorkflowInputs}
+                    runResult={aiWorkflowRunResult}
+                    loading={isAiWorkflowsLoading}
+                    runningWorkflowId={runningAiWorkflowId}
+                    refreshWorkflows={() => refreshAiWorkflows()}
+                    runWorkflow={handleRunAiWorkflow}
+                    openDetail={openAiWorkflowDetail}
+                    onNavigate={navigateToView}
+                  />
+                )}
                 {safeActiveView === "automation_flows" && (
                   <AutomationFlowsPanel
                     role={role}
@@ -2068,6 +2213,12 @@ function App() {
               loading={isAutomationFlowDetailLoading}
               detail={automationFlowDetail}
               onClose={() => setIsAutomationFlowDetailOpen(false)}
+            />
+            <AiWorkflowDetailModal
+              open={isAiWorkflowDetailOpen}
+              loading={isAiWorkflowDetailLoading}
+              detail={aiWorkflowDetail}
+              onClose={() => setIsAiWorkflowDetailOpen(false)}
             />
             <ConnectorDetailModal
               open={isConnectorDetailOpen}
@@ -2780,6 +2931,428 @@ function AiAppsPanel({
         <Text type="secondary">当前浏览器会话已加载 {chatMessageCount} 条聊天消息，可在客服对话或会话详情继续查看。</Text>
       ) : null}
     </Space>
+  );
+}
+
+function AiWorkflowsPanel({
+  role,
+  workflows,
+  filters,
+  setFilters,
+  inputs,
+  setInputs,
+  runResult,
+  loading,
+  runningWorkflowId,
+  refreshWorkflows,
+  runWorkflow,
+  openDetail,
+  onNavigate,
+}: {
+  role: Role;
+  workflows: AiWorkflowItem[];
+  filters: AiWorkflowFilterState;
+  setFilters: React.Dispatch<React.SetStateAction<AiWorkflowFilterState>>;
+  inputs: Record<string, string>;
+  setInputs: React.Dispatch<React.SetStateAction<Record<string, string>>>;
+  runResult: AiWorkflowRunResponse | null;
+  loading: boolean;
+  runningWorkflowId: string;
+  refreshWorkflows: () => void;
+  runWorkflow: (workflowId: string) => void;
+  openDetail: (workflowId: string) => void;
+  onNavigate: (view: View) => void;
+}) {
+  const visibleWorkflows = filterAiWorkflows(workflows, filters);
+  const categories = Array.from(new Set(workflows.map((item) => item.category))).filter(Boolean);
+  const executableCount = visibleWorkflows.filter((item) => item.executable).length;
+  const approvalCount = visibleWorkflows.filter((item) => item.requires_approval).length;
+  const savedMinutes = visibleWorkflows.reduce((total, item) => total + item.saved_minutes, 0);
+  const groupedWorkflows = groupAiWorkflows(visibleWorkflows);
+
+  return (
+    <Space direction="vertical" size={16} className="pageStack">
+      <Row gutter={[12, 12]} className="aiWorkflowMetricRow">
+        <Col xs={12} lg={6}>
+          <Card size="small" className="aiWorkflowMetricCard">
+            <Text type="secondary">可见工作流</Text>
+            <Title level={3}>{visibleWorkflows.length}</Title>
+            <Text type="secondary">按当前账号权限过滤</Text>
+          </Card>
+        </Col>
+        <Col xs={12} lg={6}>
+          <Card size="small" className="aiWorkflowMetricCard">
+            <Text type="secondary">可直接运行</Text>
+            <Title level={3}>{executableCount}</Title>
+            <Text type="secondary">调用真实 LLM/ERP 能力</Text>
+          </Card>
+        </Col>
+        <Col xs={12} lg={6}>
+          <Card size="small" className="aiWorkflowMetricCard">
+            <Text type="secondary">需人工审批</Text>
+            <Title level={3}>{approvalCount}</Title>
+            <Text type="secondary">退款/工资等高风险场景</Text>
+          </Card>
+        </Col>
+        <Col xs={12} lg={6}>
+          <Card size="small" className="aiWorkflowMetricCard">
+            <Text type="secondary">预计节省</Text>
+            <Title level={3}>{savedMinutes}</Title>
+            <Text type="secondary">分钟 / 单次完整处理</Text>
+          </Card>
+        </Col>
+      </Row>
+
+      <ProCard
+        title="AI 工作流中心"
+        subTitle={role === "admin" ? "管理员查看全部岗位工作流，执行时仍按工作流岗位限制 ERP 资源" : "当前账号只能查看和运行自己岗位的工作流"}
+        bordered
+        extra={
+          <Button size="small" icon={<ReloadOutlined />} onClick={refreshWorkflows} loading={loading}>
+            刷新
+          </Button>
+        }
+      >
+        <div className={role === "admin" ? "aiWorkflowFilterGrid admin" : "aiWorkflowFilterGrid"}>
+          {role === "admin" ? (
+            <Select
+              size="small"
+              value={filters.position}
+              onChange={(value) => setFilters((current) => ({ ...current, position: value }))}
+              options={[
+                { label: "全部岗位", value: "all" },
+                { label: "运营", value: "operations" },
+                { label: "客服", value: "customer_service" },
+                { label: "财务", value: "finance" },
+              ]}
+            />
+          ) : null}
+          <Select
+            size="small"
+            allowClear
+            value={filters.category || undefined}
+            placeholder="工作流类别"
+            onChange={(value) => setFilters((current) => ({ ...current, category: value || "" }))}
+            options={categories.map((item) => ({ label: item, value: item }))}
+          />
+          <Button size="small" type="primary" icon={<SearchOutlined />} onClick={refreshWorkflows} loading={loading}>
+            查询
+          </Button>
+        </div>
+
+        {visibleWorkflows.length ? (
+          <Space direction="vertical" size={16} className="pageStack">
+            {groupedWorkflows.map((group) => (
+              <div className="aiWorkflowGroupBlock" key={group.key}>
+                <Space size={8} className="aiWorkflowGroupTitle">
+                  <Tag color="blue">{group.label}</Tag>
+                  <Text type="secondary">{group.items.length} 个工作流</Text>
+                </Space>
+                <Row gutter={[12, 12]}>
+                  {group.items.map((workflow) => {
+                    const inputValue = inputs[workflow.id] || "";
+                    const targetView = workflowEntryView(workflow.entry_view);
+
+                    return (
+                      <Col xs={24} xl={12} xxl={8} key={workflow.id} className="aiWorkflowCardCol">
+                        <Card size="small" className="contextCard aiWorkflowCard">
+                          <div className="aiWorkflowCardBody">
+                            <div className="aiWorkflowHeader">
+                              <Space size={8} className="aiWorkflowTitleWrap">
+                                <RobotOutlined />
+                                <Text strong className="aiWorkflowTitle">{workflow.name}</Text>
+                              </Space>
+                              <Tag color={workflow.executable ? "green" : "gold"}>
+                                {workflow.executable ? "可运行" : "专用入口"}
+                              </Tag>
+                            </div>
+
+                            <Paragraph type="secondary" className="aiWorkflowDescription">
+                              {workflow.scenario}
+                            </Paragraph>
+
+                            <div className="aiWorkflowMetaGrid">
+                              <div>
+                                <Text type="secondary">岗位</Text>
+                                <Text strong>{workflow.position_label}</Text>
+                              </div>
+                              <div>
+                                <Text type="secondary">类别</Text>
+                                <Text strong>{workflow.category}</Text>
+                              </div>
+                              <div>
+                                <Text type="secondary">模式</Text>
+                                <Text strong>{executionModeLabel(workflow.execution_mode)}</Text>
+                              </div>
+                              <div>
+                                <Text type="secondary">节省</Text>
+                                <Text strong>{workflow.saved_minutes} 分钟</Text>
+                              </div>
+                            </div>
+
+                            <div className="aiWorkflowStageList">
+                              {workflow.stages.map((stage) => (
+                                <div className="aiWorkflowStageItem" key={`${workflow.id}-${stage.key}`}>
+                                  <Text strong>{stage.label}</Text>
+                                  <Tag color={stage.automated ? "green" : "default"}>
+                                    {stage.automated ? "自动" : "人工"}
+                                  </Tag>
+                                </div>
+                              ))}
+                            </div>
+
+                            <Space size={[6, 6]} wrap className="aiWorkflowTagList">
+                              <Tag color="purple">{workflowAutomationLevelLabel(workflow.automation_level)}</Tag>
+                              <Tag color={workflow.requires_approval ? "gold" : "blue"}>
+                                {workflow.requires_approval ? "需审批" : "无需审批"}
+                              </Tag>
+                              {workflow.erp_resources.slice(0, 3).map((resource) => (
+                                <Tag key={`${workflow.id}-${resource}`} color="geekblue">{resource}</Tag>
+                              ))}
+                            </Space>
+
+                            <div className="aiWorkflowRunBox">
+                              {workflow.executable ? (
+                                <>
+                                  <TextArea
+                                    className="aiWorkflowInput"
+                                    value={inputValue}
+                                    placeholder={workflow.input_placeholder}
+                                    autoSize={false}
+                                    rows={4}
+                                    onChange={(event) =>
+                                      setInputs((current) => ({
+                                        ...current,
+                                        [workflow.id]: event.target.value,
+                                      }))
+                                    }
+                                  />
+                                  <div className="aiWorkflowFooter">
+                                    <Button size="small" onClick={() => openDetail(workflow.id)}>
+                                      详情
+                                    </Button>
+                                    <Button
+                                      size="small"
+                                      type="primary"
+                                      icon={<SendOutlined />}
+                                      aria-label={`运行${workflow.name}`}
+                                      loading={runningWorkflowId === workflow.id}
+                                      onClick={() => runWorkflow(workflow.id)}
+                                    >
+                                      运行工作流
+                                    </Button>
+                                  </div>
+                                </>
+                              ) : (
+                                <>
+                                  <Paragraph className="aiWorkflowExternalHint">
+                                    {workflow.output_contract}
+                                  </Paragraph>
+                                  <div className="aiWorkflowFooter">
+                                    <Button size="small" onClick={() => openDetail(workflow.id)}>
+                                      详情
+                                    </Button>
+                                    <Button
+                                      size="small"
+                                      type="primary"
+                                      icon={<CloudUploadOutlined />}
+                                      onClick={() => onNavigate(targetView)}
+                                    >
+                                      {workflow.entry_label}
+                                    </Button>
+                                  </div>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        </Card>
+                      </Col>
+                    );
+                  })}
+                </Row>
+              </div>
+            ))}
+          </Space>
+        ) : (
+          <Empty description="当前筛选条件下暂无 AI 工作流" />
+        )}
+      </ProCard>
+
+      {runResult ? (
+        <ProCard
+          title="最近运行结果"
+          subTitle={`${runResult.workflow.name} / ${formatTime(runResult.created_at)}`}
+          bordered
+          extra={
+            <Button size="small" icon={<HistoryOutlined />} onClick={() => onNavigate("run_records")}>
+              运行记录
+            </Button>
+          }
+        >
+          <Space direction="vertical" size={12} className="pageStack">
+            <Space size={[8, 8]} wrap>
+              <StatusTag value={runResult.status} />
+              <Tag color="blue">Run ID：{runResult.run_id}</Tag>
+              <Tag color={runResult.erp_references.length ? "geekblue" : "default"}>
+                ERP 引用 {runResult.erp_references.length}
+              </Tag>
+            </Space>
+            <Table<AiWorkflowRunStep>
+              rowKey={(record) => `${record.step_order}-${record.step_name}`}
+              size="small"
+              dataSource={runResult.steps}
+              pagination={false}
+              scroll={{ x: 620 }}
+              columns={[
+                { title: "顺序", dataIndex: "step_order", width: 70 },
+                { title: "步骤", dataIndex: "step_name", render: (value) => <Text className="aiWorkflowMono">{String(value)}</Text> },
+                { title: "状态", dataIndex: "status", width: 100, render: (value) => <StatusTag value={String(value)} /> },
+                { title: "耗时", dataIndex: "duration_ms", width: 100, render: (value) => formatDuration(value) },
+              ]}
+            />
+            {runResult.erp_references.length ? (
+              <Space size={[6, 6]} wrap>
+                {runResult.erp_references.map((reference) => (
+                  <Tag color="geekblue" key={`${reference.resource}-${reference.record_id}`}>
+                    {reference.resource_label} / {reference.record_id}
+                  </Tag>
+                ))}
+              </Space>
+            ) : null}
+            <Paragraph className="aiWorkflowAnswer">{runResult.answer}</Paragraph>
+          </Space>
+        </ProCard>
+      ) : null}
+    </Space>
+  );
+}
+
+function AiWorkflowDetailModal({
+  open,
+  loading,
+  detail,
+  onClose,
+}: {
+  open: boolean;
+  loading: boolean;
+  detail: AiWorkflowDetailResponse | null;
+  onClose: () => void;
+}) {
+  const workflow = detail?.item || null;
+
+  return (
+    <Modal
+      open={open}
+      title={workflow ? `AI 工作流 / ${workflow.name}` : "AI 工作流"}
+      onCancel={onClose}
+      footer={[
+        <Button key="close" onClick={onClose}>
+          关闭
+        </Button>,
+      ]}
+      width={980}
+    >
+      {loading ? (
+        <Empty description="正在加载 AI 工作流详情" />
+      ) : workflow ? (
+        <Space direction="vertical" size={14} className="pageStack">
+          <div className="aiWorkflowDetailGrid">
+            <AiWorkflowDetailItem label="工作流 ID" value={workflow.id} mono />
+            <AiWorkflowDetailItem label="版本" value={workflow.version} mono />
+            <AiWorkflowDetailItem label="岗位" value={workflow.position_label} />
+            <AiWorkflowDetailItem label="类别" value={workflow.category} />
+            <AiWorkflowDetailItem label="触发方式" value={workflowTriggerLabel(workflow.trigger_type)} />
+            <AiWorkflowDetailItem label="执行模式" value={executionModeLabel(workflow.execution_mode)} />
+            <AiWorkflowDetailItem label="审批" value={workflow.requires_approval ? "需要审批" : "无需审批"} />
+            <AiWorkflowDetailItem label="预计节省" value={`${workflow.saved_minutes} 分钟`} />
+          </div>
+
+          <Row gutter={[12, 12]}>
+            <Col xs={24} md={12}>
+              <ProCard title="业务场景" bordered size="small">
+                <Paragraph className="aiWorkflowDetailPreview">{workflow.scenario}</Paragraph>
+                <Paragraph className="aiWorkflowDetailPreview compact">{workflow.business_value}</Paragraph>
+              </ProCard>
+            </Col>
+            <Col xs={24} md={12}>
+              <ProCard title="输出与审批" bordered size="small">
+                <Paragraph className="aiWorkflowDetailPreview">{workflow.output_contract}</Paragraph>
+                <Paragraph className="aiWorkflowDetailPreview compact">{workflow.approval_policy}</Paragraph>
+              </ProCard>
+            </Col>
+          </Row>
+
+          <ProCard title="步骤链路" bordered size="small">
+            <Table
+              rowKey="key"
+              size="small"
+              dataSource={workflow.stages}
+              pagination={false}
+              scroll={{ x: 760 }}
+              columns={[
+                { title: "阶段", dataIndex: "label", width: 110, render: (value) => <Text strong>{String(value)}</Text> },
+                { title: "自动化", dataIndex: "automated", width: 96, render: (value) => <Tag color={value ? "green" : "default"}>{value ? "自动" : "人工"}</Tag> },
+                { title: "说明", dataIndex: "description", render: (value) => <Text className="aiWorkflowText">{String(value)}</Text> },
+              ]}
+            />
+          </ProCard>
+
+          <ProCard title="工具、ERP 与写回" bordered size="small">
+            <Row gutter={[12, 12]}>
+              <Col xs={24} md={8}>
+                <Text type="secondary">允许工具</Text>
+                <Space size={[6, 6]} wrap className="aiWorkflowTagBlock">
+                  {workflow.tools.map((item) => (
+                    <Tag color="blue" key={item}>{item}</Tag>
+                  ))}
+                </Space>
+              </Col>
+              <Col xs={24} md={8}>
+                <Text type="secondary">ERP 资源</Text>
+                <Space size={[6, 6]} wrap className="aiWorkflowTagBlock">
+                  {workflow.erp_resources.map((item) => (
+                    <Tag color="geekblue" key={item}>{item}</Tag>
+                  ))}
+                </Space>
+              </Col>
+              <Col xs={24} md={8}>
+                <Text type="secondary">入口</Text>
+                <Paragraph className="aiWorkflowDetailPreview compact">
+                  {workflow.entry_label} / {workflow.entry_view}
+                </Paragraph>
+              </Col>
+              <Col xs={24} md={12}>
+                <Text type="secondary">写回目标</Text>
+                <Paragraph className="aiWorkflowDetailPreview compact">{workflow.writeback_target}</Paragraph>
+              </Col>
+              <Col xs={24} md={12}>
+                <Text type="secondary">通知目标</Text>
+                <Paragraph className="aiWorkflowDetailPreview compact">{workflow.notification_target}</Paragraph>
+              </Col>
+            </Row>
+          </ProCard>
+        </Space>
+      ) : (
+        <Empty description="请选择一个 AI 工作流" />
+      )}
+    </Modal>
+  );
+}
+
+function AiWorkflowDetailItem({
+  label,
+  value,
+  mono = false,
+}: {
+  label: string;
+  value: React.ReactNode;
+  mono?: boolean;
+}) {
+  return (
+    <div className="aiWorkflowDetailItem">
+      <Text type="secondary">{label}</Text>
+      <Text className={mono ? "aiWorkflowMono" : "aiWorkflowText"}>{value}</Text>
+    </div>
   );
 }
 
@@ -5646,11 +6219,91 @@ function defaultAutomationFlowFilters(role: Role, position: Position | null): Au
   };
 }
 
+function defaultAiWorkflowFilters(role: Role, position: Position | null): AiWorkflowFilterState {
+  return {
+    position: role === "admin" ? "all" : position || "all",
+    category: "",
+  };
+}
+
 function defaultEffectAnalyticsFilters(role: Role, position: Position | null): EffectAnalyticsFilterState {
   return {
     dateRange: "30d",
     position: role === "admin" ? "all" : position || "all",
   };
+}
+
+function filterAiWorkflows(items: AiWorkflowItem[], filters: AiWorkflowFilterState) {
+  return items.filter((item) => {
+    if (filters.position !== "all" && item.position !== filters.position) {
+      return false;
+    }
+
+    if (filters.category && item.category !== filters.category) {
+      return false;
+    }
+
+    return true;
+  });
+}
+
+function groupAiWorkflows(items: AiWorkflowItem[]) {
+  const groups = new Map<string, { key: string; label: string; items: AiWorkflowItem[] }>();
+
+  items.forEach((item) => {
+    const key = `${item.position}-${item.category}`;
+    const label = `${item.position_label} / ${item.category}`;
+    const group = groups.get(key) || { key, label, items: [] };
+    group.items.push(item);
+    groups.set(key, group);
+  });
+
+  return Array.from(groups.values());
+}
+
+function workflowEntryView(value: string): View {
+  if (value === "automation_customer_service") {
+    return "automation_customer_service";
+  }
+
+  if (value === "automation_finance") {
+    return "automation_finance";
+  }
+
+  if (value === "automation_operations") {
+    return "automation_operations";
+  }
+
+  return "ai_workflows";
+}
+
+function executionModeLabel(value: string) {
+  const labels: Record<string, string> = {
+    llm_generate: "LLM 生成",
+    erp_then_llm: "ERP + LLM",
+    external_existing_endpoint: "专用真实入口",
+  };
+
+  return labels[value] ?? value;
+}
+
+function workflowAutomationLevelLabel(value: string) {
+  const labels: Record<string, string> = {
+    draft_auto: "草稿自动化",
+    assist_auto: "辅助自动化",
+    tool_auto: "工具自动化",
+  };
+
+  return labels[value] ?? value;
+}
+
+function workflowTriggerLabel(value: string) {
+  const labels: Record<string, string> = {
+    manual_form: "人工表单触发",
+    manual_file_upload: "人工文件上传",
+  };
+
+  return labels[value] ?? value;
 }
 
 function metricStatus(value: string): "success" | "processing" | "error" | "default" | "warning" {

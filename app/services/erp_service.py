@@ -15,7 +15,11 @@ from app.permissions import all_erp_scopes, erp_scopes_for_position, is_valid_po
 from app.services.logging_service import write_audit_log
 
 
-def build_erp_candidates(user_input: str, current_user: dict) -> list[str]:
+def build_erp_candidates(
+    user_input: str,
+    current_user: dict,
+    allowed_resources: list[str] | None = None,
+) -> list[str]:
     if current_user.get("role") == "admin":
         scopes = all_erp_scopes()
     else:
@@ -23,6 +27,10 @@ def build_erp_candidates(user_input: str, current_user: dict) -> list[str]:
         if not is_valid_position(position):
             return []
         scopes = erp_scopes_for_position(position)
+
+    if allowed_resources is not None:
+        allowed_set = set(allowed_resources)
+        scopes = [resource for resource in scopes if resource in allowed_set]
 
     matched_resource = match_resource_by_keywords(user_input, scopes)
     if matched_resource:
@@ -157,13 +165,17 @@ def query_erp_for_current_user(
     limit: int = 5,
     source: str = "chat",
     thread_id: str | None = None,
+    allowed_resources: list[str] | None = None,
 ) -> dict[str, Any]:
-    candidates = build_erp_candidates(user_input, current_user)
+    candidates = build_erp_candidates(user_input, current_user, allowed_resources=allowed_resources)
     if not candidates:
+        scope_message = "你可以直接说明要查客户、订单、物流、工单、工资、发票里的哪一类。"
+        if allowed_resources is not None:
+            scope_message = f"本工作流只允许查询：{'、'.join(allowed_resources)}。"
         result = {
             "ok": False,
             "status": "no_scope",
-            "message": "我可以查询你岗位权限内的 ERP 数据，但这次没有识别出具体资源名称。你可以直接说明要查客户、订单、物流、工单、工资、发票里的哪一类。",
+            "message": f"我可以查询你岗位权限内的 ERP 数据，但这次没有识别出本次允许的具体资源。{scope_message}",
             "resource": None,
             "items": [],
         }

@@ -442,6 +442,238 @@ button {
   line-height: 1.55;
 }
 
+.aiWorkflowMetricRow .ant-col {
+  display: flex;
+}
+
+.aiWorkflowMetricCard {
+  width: 100%;
+  margin-top: 0;
+}
+
+.aiWorkflowMetricCard .ant-card-body {
+  display: grid;
+  min-height: 104px;
+  gap: 6px;
+  min-width: 0;
+}
+
+.aiWorkflowMetricCard h3 {
+  margin: 0 !important;
+}
+
+.aiWorkflowFilterGrid {
+  display: grid;
+  grid-template-columns: minmax(140px, 1fr) 96px;
+  gap: 10px;
+  align-items: center;
+  max-width: 420px;
+  margin-bottom: 14px;
+}
+
+.aiWorkflowFilterGrid.admin {
+  grid-template-columns: minmax(140px, 1fr) minmax(140px, 1fr) 96px;
+  max-width: 620px;
+}
+
+.aiWorkflowGroupBlock {
+  min-width: 0;
+}
+
+.aiWorkflowGroupTitle {
+  margin-bottom: 10px;
+}
+
+.aiWorkflowCardCol {
+  display: flex;
+}
+
+.aiWorkflowCard {
+  width: 100%;
+  margin-top: 0;
+}
+
+.aiWorkflowCard > .ant-card-body {
+  height: 100%;
+}
+
+.aiWorkflowCardBody {
+  display: grid;
+  grid-template-rows: 28px 72px auto 78px 34px minmax(160px, auto);
+  align-content: start;
+  min-height: 552px;
+  height: 100%;
+  gap: 10px;
+  min-width: 0;
+}
+
+.aiWorkflowHeader {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+}
+
+.aiWorkflowTitleWrap {
+  min-width: 0;
+}
+
+.aiWorkflowTitle {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.aiWorkflowDescription {
+  height: 72px;
+  margin-bottom: 0 !important;
+  overflow: hidden;
+  line-height: 1.55;
+}
+
+.aiWorkflowMetaGrid,
+.aiWorkflowDetailGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.aiWorkflowMetaGrid > div,
+.aiWorkflowDetailItem {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 8px 10px;
+  background: #f8fafc;
+  border: 1px solid rgba(15, 23, 42, 0.06);
+  border-radius: 6px;
+}
+
+.aiWorkflowMetaGrid .ant-typography {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.aiWorkflowStageList {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  min-width: 0;
+}
+
+.aiWorkflowStageItem {
+  display: grid;
+  grid-template-rows: 20px 22px;
+  gap: 3px;
+  min-width: 0;
+  padding: 6px 7px;
+  background: #ffffff;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 6px;
+}
+
+.aiWorkflowStageItem .ant-typography {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.aiWorkflowStageItem .ant-tag {
+  width: fit-content;
+  margin-inline-end: 0;
+}
+
+.aiWorkflowTagList {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.aiWorkflowRunBox {
+  display: grid;
+  grid-template-rows: 100px auto;
+  gap: 10px;
+  align-self: end;
+  min-width: 0;
+}
+
+.aiWorkflowInput {
+  height: 100px !important;
+  min-height: 100px !important;
+  resize: vertical;
+}
+
+.aiWorkflowExternalHint {
+  height: 100px;
+  margin-bottom: 0 !important;
+  padding: 10px 12px;
+  overflow: hidden;
+  color: #4b5563;
+  line-height: 1.6;
+  background: #f8fafc;
+  border: 1px solid rgba(15, 23, 42, 0.06);
+  border-radius: 6px;
+}
+
+.aiWorkflowFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.aiWorkflowText,
+.aiWorkflowMono {
+  display: block;
+  max-width: 100%;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.aiWorkflowMono {
+  color: #4b5563;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+}
+
+.aiWorkflowAnswer,
+.aiWorkflowDetailPreview {
+  margin-bottom: 0 !important;
+  padding: 10px 12px;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  background: #f8fafc;
+  border: 1px solid rgba(15, 23, 42, 0.06);
+  border-radius: 6px;
+}
+
+.aiWorkflowAnswer {
+  max-height: 420px;
+  overflow: auto;
+  line-height: 1.7;
+}
+
+.aiWorkflowDetailPreview {
+  min-height: 82px;
+  margin-top: 6px !important;
+}
+
+.aiWorkflowDetailPreview.compact {
+  min-height: 62px;
+}
+
+.aiWorkflowTagBlock {
+  display: flex;
+  margin-top: 8px;
+}
+
 .runRecordMetricRow .ant-col {
   display: flex;
 }
@@ -1642,18 +1874,39 @@ button {
     min-height: 0;
   }
 
-  .aiAppMetaGrid {
-    grid-template-columns: 1fr;
-  }
+	  .aiAppMetaGrid {
+	    grid-template-columns: 1fr;
+	  }
 
-  .runRecordFilterGrid,
-  .runRecordDetailGrid,
-  .effectAnalyticsToolbar,
-  .effectAnalyticsToolbar.admin,
-  .monitoringToolbar,
-  .flowConfigFilterGrid,
-  .flowConfigFilterGrid.admin,
-  .flowConfigDetailGrid,
+	  .aiWorkflowCardBody {
+	    grid-template-rows: auto 84px auto auto auto auto;
+	    min-height: 0;
+	  }
+
+	  .aiWorkflowMetaGrid {
+	    grid-template-columns: 1fr;
+	  }
+
+	  .aiWorkflowStageList {
+	    grid-template-columns: repeat(2, minmax(0, 1fr));
+	  }
+
+	  .aiWorkflowFooter {
+	    align-items: stretch;
+	    flex-direction: column;
+	  }
+
+	  .runRecordFilterGrid,
+	  .runRecordDetailGrid,
+	  .effectAnalyticsToolbar,
+	  .effectAnalyticsToolbar.admin,
+	  .monitoringToolbar,
+	  .aiWorkflowFilterGrid,
+	  .aiWorkflowFilterGrid.admin,
+	  .aiWorkflowDetailGrid,
+	  .flowConfigFilterGrid,
+	  .flowConfigFilterGrid.admin,
+	  .flowConfigDetailGrid,
   .connectorDetailGrid {
     grid-template-columns: 1fr;
     max-width: none;

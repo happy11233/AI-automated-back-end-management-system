@@ -12,6 +12,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from app.api.audit_logs import router as audit_logs_router
 from app.api.auth import router as auth_router
+from app.api.ai_workflows import router as ai_workflows_router
 from app.api.automation_flows import router as automation_flows_router
 from app.api.connectors import router as connectors_router
 from app.api.effect_analytics import router as effect_analytics_router
@@ -82,6 +83,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(auth_router)
+app.include_router(ai_workflows_router)
 app.include_router(approvals_router)
 app.include_router(automation_router)
 app.include_router(automation_flows_router)

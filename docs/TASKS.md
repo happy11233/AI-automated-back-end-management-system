@@ -397,3 +397,18 @@
 - [x] 新增真实 API 验证脚本 `scripts/verify_monitoring_center.py`
 - [x] 新增真实浏览器验证脚本 `scripts/verify_monitoring_center_frontend.mjs`
 - [x] 浏览器验证覆盖管理员桌面、管理员移动端、员工不可访问和无横向溢出
+
+### Platform Loop 8：AI 工作流中心一期
+
+- [x] 新增可执行 AI 工作流中心页面 `/ai-workflows`
+- [x] 注册运营 Listing 上架、运营竞品分析、客服退款售后、客服物流回复、财务报表分析、财务工资统计、财务 Excel 结算整理 7 个跨境电商内部工作流
+- [x] 新增 `GET /ai-workflows`、`GET /ai-workflows/{workflow_id}`、`POST /ai-workflows/{workflow_id}/run`
+- [x] 管理员可见全部工作流，员工只可见自己岗位工作流
+- [x] 可执行工作流复用真实 LLM、ERP 查询和运行记录；文件型财务 Excel 工作流跳转现有真实上传页面
+- [x] ERP 型工作流执行时同时受岗位 ERP scope 和工作流声明 `erp_resources` 限制
+- [x] AI 工作流运行写入 `automation_runs`、`automation_run_steps` 和审计日志
+- [x] 审计日志 metadata 复用运行记录脱敏逻辑，工作流输入敏感串不会进入 LLM/ERP 上下文
+- [x] 前端展示工作流阶段链路、审批策略、ERP 资源、工具、写回目标和最近运行结果
+- [x] 新增真实 API 验证脚本 `scripts/verify_ai_workflows.py`
+- [x] 新增真实浏览器验证脚本 `scripts/verify_ai_workflows_frontend.mjs`
+- [x] 验证覆盖权限隔离、真实运行、专用入口拒绝直接执行、运行记录、审计脱敏、桌面/移动端无横向溢出

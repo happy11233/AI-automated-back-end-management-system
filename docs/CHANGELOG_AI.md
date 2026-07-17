@@ -1289,3 +1289,64 @@
 
 #### 后续待做
 - Platform Loop 8 可做告警/通知中心：阈值配置、告警记录、飞书/邮件/企业微信通知、定时健康检查和失败处理闭环。
+
+### 日期：2026-07-17
+
+#### 本次目标
+- 完成 Platform Loop 8：新增 AI 工作流中心一期，把现有岗位自动化、ERP 查询、审批策略和运行记录串成可执行的跨境电商内部工作流。
+
+#### 修改内容
+- 新增后端工作流服务，注册 7 个岗位工作流：运营 Listing 上架、运营竞品分析、客服退款售后、客服物流回复、财务报表分析、财务工资统计、财务 Excel 结算整理。
+- 新增 API：`GET /ai-workflows`、`GET /ai-workflows/{workflow_id}`、`POST /ai-workflows/{workflow_id}/run`。
+- 可执行模式支持 `llm_generate` 和 `erp_then_llm`，复用真实 LLM、ERP 查询和运行记录；财务 Excel 文件型工作流保留为现有真实上传页入口，不在工作流中心伪造文件处理。
+- 权限规则：管理员可见全部工作流；员工只可见自己岗位；跨岗位 detail 返回 404，run 返回 403。
+- ERP 型工作流执行时同时限制“当前岗位 ERP scope”和“工作流声明 `erp_resources`”，避免工作流卡片资源说明和真实执行边界不一致。
+- 工作流运行写入 `automation_runs`、`automation_run_steps` 和 `audit_logs`，`entrypoint` 使用真实路由 `/ai-workflows/{workflow_id}/run`。
+- 审计日志 metadata 复用运行记录脱敏逻辑；工作流输入中的 Bearer token、api_key、邮箱、手机号等敏感串会在进入 LLM/ERP 上下文前脱敏。
+- 前端新增 `/ai-workflows` 页面和“AI 工作流”导航，展示指标、岗位/类别筛选、阶段链路、工具、ERP 资源、审批策略、写回目标、运行输入和最近结果。
+- 页面支持桌面和移动端布局，卡片、输入框和阶段块统一尺寸，长文本换行/滚动保护。
+- 新增真实 API 验收脚本 `scripts/verify_ai_workflows.py`。
+- 新增真实浏览器验收脚本 `scripts/verify_ai_workflows_frontend.mjs`。
+
+#### 修改文件
+- `app/api/ai_workflows.py`
+- `app/main.py`
+- `app/services/ai_workflow_service.py`
+- `app/services/erp_service.py`
+- `app/services/logging_service.py`
+- `frontend/src/api.ts`
+- `frontend/src/main.tsx`
+- `frontend/src/styles.css`
+- `scripts/verify_ai_workflows.py`
+- `scripts/verify_ai_workflows_frontend.mjs`
+- `docs/TASKS.md`
+- `docs/CHANGELOG_AI.md`
+- `docs/AI_CONTEXT.md`
+
+#### 验证方式
+- `.venv/bin/python -m compileall app scripts`
+- `npm run build`
+- `docker compose up -d --build api`
+- `.venv/bin/python scripts/verify_ai_workflows.py`
+- `node scripts/verify_ai_workflows_frontend.mjs`
+- `.venv/bin/python scripts/verify_monitoring_center.py`
+- `.venv/bin/python scripts/verify_connectors.py`
+- `git diff --check`
+
+#### 验证结果
+- 后端编译通过。
+- 前端构建通过，仅保留 Vite chunk 体积警告。
+- API 容器重建并启动，`/health` 返回 `ok`；未登录访问 `/ai-workflows` 返回 401。
+- 真实 API 验收通过：管理员可见 7 个工作流，运营可见 2 个，客服可见 2 个，财务可见 3 个。
+- 真实 API 验收确认运营跨岗位访问财务详情返回 404，跨岗位运行返回 403；财务 Excel 文件型工作流直接运行返回 400 并提示使用专用页面。
+- 真实 API 验收触发运营竞品分析和客服物流回复工作流，均调用真实后端能力并写入运行记录。
+- 真实 API 验收确认运行记录 `run_type=ai_workflow`、`resource_type=ai_workflow`、真实 `entrypoint=/ai-workflows/{workflow_id}/run` 和步骤链路正常。
+- 真实 API 验收确认运行结果、运行记录和审计响应未泄露 `Bearer`、`api_key`、邮箱、手机号、`Authorization`、`JWT_SECRET`、`DATABASE_URL` 等敏感串。
+- 真实浏览器验收通过，截图：
+  - `/tmp/company-rag-ai-workflows-admin-desktop.png`
+  - `/tmp/company-rag-ai-workflows-operations-desktop.png`
+  - `/tmp/company-rag-ai-workflows-finance-mobile.png`
+  - `/tmp/company-rag-ai-workflows-operations-run.png`
+- 管理员桌面、运营桌面、财务移动端和运营运行结果页面均无横向溢出。
+- 监控中心、连接器、自动化流程配置、前端权限可见性真实回归均通过。
+- 本轮验收未使用 mock、stub、fake provider、monkeypatch 或模拟响应。

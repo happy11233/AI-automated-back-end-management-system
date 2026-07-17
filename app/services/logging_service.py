@@ -1,5 +1,6 @@
 from app.db import execute, fetch_all, fetch_one
 from app.json_utils import dumps_json
+from app.services.run_record_service import sanitize_metadata
 
 def ensure_chat_thread(thread_id: str, user_id: str, title: str | None = None) -> None:
     execute(
@@ -52,7 +53,7 @@ def write_audit_log(
             action,
             resource_type,
             resource_id,
-            dumps_json(metadata or {}),
+            dumps_json(sanitize_metadata(metadata or {})),
         ),
     )
 

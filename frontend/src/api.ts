@@ -157,6 +157,66 @@ export type AutomationFlowDetailResponse = {
   item: AutomationFlowItem;
 };
 
+export type AiWorkflowStage = {
+  key: string;
+  label: string;
+  description: string;
+  automated: boolean;
+};
+
+export type AiWorkflowItem = {
+  id: string;
+  name: string;
+  position: Position;
+  position_label: string;
+  category: string;
+  scenario: string;
+  business_value: string;
+  trigger_type: string;
+  automation_level: string;
+  execution_mode: string;
+  entry_view: string;
+  entry_label: string;
+  source_task_id: string;
+  input_placeholder: string;
+  output_contract: string;
+  requires_approval: boolean;
+  approval_policy: string;
+  tools: string[];
+  erp_resources: string[];
+  writeback_target: string;
+  notification_target: string;
+  saved_minutes: number;
+  version: string;
+  executable: boolean;
+  stages: AiWorkflowStage[];
+};
+
+export type AiWorkflowsResponse = {
+  items: AiWorkflowItem[];
+};
+
+export type AiWorkflowDetailResponse = {
+  item: AiWorkflowItem;
+};
+
+export type AiWorkflowRunStep = {
+  step_order: number;
+  step_name: string;
+  status: "running" | "succeeded" | "failed" | "blocked" | string;
+  duration_ms: number;
+};
+
+export type AiWorkflowRunResponse = {
+  run_id: string;
+  workflow: AiWorkflowItem;
+  status: "succeeded" | "failed" | "blocked" | string;
+  answer: string;
+  erp_references: ErpReference[];
+  steps: AiWorkflowRunStep[];
+  created_at: string;
+};
+
 export type ConnectorConfigField = {
   name: string;
   configured: boolean;
@@ -1293,6 +1353,38 @@ export async function getAutomationFlowDetail(token: string, flowId: string) {
   return requestJson<AutomationFlowDetailResponse>(
     `/automation-flows/${encodeURIComponent(flowId)}`,
     {},
+    token,
+  );
+}
+
+export async function listAiWorkflows(token: string) {
+  return requestJson<AiWorkflowsResponse>("/ai-workflows", {}, token);
+}
+
+export async function getAiWorkflowDetail(token: string, workflowId: string) {
+  return requestJson<AiWorkflowDetailResponse>(
+    `/ai-workflows/${encodeURIComponent(workflowId)}`,
+    {},
+    token,
+  );
+}
+
+export async function runAiWorkflow(
+  token: string,
+  workflowId: string,
+  inputText: string,
+) {
+  return requestJson<AiWorkflowRunResponse>(
+    `/ai-workflows/${encodeURIComponent(workflowId)}/run`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        input_text: inputText,
+      }),
+    },
     token,
   );
 }

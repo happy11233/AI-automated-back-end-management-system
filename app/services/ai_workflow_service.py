@@ -1,0 +1,513 @@
+from __future__ import annotations
+
+from datetime import datetime, timezone
+from typing import Any
+
+from fastapi import HTTPException, status
+
+from app.llm import chat
+from app.permissions import POSITION_LABELS, is_valid_position
+from app.services.automation_service import build_automation_prompt
+from app.services.erp_service import query_erp_for_current_user, summarize_erp_items
+from app.services.logging_service import write_audit_log
+from app.services.run_record_service import (
+    elapsed_ms,
+    finish_run,
+    now_ms,
+    record_step,
+    sanitize_text,
+    start_run,
+)
+
+
+WORKFLOW_VERSION = "2026.07.17"
+SUPPORTED_EXECUTION_MODES = {"llm_generate", "erp_then_llm"}
+
+
+WORKFLOW_DEFINITIONS: list[dict[str, Any]] = [
+    {
+        "id": "operations_listing_launch",
+        "name": "运营 Listing 上架准备",
+        "position": "operations",
+        "category": "运营增长",
+        "scenario": "新品 SKU 上架前，自动生成 Listing、标题、五点描述、关键词和促销文案草稿。",
+        "business_value": "减少运营反复整理卖点、关键词和促销文案的时间。",
+        "trigger_type": "manual_form",
+        "automation_level": "draft_auto",
+        "execution_mode": "llm_generate",
+        "entry_view": "automation_operations",
+        "entry_label": "打开运营 AI 自动化",
+        "source_task_id": "listing",
+        "input_placeholder": "输入 SKU、品名、材质、尺寸、站点、目标人群、竞品差异和合规限制。",
+        "output_contract": "Listing 草稿、标题、五点描述、后台搜索词、促销文案和中文优化备注。",
+        "requires_approval": False,
+        "approval_policy": "内容草稿不直接发布到 Amazon，由运营复核后使用。",
+        "tools": ["llm.chat", "run_records"],
+        "erp_resources": ["Item", "Item Price", "Sales Order"],
+        "writeback_target": "运行记录；后续可接 Amazon Listing 草稿或 ERP 商品档案。",
+        "notification_target": "运营负责人在工作台查看结果。",
+        "saved_minutes": 25,
+    },
+    {
+        "id": "operations_competitor_analysis",
+        "name": "运营竞品分析",
+        "position": "operations",
+        "category": "运营增长",
+        "scenario": "把竞品卖点、价格、差评点和链接摘录转成差异化分析。",
+        "business_value": "减少运营复制竞品信息、整理痛点和写分析报告的时间。",
+        "trigger_type": "manual_form",
+        "automation_level": "draft_auto",
+        "execution_mode": "llm_generate",
+        "entry_view": "automation_operations",
+        "entry_label": "打开运营 AI 自动化",
+        "source_task_id": "competitor_analysis",
+        "input_placeholder": "输入竞品标题、价格、卖点、差评摘要、链接摘录和目标站点。",
+        "output_contract": "竞品定位、价格区间、核心卖点、差评痛点、可复制点、差异化建议。",
+        "requires_approval": False,
+        "approval_policy": "分析结论仅作为运营决策参考，不自动改价或发布。",
+        "tools": ["llm.chat", "run_records"],
+        "erp_resources": ["Item", "Item Price", "Sales Order"],
+        "writeback_target": "运行记录；后续可接运营看板。",
+        "notification_target": "运营负责人在工作台查看结果。",
+        "saved_minutes": 30,
+    },
+    {
+        "id": "customer_service_refund_reply",
+        "name": "客服退款售后处理",
+        "position": "customer_service",
+        "category": "客服售后",
+        "scenario": "买家提出退款、退货、换货或投诉时，自动查权限内 ERP 信息并生成回复话术。",
+        "business_value": "减少客服查订单、查物流、翻规则、写话术和升级判断的重复操作。",
+        "trigger_type": "manual_form",
+        "automation_level": "assist_auto",
+        "execution_mode": "erp_then_llm",
+        "entry_view": "automation_customer_service",
+        "entry_label": "打开客服 AI 自动化",
+        "source_task_id": "refund_script",
+        "input_placeholder": "输入买家原话、订单号、物流单号、退款原因、站点和希望处理方式。",
+        "output_contract": "首轮回复、二次跟进、升级人工话术、审批/升级建议和 ERP 引用摘要。",
+        "requires_approval": True,
+        "approval_policy": "大额退款、补偿或写入动作必须走审批；当前工作流只生成话术和建议。",
+        "tools": ["erp.provider.query", "llm.chat", "approval.request", "run_records"],
+        "erp_resources": ["Customer", "Sales Order", "Delivery Note", "Issue", "Return request"],
+        "writeback_target": "运行记录；后续可接客服工单系统。",
+        "notification_target": "客服主管或当前客服在工作台查看。",
+        "saved_minutes": 12,
+    },
+    {
+        "id": "customer_service_logistics_reply",
+        "name": "客服物流查询回复",
+        "position": "customer_service",
+        "category": "客服售后",
+        "scenario": "买家询问物流、签收、丢件或延迟时，自动查询物流/订单并生成多语言回复。",
+        "business_value": "减少客服重复查物流和写英文回复的时间。",
+        "trigger_type": "manual_form",
+        "automation_level": "assist_auto",
+        "execution_mode": "erp_then_llm",
+        "entry_view": "automation_customer_service",
+        "entry_label": "打开客服 AI 自动化",
+        "source_task_id": "smart_reply",
+        "input_placeholder": "输入买家物流问题、订单号、物流单号、目标语言和站点。",
+        "output_contract": "推荐回复、物流摘要、下一步处理建议、升级条件。",
+        "requires_approval": False,
+        "approval_policy": "只读查询和话术生成不需要审批；赔付/退款仍需审批。",
+        "tools": ["erp.provider.query", "llm.chat", "run_records"],
+        "erp_resources": ["Sales Order", "Delivery Note", "Issue"],
+        "writeback_target": "运行记录；后续可接客服工单回复草稿。",
+        "notification_target": "当前客服在工作台查看。",
+        "saved_minutes": 8,
+    },
+    {
+        "id": "finance_report_analysis",
+        "name": "财务报表分析",
+        "position": "finance",
+        "category": "财务分析",
+        "scenario": "财务粘贴报表摘要、费用、利润、现金流或异常项，AI 自动生成分析和复核建议。",
+        "business_value": "减少财务反复整理报表说明、异常描述和复核结论的时间。",
+        "trigger_type": "manual_form",
+        "automation_level": "draft_auto",
+        "execution_mode": "llm_generate",
+        "entry_view": "automation_finance",
+        "entry_label": "打开财务 AI 自动化",
+        "source_task_id": "report_analysis",
+        "input_placeholder": "输入报表期间、销售额、费用、利润、现金流、异常项目和复核要求。",
+        "output_contract": "摘要、关键指标、异常项、风险提示、下一步建议。",
+        "requires_approval": False,
+        "approval_policy": "分析结果需财务复核，不自动入账。",
+        "tools": ["llm.chat", "run_records"],
+        "erp_resources": ["GL Entry", "Payment Entry", "Sales Invoice", "Purchase Invoice"],
+        "writeback_target": "运行记录；后续可接财务报表附件或 BI 看板。",
+        "notification_target": "财务负责人在工作台查看。",
+        "saved_minutes": 20,
+    },
+    {
+        "id": "finance_salary_summary",
+        "name": "财务工资统计",
+        "position": "finance",
+        "category": "财务分析",
+        "scenario": "财务粘贴工资、奖金、扣款或部门信息，AI 自动生成工资汇总和异常复核清单。",
+        "business_value": "减少财务整理工资汇总、人数统计和异常说明的时间。",
+        "trigger_type": "manual_form",
+        "automation_level": "draft_auto",
+        "execution_mode": "llm_generate",
+        "entry_view": "automation_finance",
+        "entry_label": "打开财务 AI 自动化",
+        "source_task_id": "salary_summary",
+        "input_placeholder": "输入工资期间、部门、人数、基本工资、奖金、扣款、社保和异常说明。",
+        "output_contract": "工资汇总、总额、人数、异常项和复核建议。",
+        "requires_approval": True,
+        "approval_policy": "工资数据只能由财务岗位处理，发放或调整需人工审批。",
+        "tools": ["llm.chat", "run_records"],
+        "erp_resources": ["Salary Slip", "GL Entry", "Payment Entry"],
+        "writeback_target": "运行记录；后续可接工资表或财务 Excel。",
+        "notification_target": "财务负责人在工作台查看。",
+        "saved_minutes": 25,
+    },
+    {
+        "id": "finance_excel_settlement",
+        "name": "财务 Excel 结算整理",
+        "position": "finance",
+        "category": "文件自动化",
+        "scenario": "上传 Amazon 结算表、工资表或费用表，系统生成新 Excel、摘要和异常提示。",
+        "business_value": "减少财务复制粘贴、分类、对账和做汇总表的重复操作。",
+        "trigger_type": "manual_file_upload",
+        "automation_level": "tool_auto",
+        "execution_mode": "external_existing_endpoint",
+        "entry_view": "automation_finance",
+        "entry_label": "打开财务 Excel 上传",
+        "source_task_id": "finance_excel_transform",
+        "input_placeholder": "请到财务 AI 自动化页面上传真实 Excel 文件。",
+        "output_contract": "新 Excel 文件、处理摘要、数值汇总、异常提示。",
+        "requires_approval": False,
+        "approval_policy": "生成结果需财务复核后使用，不自动入账。",
+        "tools": ["pandas.read_excel", "openpyxl.write_workbook", "llm.chat", "run_records"],
+        "erp_resources": ["Sales Invoice", "Payment Entry", "GL Entry"],
+        "writeback_target": "下载新 Excel；运行记录保存文件摘要和产物信息。",
+        "notification_target": "财务在页面下载结果。",
+        "saved_minutes": 35,
+    },
+]
+
+
+def list_ai_workflows(current_user: dict) -> list[dict[str, Any]]:
+    return [_workflow_item(item) for item in WORKFLOW_DEFINITIONS if _can_view_workflow(current_user, item)]
+
+
+def get_ai_workflow(workflow_id: str, current_user: dict) -> dict[str, Any]:
+    workflow = _find_workflow(workflow_id)
+    if not _can_view_workflow(current_user, workflow):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="AI 工作流不存在或无权查看")
+
+    return _workflow_item(workflow)
+
+
+def run_ai_workflow(
+    *,
+    workflow_id: str,
+    input_text: str,
+    current_user: dict,
+) -> dict[str, Any]:
+    workflow = _find_workflow(workflow_id)
+    if not _can_view_workflow(current_user, workflow):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权执行该 AI 工作流")
+
+    if workflow["execution_mode"] not in SUPPORTED_EXECUTION_MODES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="该工作流需要在专用页面执行，请使用返回的入口进入现有真实功能。",
+        )
+
+    normalized_input = input_text.strip()
+    if not normalized_input:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="请输入工作流任务内容")
+
+    safe_input = sanitize_text(normalized_input)
+    started_ms = now_ms()
+    execution_user = _execution_user_for_workflow(current_user, workflow)
+    run_id = start_run(
+        run_type="ai_workflow",
+        app_id=str(workflow["id"]),
+        app_name=str(workflow["name"]),
+        entrypoint=f"/ai-workflows/{workflow['id']}/run",
+        current_user=execution_user,
+        resource_type="ai_workflow",
+        resource_id=str(workflow["id"]),
+        input_text=normalized_input,
+        metadata=_run_metadata(workflow),
+    )
+    steps: list[dict[str, Any]] = []
+    erp_references: list[dict[str, Any]] = []
+    erp_summary = ""
+
+    try:
+        steps.append(_record_workflow_step(
+            run_id=run_id,
+            order=1,
+            name="trigger_validate",
+            status_value="succeeded",
+            workflow=workflow,
+            input_text=normalized_input,
+            output_text="人工触发参数校验通过",
+            duration_ms=0,
+        ))
+
+        if workflow["execution_mode"] == "erp_then_llm":
+            erp_started_ms = now_ms()
+            erp_result = query_erp_for_current_user(
+                user_input=safe_input,
+                current_user=execution_user,
+                query=safe_input,
+                limit=5,
+                source="ai_workflow",
+                allowed_resources=list(workflow["erp_resources"]),
+            )
+            erp_items = erp_result.get("items") if isinstance(erp_result.get("items"), list) else []
+            erp_resource = erp_result.get("resource")
+            erp_summary = summarize_erp_items(str(erp_resource), erp_items) if erp_resource else str(erp_result.get("message") or "")
+            erp_references = erp_result.get("references") if isinstance(erp_result.get("references"), list) else []
+            steps.append(_record_workflow_step(
+                run_id=run_id,
+                order=2,
+                name="erp_permission_query",
+                status_value="succeeded" if erp_result.get("ok") else "blocked" if erp_result.get("status") == "no_scope" else "failed",
+                workflow=workflow,
+                input_text=normalized_input,
+                output_text={
+                    "status": erp_result.get("status"),
+                    "resource": erp_resource,
+                    "reference_count": len(erp_references),
+                    "message": erp_result.get("message"),
+                },
+                duration_ms=elapsed_ms(erp_started_ms),
+            ))
+
+        prompt_started_ms = now_ms()
+        prompt = _build_workflow_prompt(
+            workflow=workflow,
+            input_text=safe_input,
+            erp_summary=erp_summary,
+        )
+        answer = chat(prompt)
+        steps.append(_record_workflow_step(
+            run_id=run_id,
+            order=3 if workflow["execution_mode"] == "erp_then_llm" else 2,
+            name="ai_generate_decision",
+            status_value="succeeded",
+            workflow=workflow,
+            input_text=normalized_input,
+            output_text=answer,
+            duration_ms=elapsed_ms(prompt_started_ms),
+        ))
+
+        steps.append(_record_workflow_step(
+            run_id=run_id,
+            order=4 if workflow["execution_mode"] == "erp_then_llm" else 3,
+            name="write_run_record",
+            status_value="succeeded",
+            workflow=workflow,
+            input_text=str(workflow["id"]),
+            output_text="已写入运行记录和审计事件",
+            duration_ms=0,
+        ))
+        finish_run(
+            run_id,
+            status_value="succeeded",
+            output_text=answer,
+            duration_ms=elapsed_ms(started_ms),
+            metadata={
+                **_run_metadata(workflow),
+                "erp_reference_count": len(erp_references),
+                "step_count": len(steps),
+            },
+        )
+    except Exception as error:
+        record_step(
+            run_id=run_id,
+            step_name="ai_workflow_error",
+            step_order=len(steps) + 1,
+            status_value="failed",
+            provider="ai_workflow",
+            resource_type="ai_workflow",
+            resource_id=str(workflow["id"]),
+            input_text=normalized_input,
+            error_message=error,
+            duration_ms=elapsed_ms(started_ms),
+            metadata=_run_metadata(workflow),
+        )
+        finish_run(
+            run_id,
+            status_value="failed",
+            error_message=error,
+            duration_ms=elapsed_ms(started_ms),
+            metadata=_run_metadata(workflow),
+        )
+        raise
+
+    write_audit_log(
+        user_id=current_user.get("id"),
+        action="ai_workflow.run",
+        resource_type="ai_workflow",
+        resource_id=str(workflow["id"]),
+        metadata={
+            "username": current_user.get("username"),
+            "role": current_user.get("role"),
+            "position": workflow["position"],
+            "workflow_name": workflow["name"],
+            "execution_mode": workflow["execution_mode"],
+            "requires_approval": workflow["requires_approval"],
+            "run_id": run_id,
+        },
+    )
+
+    return {
+        "run_id": run_id,
+        "workflow": _workflow_item(workflow),
+        "status": "succeeded",
+        "answer": answer,
+        "erp_references": erp_references,
+        "steps": steps,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+def _workflow_item(item: dict[str, Any]) -> dict[str, Any]:
+    return {
+        **item,
+        "version": WORKFLOW_VERSION,
+        "position_label": POSITION_LABELS.get(item["position"], item["position"]),
+        "executable": item["execution_mode"] in SUPPORTED_EXECUTION_MODES,
+        "stages": _workflow_stages(item),
+    }
+
+
+def _workflow_stages(item: dict[str, Any]) -> list[dict[str, Any]]:
+    return [
+        {"key": "trigger", "label": "触发", "description": _trigger_label(item["trigger_type"]), "automated": item["trigger_type"] != "manual_file_upload"},
+        {"key": "data_read", "label": "读数据", "description": _data_read_description(item), "automated": bool(item["erp_resources"])},
+        {"key": "ai_decision", "label": "AI 判断", "description": item["output_contract"], "automated": True},
+        {"key": "tool_execution", "label": "工具执行", "description": "、".join(item["tools"]), "automated": True},
+        {"key": "approval", "label": "审批", "description": item["approval_policy"], "automated": not item["requires_approval"]},
+        {"key": "writeback", "label": "写回", "description": item["writeback_target"], "automated": item["execution_mode"] != "external_existing_endpoint"},
+        {"key": "notification", "label": "通知", "description": item["notification_target"], "automated": False},
+        {"key": "record", "label": "记录", "description": "写入 automation_runs、steps、audit_logs。", "automated": True},
+    ]
+
+
+def _can_view_workflow(current_user: dict, workflow: dict[str, Any]) -> bool:
+    if current_user.get("role") == "admin":
+        return True
+
+    position = current_user.get("position")
+    return is_valid_position(position) and workflow.get("position") == position
+
+
+def _find_workflow(workflow_id: str) -> dict[str, Any]:
+    for workflow in WORKFLOW_DEFINITIONS:
+        if workflow["id"] == workflow_id:
+            return workflow
+
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="AI 工作流不存在")
+
+
+def _execution_user_for_workflow(current_user: dict, workflow: dict[str, Any]) -> dict[str, Any]:
+    if current_user.get("role") != "admin":
+        return current_user
+
+    return {
+        **current_user,
+        "position": workflow["position"],
+    }
+
+
+def _build_workflow_prompt(*, workflow: dict[str, Any], input_text: str, erp_summary: str) -> str:
+    source_task_id = workflow.get("source_task_id")
+    if workflow["execution_mode"] == "llm_generate" and source_task_id:
+        return build_automation_prompt(
+            position=str(workflow["position"]),
+            task_id=str(source_task_id),
+            input_text=input_text,
+        )
+
+    erp_block = erp_summary or "本次未检索到 ERP 记录，请基于用户提供的信息生成建议，并明确标注需要人工确认的信息。"
+    return f"""你是跨境电商企业内部的 {workflow['position_label'] if 'position_label' in workflow else POSITION_LABELS[workflow['position']]} AI 工作流助手。
+你只能处理当前工作流允许的业务，不要越权，不要编造已经写回系统的结果。
+
+工作流名称：{workflow['name']}
+业务场景：{workflow['scenario']}
+审批规则：{workflow['approval_policy']}
+输出要求：{workflow['output_contract']}
+
+ERP 查询摘要：
+{erp_block}
+
+用户输入：
+{input_text}
+
+请输出：
+1. 处理结论
+2. 可直接使用的业务内容
+3. 需要人工确认/审批的事项
+4. 下一步动作
+"""
+
+
+def _record_workflow_step(
+    *,
+    run_id: str,
+    order: int,
+    name: str,
+    status_value: str,
+    workflow: dict[str, Any],
+    input_text: Any,
+    output_text: Any,
+    duration_ms: int,
+) -> dict[str, Any]:
+    record_step(
+        run_id=run_id,
+        step_name=name,
+        step_order=order,
+        status_value=status_value,
+        provider="ai_workflow",
+        resource_type="ai_workflow",
+        resource_id=str(workflow["id"]),
+        input_text=input_text,
+        output_text=output_text,
+        duration_ms=duration_ms,
+        metadata=_run_metadata(workflow),
+    )
+    return {
+        "step_order": order,
+        "step_name": name,
+        "status": status_value,
+        "duration_ms": duration_ms,
+    }
+
+
+def _run_metadata(workflow: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "workflow_id": workflow["id"],
+        "workflow_name": workflow["name"],
+        "position": workflow["position"],
+        "category": workflow["category"],
+        "execution_mode": workflow["execution_mode"],
+        "requires_approval": workflow["requires_approval"],
+        "saved_minutes": workflow["saved_minutes"],
+    }
+
+
+def _trigger_label(value: str) -> str:
+    labels = {
+        "manual_form": "员工在工作流中心输入任务内容后触发。",
+        "manual_file_upload": "员工在专用页面上传真实文件后触发。",
+    }
+    return labels.get(value, value)
+
+
+def _data_read_description(item: dict[str, Any]) -> str:
+    if item["execution_mode"] == "erp_then_llm":
+        return "按当前岗位权限查询 ERP 资源：" + "、".join(item["erp_resources"])
+
+    if item["execution_mode"] == "external_existing_endpoint":
+        return "读取上传文件和现有工具输出，不在工作流中心复制文件内容。"
+
+    return "读取员工输入和当前岗位配置，不访问跨岗位数据。"
