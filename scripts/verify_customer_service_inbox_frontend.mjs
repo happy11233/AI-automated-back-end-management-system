@@ -19,7 +19,15 @@ try {
     viewport: { width: 1366, height: 900 },
     path: "/automation/customer-service-inbox",
     screenshot: "/tmp/company-rag-customer-service-inbox-desktop.png",
-    visible: ["客服自动化收件箱", "客户消息录入", "消息队列", "处理结果", "加入收件箱"],
+    visible: [
+      "客服自动化收件箱",
+      "自动接入与手动补录",
+      "Webhook",
+      "POST /api/customer-service/webhooks/messages",
+      "消息队列",
+      "处理结果",
+      "加入收件箱",
+    ],
     hidden: ["财务 AI 自动化", "用户管理", "知识库"],
   });
 
@@ -30,7 +38,7 @@ try {
     path: "/automation/customer-service-inbox",
     screenshot: "/tmp/company-rag-customer-service-inbox-finance-hidden.png",
     visible: ["概览"],
-    hidden: ["客服自动化收件箱", "客户消息录入"],
+    hidden: ["客服自动化收件箱", "自动接入与手动补录", "POST /api/customer-service/webhooks/messages"],
   });
 
   console.log(JSON.stringify({

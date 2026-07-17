@@ -56,6 +56,8 @@ class Settings(BaseSettings):
     erp_yonyou_tenant_id: str | None = None
     erp_yonyou_app_key: str | None = None
     erp_yonyou_app_secret: str | None = None
+    customer_service_webhook_secret: str | None = None
+    customer_service_webhook_secret_header: str = "X-Customer-Service-Webhook-Secret"
 
     model_config = SettingsConfigDict(
         env_file=".env",

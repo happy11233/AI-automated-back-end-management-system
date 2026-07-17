@@ -95,13 +95,45 @@ def main() -> None:
     )
     assert forbidden_create.status_code == 403, forbidden_create.text
 
+    webhook_result = post_json(
+        tokens["customer_service"],
+        "/customer-service/webhooks/messages",
+        {
+            "channel": "email",
+            "external_id": "verify-email-auto-001",
+            "buyer_name": "Webhook Buyer",
+            "buyer_language": "English",
+            "marketplace": "Amazon US",
+            "order_no": "AMZ-US-001",
+            "subject": "Package tracking",
+            "message": "Where is my order? Please check AMZ-US-001.",
+            "auto_process": True,
+        },
+        timeout=180,
+    )
+    webhook_item = webhook_result["item"]
+    assert webhook_result["processed"] is True, webhook_result
+    assert webhook_result["webhook_auth"] == "bearer_token", webhook_result
+    assert webhook_item["channel"] == "email", webhook_item
+    assert webhook_item["status"] in {"auto_reply_ready", "drafted"}, webhook_item
+    assert webhook_item["reply_draft"], webhook_item
+    assert webhook_result["run_id"], webhook_result
+
+    forbidden_webhook = requests.post(
+        f"{API_BASE_URL}/customer-service/webhooks/messages",
+        headers={**auth_headers(tokens["finance"]), "Content-Type": "application/json"},
+        json={"channel": "email", "message": "Where is my order?"},
+        timeout=30,
+    )
+    assert forbidden_webhook.status_code == 403, forbidden_webhook.text
+
     workflow_items = get_json(tokens["customer_service"], "/ai-workflows")["items"]
     assert any(item["id"] == "customer_service_message_loop" for item in workflow_items), workflow_items
 
     flow_items = get_json(tokens["customer_service"], "/automation-flows")["items"]
     assert any(item["app_id"] == "customer-service-message-loop" for item in flow_items), flow_items
 
-    raw_outputs = json.dumps([low_risk_result, high_risk_result, run_detail], ensure_ascii=False)
+    raw_outputs = json.dumps([low_risk_result, high_risk_result, run_detail, webhook_result], ensure_ascii=False)
     for sensitive_text in ["Bearer ", "api_key", "password", "Authorization"]:
         assert sensitive_text not in raw_outputs, f"leaked {sensitive_text}"
 
@@ -120,6 +152,13 @@ def main() -> None:
             "risk_level": high_risk_item["risk_level"],
             "status": high_risk_item["status"],
             "approval_id": high_risk_item["approval_id"],
+        },
+        "webhook": {
+            "id": webhook_item["id"],
+            "intent": webhook_item["intent"],
+            "risk_level": webhook_item["risk_level"],
+            "status": webhook_item["status"],
+            "run_id": webhook_result["run_id"],
         },
         "note": "real API, real auth, real DB, real ERP/RAG/LLM path; no mock/stub/fake",
     }, ensure_ascii=False))

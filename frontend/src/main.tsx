@@ -3818,10 +3818,25 @@ function CustomerServiceInboxPanel({
       </Row>
 
       <ProCard
-        title="客户消息录入"
-        subTitle="后续可由 Amazon、邮箱或 n8n webhook 写入；当前页面用于真实闭环测试"
+        title="自动接入与手动补录"
+        subTitle="外部系统可通过 webhook 自动写入并触发 AI 处理；手动补录只用于异常补单和本地测试"
         bordered
       >
+        <Space direction="vertical" size={14} className="pageStack">
+          <div className="customerWebhookInfo">
+            <div>
+              <Text strong>Webhook</Text>
+              <Text className="customerWebhookUrl">POST /api/customer-service/webhooks/messages</Text>
+            </div>
+            <div>
+              <Text type="secondary">鉴权</Text>
+              <Text>客服岗位 Bearer token 或 X-Customer-Service-Webhook-Secret</Text>
+            </div>
+            <div>
+              <Text type="secondary">动作</Text>
+              <Text>收到外部客户消息后自动入库、识别意图、查 ERP/RAG、生成回复并按风险流转</Text>
+            </div>
+          </div>
         <Row gutter={[12, 12]} align="top">
           <Col xs={24} md={6}>
             <Select
@@ -3920,6 +3935,7 @@ function CustomerServiceInboxPanel({
             </Space>
           </Col>
         </Row>
+        </Space>
       </ProCard>
 
       <Row gutter={[12, 12]} align="top">

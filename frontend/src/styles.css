@@ -1579,6 +1579,33 @@ button {
   width: 100%;
 }
 
+.customerWebhookInfo {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(220px, 1fr) minmax(280px, 1.4fr);
+  gap: 10px;
+  padding: 12px;
+  background: #f8fafc;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 8px;
+}
+
+.customerWebhookInfo > div {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.customerWebhookInfo .ant-typography {
+  min-width: 0;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.customerWebhookUrl {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+}
+
 .customerInboxPreview {
   display: block;
   max-width: 100%;
@@ -1991,6 +2018,10 @@ button {
   .customerInboxDetailGrid {
     grid-template-columns: 1fr;
     max-width: none;
+  }
+
+  .customerWebhookInfo {
+    grid-template-columns: 1fr;
   }
 
   .customerInboxEvent {

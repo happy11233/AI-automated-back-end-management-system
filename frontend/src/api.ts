@@ -111,6 +111,10 @@ export type CustomerServiceMessageCreatePayload = {
   metadata?: Record<string, unknown>;
 };
 
+export type CustomerServiceWebhookMessagePayload = CustomerServiceMessageCreatePayload & {
+  auto_process?: boolean;
+};
+
 export type CustomerServiceProcessResponse = {
   item: CustomerServiceMessageItem;
   run_id: string;
@@ -121,6 +125,12 @@ export type CustomerServiceProcessResponse = {
     duration_ms: number;
   }>;
   events: CustomerServiceMessageEventItem[];
+};
+
+export type CustomerServiceWebhookMessageResponse = Omit<CustomerServiceProcessResponse, "run_id"> & {
+  processed: boolean;
+  run_id: string | null;
+  webhook_auth: string;
 };
 
 export type ApprovalItem = {
@@ -1459,6 +1469,23 @@ export async function processCustomerServiceMessage(token: string, messageId: st
     `/customer-service/messages/${encodeURIComponent(messageId)}/process`,
     {
       method: "POST",
+    },
+    token,
+  );
+}
+
+export async function receiveCustomerServiceWebhookMessage(
+  token: string,
+  payload: CustomerServiceWebhookMessagePayload,
+) {
+  return requestJson<CustomerServiceWebhookMessageResponse>(
+    "/customer-service/webhooks/messages",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
     },
     token,
   );

@@ -132,6 +132,105 @@ def create_customer_message(
     return item
 
 
+def create_external_customer_message(
+    *,
+    service_user: dict,
+    channel: str,
+    message: str,
+    buyer_name: str | None = None,
+    buyer_email: str | None = None,
+    buyer_language: str = "auto",
+    marketplace: str | None = None,
+    order_no: str | None = None,
+    tracking_no: str | None = None,
+    sku: str | None = None,
+    subject: str | None = None,
+    external_id: str | None = None,
+    metadata: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    item = create_customer_message(
+        current_user=_external_execution_user(service_user),
+        channel=channel,
+        external_id=external_id,
+        buyer_name=buyer_name,
+        buyer_email=buyer_email,
+        buyer_language=buyer_language,
+        marketplace=marketplace,
+        order_no=order_no,
+        tracking_no=tracking_no,
+        sku=sku,
+        subject=subject,
+        message=message,
+        metadata={
+            **(metadata or {}),
+            "source": "external_webhook",
+        },
+    )
+    _add_event(
+        message_id=item["id"],
+        event_type="external_received",
+        actor_id=service_user.get("id"),
+        content="外部客户消息已自动接入",
+        metadata={
+            "channel": channel,
+            "external_id": external_id,
+        },
+    )
+    return item
+
+
+def ingest_and_process_external_message(
+    *,
+    service_user: dict,
+    channel: str,
+    message: str,
+    buyer_name: str | None = None,
+    buyer_email: str | None = None,
+    buyer_language: str = "auto",
+    marketplace: str | None = None,
+    order_no: str | None = None,
+    tracking_no: str | None = None,
+    sku: str | None = None,
+    subject: str | None = None,
+    external_id: str | None = None,
+    metadata: dict[str, Any] | None = None,
+    auto_process: bool = True,
+) -> dict[str, Any]:
+    item = create_external_customer_message(
+        service_user=service_user,
+        channel=channel,
+        external_id=external_id,
+        buyer_name=buyer_name,
+        buyer_email=buyer_email,
+        buyer_language=buyer_language,
+        marketplace=marketplace,
+        order_no=order_no,
+        tracking_no=tracking_no,
+        sku=sku,
+        subject=subject,
+        message=message,
+        metadata=metadata,
+    )
+
+    if not auto_process:
+        return {
+            "item": item,
+            "processed": False,
+            "run_id": None,
+            "steps": [],
+            "events": list_customer_message_events(message_id=item["id"], current_user=_external_execution_user(service_user)),
+        }
+
+    result = process_customer_message(
+        message_id=item["id"],
+        current_user=_external_execution_user(service_user),
+    )
+    return {
+        **result,
+        "processed": True,
+    }
+
+
 def list_customer_messages(
     *,
     current_user: dict,
@@ -585,6 +684,16 @@ def _execution_user(current_user: dict) -> dict[str, Any]:
         **current_user,
         "position": "customer_service",
         "department": "客服部",
+    }
+
+
+def _external_execution_user(service_user: dict) -> dict[str, Any]:
+    return {
+        **service_user,
+        "role": service_user.get("role") or "employee",
+        "position": "customer_service",
+        "department": service_user.get("department") or "客服部",
+        "username": service_user.get("username") or "external_customer_service_webhook",
     }
 
 
