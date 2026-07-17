@@ -60,6 +60,7 @@ import {
   createUser,
   getEffectAnalytics,
   getEvaluationCenter,
+  getMonitoringCenter,
   getConnectorDetail,
   getAutomationFlowDetail,
   generateAutomation,
@@ -96,6 +97,7 @@ import {
   type ConnectorsResponse,
   type EffectAnalyticsResponse,
   type EvaluationCenterResponse,
+  type MonitoringCenterResponse,
   type AutomationTaskItem,
   type ErpDashboardOverviewResponse,
   type ErpDiagnosticsResponse,
@@ -132,6 +134,7 @@ type View =
   | "run_records"
   | "effect_analytics"
   | "evaluation_center"
+  | "monitoring_center"
   | "automation_flows"
   | "connectors"
   | "automation"
@@ -261,6 +264,10 @@ type AutomationFlowFilterState = {
   category: string;
 };
 
+type MonitoringCenterFilterState = {
+  dateRange: "7d" | "30d" | "90d" | "all";
+};
+
 type DashboardMarket = "all" | "us" | "de" | "jp";
 type DashboardDateRange = "all" | "today" | "7d" | "30d";
 type DashboardStore = "all" | "us_store" | "de_store" | "jp_store";
@@ -292,6 +299,7 @@ const navItems: NavItem[] = [
   { path: "/run-records", id: "run_records", name: "运行记录", icon: <HistoryOutlined />, roles: ["admin", "employee"] },
   { path: "/effect-analytics", id: "effect_analytics", name: "效果分析", icon: <AuditOutlined />, roles: ["admin", "employee"] },
   { path: "/evaluation-center", id: "evaluation_center", name: "AI 评测中心", icon: <CheckCircleOutlined />, roles: ["admin"] },
+  { path: "/monitoring-center", id: "monitoring_center", name: "监控中心", icon: <SafetyCertificateOutlined />, roles: ["admin"] },
   { path: "/automation-flows", id: "automation_flows", name: "流程配置", icon: <AuditOutlined />, roles: ["admin", "employee"] },
   { path: "/connectors", id: "connectors", name: "连接器中心", icon: <ApiOutlined />, roles: ["admin"] },
   {
@@ -444,6 +452,11 @@ function App() {
   const [evaluationCenter, setEvaluationCenter] = useState<EvaluationCenterResponse | null>(null);
   const [isEvaluationCenterLoading, setIsEvaluationCenterLoading] = useState(false);
   const [runningEvaluationId, setRunningEvaluationId] = useState("");
+  const [monitoringCenter, setMonitoringCenter] = useState<MonitoringCenterResponse | null>(null);
+  const [monitoringCenterFilters, setMonitoringCenterFilters] = useState<MonitoringCenterFilterState>({
+    dateRange: "30d",
+  });
+  const [isMonitoringCenterLoading, setIsMonitoringCenterLoading] = useState(false);
   const [automationFlows, setAutomationFlows] = useState<AutomationFlowItem[]>([]);
   const [automationFlowFilters, setAutomationFlowFilters] = useState<AutomationFlowFilterState>({
     position: "all",
@@ -594,6 +607,7 @@ function App() {
       void refreshUsers(storedToken);
       void refreshConnectors(storedToken);
       void refreshEvaluationCenter(storedToken);
+      void refreshMonitoringCenter(storedToken);
     }
   }, []);
 
@@ -631,6 +645,7 @@ function App() {
         await refreshUsers(result.access_token);
         await refreshConnectors(result.access_token);
         await refreshEvaluationCenter(result.access_token);
+        await refreshMonitoringCenter(result.access_token);
       }
 
       await refreshAutomationTasks(result.access_token, nextPosition || undefined);
@@ -674,6 +689,8 @@ function App() {
     setEffectAnalyticsFilters({ dateRange: "30d", position: "all" });
     setEvaluationCenter(null);
     setRunningEvaluationId("");
+    setMonitoringCenter(null);
+    setMonitoringCenterFilters({ dateRange: "30d" });
     setAutomationFlows([]);
     setAutomationFlowDetail(null);
     setIsAutomationFlowDetailOpen(false);
@@ -886,6 +903,31 @@ function App() {
       message.error(text);
     } finally {
       setIsEvaluationCenterLoading(false);
+    }
+  }
+
+  async function refreshMonitoringCenter(activeToken = token, filters = monitoringCenterFilters) {
+    if (!activeToken) {
+      return;
+    }
+
+    setIsMonitoringCenterLoading(true);
+
+    try {
+      const result = await getMonitoringCenter(activeToken, {
+        date_range: filters.dateRange,
+      });
+      setMonitoringCenter(result);
+      setStatusMessage("监控中心已刷新");
+    } catch (error) {
+      if (isAuthExpiredError(error)) {
+        return;
+      }
+      const text = error instanceof Error ? error.message : "监控中心加载失败";
+      setStatusMessage(text);
+      message.error(text);
+    } finally {
+      setIsMonitoringCenterLoading(false);
     }
   }
 
@@ -1847,6 +1889,15 @@ function App() {
                     runningEvaluationId={runningEvaluationId}
                     refreshEvaluationCenter={() => refreshEvaluationCenter()}
                     runEvaluation={runEvaluation}
+                  />
+                )}
+                {safeActiveView === "monitoring_center" && role === "admin" && (
+                  <MonitoringCenterPanel
+                    data={monitoringCenter}
+                    filters={monitoringCenterFilters}
+                    setFilters={setMonitoringCenterFilters}
+                    loading={isMonitoringCenterLoading}
+                    refreshMonitoringCenter={() => refreshMonitoringCenter()}
                   />
                 )}
                 {safeActiveView === "automation_flows" && (
@@ -4365,6 +4416,350 @@ function EvaluationCenterPanel({
   );
 }
 
+function MonitoringCenterPanel({
+  data,
+  filters,
+  setFilters,
+  loading,
+  refreshMonitoringCenter,
+}: {
+  data: MonitoringCenterResponse | null;
+  filters: MonitoringCenterFilterState;
+  setFilters: React.Dispatch<React.SetStateAction<MonitoringCenterFilterState>>;
+  loading: boolean;
+  refreshMonitoringCenter: () => void;
+}) {
+  const summary = data?.run_summary;
+  const maxTrend = Math.max(1, ...(data?.run_trend || []).map((item) => item.total_runs));
+
+  return (
+    <Space direction="vertical" size={16} className="pageStack">
+      <ProCard
+        title="监控中心"
+        subTitle="管理员专属，聚合真实 API、数据库、ERP、连接器、运行记录、审计和 AI 评测状态"
+        bordered
+        extra={
+          <Space size={8} wrap>
+            <Tag color={monitoringStatusColor(data?.overall_status || "unknown")}>
+              {monitoringStatusLabel(data?.overall_status || "unknown")}
+            </Tag>
+            <Button size="small" icon={<ReloadOutlined />} onClick={refreshMonitoringCenter} loading={loading}>
+              刷新
+            </Button>
+          </Space>
+        }
+      >
+        <div className="monitoringToolbar">
+          <Segmented
+            size="small"
+            value={filters.dateRange}
+            onChange={(value) => setFilters({ dateRange: value as MonitoringCenterFilterState["dateRange"] })}
+            options={[
+              { label: "近7天", value: "7d" },
+              { label: "近30天", value: "30d" },
+              { label: "近90天", value: "90d" },
+              { label: "全部", value: "all" },
+            ]}
+          />
+          <Button size="small" type="primary" icon={<SearchOutlined />} onClick={refreshMonitoringCenter} loading={loading}>
+            查询
+          </Button>
+          <Text type="secondary" className="monitoringGeneratedAt">
+            生成时间：{formatTime(data?.scope.generated_at || null)}
+          </Text>
+        </div>
+      </ProCard>
+
+      <Row gutter={[12, 12]} className="monitoringMetricRow">
+        <Col xs={24} sm={12} xl={6}>
+          <Card size="small" className="monitoringMetricCard">
+            <Text type="secondary">运行总数</Text>
+            <Title level={3}>{summary?.total_runs ?? 0}</Title>
+            <Text type="secondary">{data?.scope.date_range_label || "近 30 天"}</Text>
+          </Card>
+        </Col>
+        <Col xs={24} sm={12} xl={6}>
+          <Card size="small" className="monitoringMetricCard">
+            <Text type="secondary">成功率</Text>
+            <Title level={3}>{formatPercent(summary?.success_rate)}</Title>
+            <Text type="secondary">{summary?.succeeded_runs ?? 0} 次成功</Text>
+          </Card>
+        </Col>
+        <Col xs={24} sm={12} xl={6}>
+          <Card size="small" className="monitoringMetricCard">
+            <Text type="secondary">问题事件</Text>
+            <Title level={3}>{(summary?.failed_runs ?? 0) + (summary?.blocked_runs ?? 0)}</Title>
+            <Text type="secondary">失败 + 权限拦截</Text>
+          </Card>
+        </Col>
+        <Col xs={24} sm={12} xl={6}>
+          <Card size="small" className="monitoringMetricCard">
+            <Text type="secondary">P95 耗时</Text>
+            <Title level={3}>{formatDuration(summary?.p95_duration_ms)}</Title>
+            <Text type="secondary">平均 {formatDuration(summary?.avg_duration_ms)}</Text>
+          </Card>
+        </Col>
+      </Row>
+
+      <Row gutter={[12, 12]}>
+        <Col xs={24} xl={15} className="monitoringPanelCol">
+          <ProCard title="服务健康" bordered className="monitoringPanelCard">
+            <div className="monitoringHealthGrid">
+              {(data?.service_health || []).map((item) => (
+                <div className="monitoringHealthItem" key={item.id}>
+                  <div className="monitoringHealthHeader">
+                    <Text strong className="monitoringText">{item.name}</Text>
+                    <Tag color={monitoringStatusColor(item.status)}>{monitoringStatusLabel(item.status)}</Tag>
+                  </div>
+                  <Text className="monitoringMetricText">{item.metric}</Text>
+                  <Text type="secondary" className="monitoringText">{item.message}</Text>
+                </div>
+              ))}
+              {!data?.service_health.length && <Empty description="暂无服务健康数据" />}
+            </div>
+          </ProCard>
+        </Col>
+        <Col xs={24} xl={9} className="monitoringPanelCol">
+          <ProCard title="基础资产" bordered className="monitoringPanelCard">
+            <div className="monitoringAssetGrid">
+              <MonitoringAsset label="用户" value={data?.users.total_users ?? 0} hint={`${data?.users.items.length ?? 0} 个角色/岗位桶`} />
+              <MonitoringAsset label="文档" value={data?.knowledge.active_documents ?? 0} hint={`${data?.knowledge.child_chunks ?? 0} 个向量切片`} />
+              <MonitoringAsset label="连接器" value={data?.connectors.summary.total ?? 0} hint={`${data?.connectors.summary.healthy ?? 0} 个健康`} />
+              <MonitoringAsset label="评测样本" value={data?.evaluation.summary.total_cases ?? 0} hint={`${data?.evaluation.summary.report_count ?? 0} 份报告`} />
+            </div>
+          </ProCard>
+        </Col>
+      </Row>
+
+      <Row gutter={[12, 12]}>
+        <Col xs={24} xl={14} className="monitoringPanelCol">
+          <ProCard title="运行趋势" bordered className="monitoringPanelCard">
+            {data?.run_trend.length ? (
+              <div className="monitoringTrendChart" aria-label="运行趋势">
+                {data.run_trend.map((item) => (
+                  <div className="monitoringTrendBar" key={item.date}>
+                    <div className="monitoringTrendDate">{item.date.slice(5)}</div>
+                    <div className="monitoringTrendTrack">
+                      <span className="monitoringTrendSucceeded" style={{ height: `${Math.max(8, (item.succeeded_runs / maxTrend) * 100)}%` }} />
+                      <span className="monitoringTrendFailed" style={{ height: `${Math.max(item.failed_runs ? 8 : 0, (item.failed_runs / maxTrend) * 100)}%` }} />
+                      <span className="monitoringTrendBlocked" style={{ height: `${Math.max(item.blocked_runs ? 8 : 0, (item.blocked_runs / maxTrend) * 100)}%` }} />
+                    </div>
+                    <Text className="monitoringTrendTotal">{item.total_runs}</Text>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <Empty description="暂无运行趋势" />
+            )}
+          </ProCard>
+        </Col>
+        <Col xs={24} xl={10} className="monitoringPanelCol">
+          <ProCard title="ERP 与 AI 评测" bordered className="monitoringPanelCard">
+            <div className="monitoringSignalList">
+              <div className="monitoringSignalItem">
+                <div className="monitoringHealthHeader">
+                  <Text strong className="monitoringText">ERP 连接</Text>
+                  <Tag color={monitoringStatusColor(data?.erp_health.ok ? "ok" : data?.erp_health.status || "unknown")}>
+                    {data?.erp_health.provider_label || "ERP"}
+                  </Tag>
+                </div>
+                <Text type="secondary" className="monitoringText">{data?.erp_health.message || "-"}</Text>
+              </div>
+              <div className="monitoringSignalItem">
+                <div className="monitoringHealthHeader">
+                  <Text strong className="monitoringText">AI 评测通过率</Text>
+                  <Tag color={monitoringStatusColor(data?.evaluation.status || "unknown")}>
+                    {monitoringStatusLabel(data?.evaluation.status || "unknown")}
+                  </Tag>
+                </div>
+                <Text className="monitoringMetricText">{formatPercent(data?.evaluation.summary.average_pass_rate)}</Text>
+                <Text type="secondary" className="monitoringText">最近报告：{formatTime(data?.evaluation.latest_report_at || null)}</Text>
+              </div>
+            </div>
+          </ProCard>
+        </Col>
+      </Row>
+
+      <Row gutter={[12, 12]}>
+        <Col xs={24} xl={12} className="monitoringPanelCol">
+          <ProCard title="最近问题" bordered className="monitoringPanelCard">
+            <Table
+              rowKey="id"
+              size="small"
+              loading={loading}
+              dataSource={data?.recent_issues || []}
+              pagination={false}
+              scroll={{ x: 560 }}
+              locale={{ emptyText: <Empty description="暂无失败或拦截事件" /> }}
+              columns={[
+                { title: "状态", dataIndex: "status", width: 82, render: (value) => <StatusTag value={String(value)} /> },
+                {
+                  title: "应用",
+                  dataIndex: "app_name",
+                  width: 190,
+                  render: (value, record) => (
+                    <Space direction="vertical" size={2} className="monitoringCellStack">
+                      <Text strong className="monitoringText">{String(value)}</Text>
+                      <Text type="secondary" className="monitoringText">{record.summary || record.run_type_label}</Text>
+                    </Space>
+                  ),
+                },
+                { title: "岗位", dataIndex: "position_label", width: 76 },
+                { title: "时间", dataIndex: "occurred_at", render: (value) => formatTime(value) },
+              ]}
+            />
+          </ProCard>
+        </Col>
+        <Col xs={24} xl={12} className="monitoringPanelCol">
+          <ProCard title="慢任务 Top" bordered className="monitoringPanelCard">
+            <Table
+              rowKey="id"
+              size="small"
+              loading={loading}
+              dataSource={data?.slow_runs || []}
+              pagination={false}
+              scroll={{ x: 560 }}
+              locale={{ emptyText: <Empty description="暂无耗时记录" /> }}
+              columns={[
+                {
+                  title: "应用",
+                  dataIndex: "app_name",
+                  width: 190,
+                  render: (value, record) => (
+                    <Space direction="vertical" size={2} className="monitoringCellStack">
+                      <Text strong className="monitoringText">{String(value)}</Text>
+                      <Text className="monitoringMono">{record.run_type}</Text>
+                    </Space>
+                  ),
+                },
+                { title: "状态", dataIndex: "status", width: 82, render: (value) => <StatusTag value={String(value)} /> },
+                { title: "岗位", dataIndex: "position_label", width: 76 },
+                { title: "耗时", dataIndex: "duration_ms", render: (value) => formatDuration(value) },
+              ]}
+            />
+          </ProCard>
+        </Col>
+      </Row>
+
+      <Row gutter={[12, 12]}>
+        <Col xs={24} xl={12} className="monitoringPanelCol">
+          <ProCard title="岗位运行分布" bordered className="monitoringPanelCard">
+            <Table
+              rowKey="position"
+              size="small"
+              dataSource={data?.position_summary || []}
+              pagination={false}
+              scroll={{ x: 620 }}
+              locale={{ emptyText: <Empty description="暂无岗位运行数据" /> }}
+              columns={[
+                { title: "岗位", dataIndex: "position_label", width: 110, render: (value) => <Text strong>{String(value)}</Text> },
+                { title: "次数", dataIndex: "total_runs", width: 78 },
+                { title: "成功率", dataIndex: "success_rate", width: 92, render: (value) => formatPercent(value) },
+                { title: "失败", dataIndex: "failed_runs", width: 72 },
+                { title: "拦截", dataIndex: "blocked_runs", width: 72 },
+                { title: "均耗时", dataIndex: "avg_duration_ms", render: (value) => formatDuration(value) },
+              ]}
+            />
+          </ProCard>
+        </Col>
+        <Col xs={24} xl={12} className="monitoringPanelCol">
+          <ProCard title="自动化类型分布" bordered className="monitoringPanelCard">
+            <Table
+              rowKey="run_type"
+              size="small"
+              dataSource={data?.run_type_summary || []}
+              pagination={false}
+              scroll={{ x: 720 }}
+              locale={{ emptyText: <Empty description="暂无类型运行数据" /> }}
+              columns={[
+                {
+                  title: "类型",
+                  dataIndex: "label",
+                  width: 190,
+                  render: (value, record) => (
+                    <Space direction="vertical" size={2} className="monitoringCellStack">
+                      <Text strong className="monitoringText">{String(value)}</Text>
+                      <Text className="monitoringMono">{record.run_type}</Text>
+                    </Space>
+                  ),
+                },
+                { title: "次数", dataIndex: "total_runs", width: 78 },
+                { title: "成功率", dataIndex: "success_rate", width: 92, render: (value) => formatPercent(value) },
+                { title: "均耗时", dataIndex: "avg_duration_ms", width: 92, render: (value) => formatDuration(value) },
+                { title: "最近", dataIndex: "latest_run_at", render: (value) => formatTime(value) },
+              ]}
+            />
+          </ProCard>
+        </Col>
+      </Row>
+
+      <Row gutter={[12, 12]}>
+        <Col xs={24} xl={12} className="monitoringPanelCol">
+          <ProCard title="连接器状态" bordered className="monitoringPanelCard">
+            <Table
+              rowKey="id"
+              size="small"
+              dataSource={data?.connectors.items || []}
+              pagination={false}
+              scroll={{ x: 620 }}
+              locale={{ emptyText: <Empty description="暂无连接器状态" /> }}
+              columns={[
+                {
+                  title: "连接器",
+                  dataIndex: "label",
+                  width: 180,
+                  render: (value, record) => (
+                    <Space direction="vertical" size={2} className="monitoringCellStack">
+                      <Text strong className="monitoringText">{String(value)}</Text>
+                      <Text type="secondary" className="monitoringText">{record.category}</Text>
+                    </Space>
+                  ),
+                },
+                { title: "状态", dataIndex: "status", width: 96, render: (value) => <ConnectorStatusTag status={String(value)} /> },
+                { title: "检查", dataIndex: "supports_real_health_check", width: 72, render: (value) => value ? "已接入" : "未接入" },
+                { title: "说明", dataIndex: "health_message", render: (value) => <Text className="monitoringText">{String(value)}</Text> },
+              ]}
+            />
+          </ProCard>
+        </Col>
+        <Col xs={24} xl={12} className="monitoringPanelCol">
+          <ProCard title="审计动作 Top" bordered className="monitoringPanelCard">
+            <div className="monitoringAuditSummary">
+              <MonitoringAsset label="审计事件" value={data?.audit_summary.total_events ?? 0} hint="当前筛选范围" />
+              <MonitoringAsset label="权限事件" value={data?.audit_summary.security_events ?? 0} hint="拦截/拒绝/权限" />
+              <MonitoringAsset label="审批事件" value={data?.audit_summary.approval_events ?? 0} hint="审批相关" />
+            </div>
+            <Table
+              rowKey={(record) => `${record.action}-${record.resource_type}`}
+              size="small"
+              dataSource={data?.audit_actions || []}
+              pagination={false}
+              scroll={{ x: 620 }}
+              locale={{ emptyText: <Empty description="暂无审计动作" /> }}
+              columns={[
+                { title: "动作", dataIndex: "action", render: (value) => <Text className="monitoringMono">{String(value)}</Text> },
+                { title: "资源", dataIndex: "resource_type", width: 110, render: (value) => value || "-" },
+                { title: "次数", dataIndex: "count", width: 78 },
+                { title: "最近", dataIndex: "last_seen_at", width: 132, render: (value) => formatTime(value) },
+              ]}
+            />
+          </ProCard>
+        </Col>
+      </Row>
+    </Space>
+  );
+}
+
+function MonitoringAsset({ label, value, hint }: { label: string; value: React.ReactNode; hint: string }) {
+  return (
+    <div className="monitoringAssetItem">
+      <Text type="secondary">{label}</Text>
+      <Title level={4}>{value}</Title>
+      <Text type="secondary" className="monitoringText">{hint}</Text>
+    </div>
+  );
+}
+
 function AutomationFlowsPanel({
   role,
   flows,
@@ -6052,6 +6447,45 @@ function labelForConnectorStatus(value: string) {
   };
 
   return labels[value] ?? value;
+}
+
+function monitoringStatusLabel(value: string) {
+  const labels: Record<string, string> = {
+    ok: "正常",
+    healthy: "健康",
+    success: "正常",
+    warning: "需关注",
+    failed: "异常",
+    degraded: "异常",
+    not_configured: "未配置",
+    not_implemented: "待接入",
+    configured_pending: "待联调",
+    http_error: "接口异常",
+    connection_error: "连接异常",
+    timeout: "超时",
+    unknown: "未知",
+  };
+
+  return labels[value] ?? value;
+}
+
+function monitoringStatusColor(value: string) {
+  const colors: Record<string, string> = {
+    ok: "green",
+    healthy: "green",
+    success: "green",
+    warning: "gold",
+    failed: "red",
+    degraded: "gold",
+    not_configured: "default",
+    not_implemented: "gold",
+    configured_pending: "blue",
+    http_error: "red",
+    connection_error: "red",
+    timeout: "red",
+  };
+
+  return colors[value] || "default";
 }
 
 createRoot(document.getElementById("root")!).render(<App />);

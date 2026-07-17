@@ -1229,3 +1229,63 @@
 
 #### 后续待做
 - Platform Loop 7：监控中心一期，集中展示 API 健康、ERPNext 连接、连接器状态、近期失败、延迟和发布版本状态。
+
+### 日期：2026-07-17
+
+#### 本次目标
+- 完成 Platform Loop 7：新增管理员专属监控中心一期，用真实系统数据集中查看平台健康、运行质量、权限审计、连接器、ERP、知识库和评测状态。
+
+#### 修改内容
+- 新增监控中心服务，聚合真实 PostgreSQL、ERP provider、连接器、运行记录、审计日志、知识库索引、用户和 AI 评测资产。
+- 新增管理员 API：`GET /monitoring-center?date_range=7d|30d|90d|all`。
+- 监控接口只允许管理员访问；员工后端访问返回 403，前端直接访问会回到 `/dashboard`。
+- 监控响应默认不返回 `input_preview`、`output_preview`、`error_message`、ERP raw detail、评测 raw chunk 等敏感明细。
+- ERP/连接器健康消息增加二次脱敏，隐藏 token、Authorization、secret、password、DSN/userinfo 等模式。
+- 数据库健康状态只显示连接状态，不暴露真实数据库名。
+- 前端新增 `/monitoring-center` 页面，展示整体状态、服务健康、基础资产、运行趋势、ERP 与 AI 评测、最近问题、慢任务、岗位分布、自动化类型、连接器状态和审计动作 Top。
+- 管理员导航新增“监控中心”；员工导航不可见。
+- 新增真实 API 验收脚本 `scripts/verify_monitoring_center.py`。
+- 新增真实浏览器验收脚本 `scripts/verify_monitoring_center_frontend.mjs`。
+
+#### 修改文件
+- `app/api/monitoring_center.py`
+- `app/main.py`
+- `app/services/monitoring_center_service.py`
+- `frontend/src/api.ts`
+- `frontend/src/main.tsx`
+- `frontend/src/styles.css`
+- `scripts/verify_monitoring_center.py`
+- `scripts/verify_monitoring_center_frontend.mjs`
+- `docs/TASKS.md`
+- `docs/CHANGELOG_AI.md`
+- `docs/AI_CONTEXT.md`
+
+#### 验证方式
+- `.venv/bin/python -m compileall app scripts`
+- `docker compose up -d --build api`
+- `.venv/bin/python scripts/verify_monitoring_center.py`
+- `.venv/bin/python scripts/verify_connectors.py`
+- `.venv/bin/python scripts/verify_effect_analytics.py`
+- `.venv/bin/python scripts/verify_evaluation_center.py`
+- `npm run build`
+- `node scripts/verify_monitoring_center_frontend.mjs`
+- `NODE_PATH=/Users/xiaoxiang/.npm/_npx/e41f203b7505f1fb/node_modules node scripts/verify_frontend_permissions.mjs`
+- `git diff --check`
+
+#### 验证结果
+- 后端编译通过。
+- API 容器重建并启动，`/health` 返回 `ok`。
+- 真实 API 验收通过：总体状态为 `warning`，真实运行记录 4 条，连接器 10 个，评测样本 960 个，员工访问返回 403。
+- 真实 API 响应未泄露 `Bearer`、`Authorization`、`api_secret`、`password`、`JWT_SECRET`、`DATABASE_URL`、`input_preview`、`output_preview`、`error_message`、`content_preview`、`expected_evidence`、`top_chunks`、`chunk_id`、`document_id` 等敏感字段。
+- 连接器、效果分析、AI 评测中心真实 API 回归均通过。
+- 前端构建通过，仅保留 Vite chunk 体积警告。
+- 真实浏览器验收通过，截图：
+  - `/tmp/company-rag-monitoring-center-admin-desktop.png`
+  - `/tmp/company-rag-monitoring-center-admin-mobile.png`
+- 管理员桌面和移动端监控中心页面均无横向溢出。
+- 员工直接访问 `/monitoring-center` 会回到 `/dashboard`，页面不可见监控中心内容。
+- 前端权限可见性真实回归通过。
+- 本轮验收未使用 mock、stub、fake provider、monkeypatch 或模拟响应。
+
+#### 后续待做
+- Platform Loop 8 可做告警/通知中心：阈值配置、告警记录、飞书/邮件/企业微信通知、定时健康检查和失败处理闭环。

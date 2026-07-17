@@ -383,3 +383,17 @@
 - [x] 新增真实 API 验证脚本 `scripts/verify_evaluation_center.py`
 - [x] 新增真实浏览器验证脚本 `scripts/verify_evaluation_center_frontend.mjs`
 - [x] API Docker 镜像包含真实 `eval/` 评测资产
+
+### Platform Loop 7：监控中心一期
+
+- [x] 新增管理员专属监控中心页面 `/monitoring-center`
+- [x] 新增 `GET /monitoring-center` 管理员只读接口
+- [x] 聚合真实 API、PostgreSQL、ERP、连接器、运行记录、审计、知识库、用户和 AI 评测状态
+- [x] 展示运行总数、成功率、失败/拦截事件、P95/平均耗时、趋势图、岗位分布和自动化类型分布
+- [x] 展示最近问题、慢任务 Top、连接器状态和审计动作 Top
+- [x] 员工后端访问返回 403，前端直接访问会回到概览
+- [x] 监控响应不返回 `input_preview`、`output_preview`、`error_message`、ERP raw detail、评测 raw chunk 等敏感明细
+- [x] ERP/连接器健康消息增加二次脱敏，数据库状态不暴露真实数据库名
+- [x] 新增真实 API 验证脚本 `scripts/verify_monitoring_center.py`
+- [x] 新增真实浏览器验证脚本 `scripts/verify_monitoring_center_frontend.mjs`
+- [x] 浏览器验证覆盖管理员桌面、管理员移动端、员工不可访问和无横向溢出

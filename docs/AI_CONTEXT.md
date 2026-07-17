@@ -321,6 +321,14 @@ AI 对话 ERP 查询状态：
 - Platform Loop 4 已完成：`/connectors` 管理员连接器中心一期。
 - Platform Loop 5 已完成：`/effect-analytics` 效果分析中心一期。
 - Platform Loop 6 已完成：`/evaluation-center` 管理员 AI 评测中心一期。
+- Platform Loop 7 已完成：`/monitoring-center` 管理员监控中心一期。
+- 监控中心 API：`GET /monitoring-center?date_range=7d|30d|90d|all`，仅管理员可访问。
+- 监控中心聚合真实 API、PostgreSQL、ERP、连接器、运行记录、审计、知识库、用户和 AI 评测状态。
+- 监控中心不返回 `input_preview`、`output_preview`、`error_message`、ERP raw detail、评测 raw chunk 等敏感明细；ERP/连接器健康消息会二次脱敏。
+- 监控中心截图路径：`/tmp/company-rag-monitoring-center-admin-desktop.png`、`/tmp/company-rag-monitoring-center-admin-mobile.png`。
+- 监控中心真实 API 验证脚本：`.venv/bin/python scripts/verify_monitoring_center.py`。
+- 监控中心真实浏览器验证脚本：`node scripts/verify_monitoring_center_frontend.mjs`。
+- 员工后端访问 `/monitoring-center` 返回 403；前端直接访问 `/monitoring-center` 会回到 `/dashboard`。
 - 评测中心 API：`GET /evaluation-center`、`POST /evaluation-center/run-rag`，仅管理员可访问。
 - 评测中心数据来源：真实 `eval/rag_eval_set.jsonl`、`eval/rule_rag_eval_set.jsonl`、`eval/rag_eval_report.json`、`eval/rule_rag_eval_report.json` 和真实回归脚本目录。
 - API Docker 镜像已复制 `eval/` 到 `/app/eval`，避免容器内评测资产为空。

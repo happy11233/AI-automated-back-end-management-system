@@ -639,6 +639,188 @@ export type RagEvaluationRunResponse = {
   report: EvaluationReport;
 };
 
+export type MonitoringScope = {
+  date_range: "7d" | "30d" | "90d" | "all";
+  date_range_label: string;
+  since: string | null;
+  generated_at: string;
+};
+
+export type MonitoringRunSummary = {
+  total_runs: number;
+  succeeded_runs: number;
+  failed_runs: number;
+  blocked_runs: number;
+  running_runs: number;
+  success_rate: number;
+  failure_rate: number;
+  blocked_rate: number;
+  avg_duration_ms: number;
+  p95_duration_ms: number;
+  latest_run_at: string | null;
+  active_users: number;
+};
+
+export type MonitoringTrendPoint = {
+  date: string;
+  total_runs: number;
+  succeeded_runs: number;
+  failed_runs: number;
+  blocked_runs: number;
+  running_runs: number;
+};
+
+export type MonitoringPositionSummary = {
+  position: Position | "platform" | string;
+  position_label: string;
+  total_runs: number;
+  succeeded_runs: number;
+  failed_runs: number;
+  blocked_runs: number;
+  success_rate: number;
+  avg_duration_ms: number;
+};
+
+export type MonitoringRunTypeSummary = {
+  run_type: string;
+  label: string;
+  app_name: string | null;
+  total_runs: number;
+  succeeded_runs: number;
+  failed_runs: number;
+  blocked_runs: number;
+  success_rate: number;
+  avg_duration_ms: number;
+  latest_run_at: string | null;
+};
+
+export type MonitoringRunEvent = {
+  id: string;
+  status: string;
+  run_type: string;
+  run_type_label: string;
+  app_id: string;
+  app_name: string;
+  position: Position | "platform" | string | null;
+  position_label: string;
+  duration_ms: number | null;
+  occurred_at?: string | null;
+  started_at?: string | null;
+  summary?: string | null;
+};
+
+export type MonitoringAuditSummary = {
+  total_events: number;
+  security_events: number;
+  approval_events: number;
+  user_admin_events: number;
+  latest_event_at: string | null;
+};
+
+export type MonitoringAuditAction = {
+  action: string;
+  resource_type: string | null;
+  count: number;
+  last_seen_at: string | null;
+};
+
+export type MonitoringConnectorItem = {
+  id: string;
+  label: string;
+  category: string;
+  active: boolean;
+  configured: boolean;
+  status: string;
+  health_status: string;
+  health_message: string;
+  supports_real_health_check: boolean;
+  position_scope_labels: string[];
+  last_checked_at: string;
+};
+
+export type MonitoringConnectors = {
+  summary: ConnectorsSummary;
+  items: MonitoringConnectorItem[];
+};
+
+export type MonitoringErpHealth = {
+  provider: string;
+  provider_label: string;
+  configured: boolean;
+  ok: boolean;
+  status: string;
+  message: string;
+  checked_at: string;
+};
+
+export type MonitoringEvaluation = {
+  summary: EvaluationSummary;
+  release_gates: EvaluationReleaseGate[];
+  latest_report_at: string | null;
+  status: string;
+};
+
+export type MonitoringKnowledge = {
+  total_documents: number;
+  active_documents: number;
+  latest_document_at: string | null;
+  child_chunks: number;
+  indexed_documents: number;
+  latest_chunk_at: string | null;
+  parent_chunks: number;
+};
+
+export type MonitoringUserBucket = {
+  role: "admin" | "employee" | string;
+  position: Position | "platform" | string;
+  position_label: string;
+  count: number;
+};
+
+export type MonitoringUsers = {
+  total_users: number;
+  items: MonitoringUserBucket[];
+};
+
+export type MonitoringDatabase = {
+  status: string;
+  message: string;
+  checked_at: string | null;
+  database_name: string;
+};
+
+export type MonitoringServiceHealthItem = {
+  id: string;
+  name: string;
+  status: string;
+  message: string;
+  metric: string;
+};
+
+export type MonitoringCenterResponse = {
+  scope: MonitoringScope;
+  overall_status: string;
+  database: MonitoringDatabase;
+  run_summary: MonitoringRunSummary;
+  run_trend: MonitoringTrendPoint[];
+  position_summary: MonitoringPositionSummary[];
+  run_type_summary: MonitoringRunTypeSummary[];
+  recent_issues: MonitoringRunEvent[];
+  slow_runs: MonitoringRunEvent[];
+  audit_summary: MonitoringAuditSummary;
+  audit_actions: MonitoringAuditAction[];
+  connectors: MonitoringConnectors;
+  erp_health: MonitoringErpHealth;
+  evaluation: MonitoringEvaluation;
+  knowledge: MonitoringKnowledge;
+  users: MonitoringUsers;
+  service_health: MonitoringServiceHealthItem[];
+};
+
+export type MonitoringCenterFilters = {
+  date_range?: "7d" | "30d" | "90d" | "all";
+};
+
 export async function sendPublicLLMChatStream(
   message: string,
   history: PublicLLMMessage[],
@@ -1261,6 +1443,15 @@ export async function getEffectAnalytics(
 
 export async function getEvaluationCenter(token: string) {
   return requestJson<EvaluationCenterResponse>("/evaluation-center", {}, token);
+}
+
+export async function getMonitoringCenter(
+  token: string,
+  filters: MonitoringCenterFilters = {},
+) {
+  const params = new URLSearchParams();
+  params.set("date_range", filters.date_range || "30d");
+  return requestJson<MonitoringCenterResponse>(`/monitoring-center?${params}`, {}, token);
 }
 
 export async function runRagEvaluation(token: string, datasetId = "rag_smoke", topK = 5) {
