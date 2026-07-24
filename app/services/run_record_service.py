@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import hashlib
+from pathlib import Path
 import re
 import time
 from typing import Any
@@ -35,8 +36,23 @@ SENSITIVE_PATTERNS = [
     re.compile(r"\b1[3-9]\d{9}\b"),
     re.compile(r"\b\d{15}(?:\d{2}[0-9Xx])?\b"),
     re.compile(r"\b\d{13,19}\b"),
+    re.compile(r"(?i)(?:\\?[\"'])?callback[_-]?token(?:\\?[\"'])?\s*[:=]\s*(?:\\?[\"'])?(?:[A-Za-z0-9._~+/=-]+|\[REDACTED\])(?:\\?[\"'])?"),
     re.compile(r"(?i)(api[_-]?secret|api[_-]?key|password|token|jwt)=([^&\s]+)"),
 ]
+_FLOW_REFERENCE_SCHEMA_READY = False
+
+
+def ensure_run_record_flow_reference_schema() -> None:
+    global _FLOW_REFERENCE_SCHEMA_READY
+    if _FLOW_REFERENCE_SCHEMA_READY:
+        return
+
+    from app.services.automation_flow_version_service import ensure_automation_flow_version_schema
+
+    ensure_automation_flow_version_schema()
+    migration_path = Path(__file__).resolve().parents[2] / "sql" / "017_automation_run_flow_references.sql"
+    execute(migration_path.read_text(encoding="utf-8"))
+    _FLOW_REFERENCE_SCHEMA_READY = True
 
 
 def now_ms() -> float:
@@ -57,20 +73,25 @@ def start_run(
     thread_id: str | None = None,
     resource_type: str | None = None,
     resource_id: str | None = None,
+    flow_reference: dict[str, Any] | None = None,
     input_text: Any = None,
     metadata: dict[str, Any] | None = None,
 ) -> str:
+    ensure_run_record_flow_reference_schema()
+    flow = _normalize_flow_reference(flow_reference)
     input_preview = preview_text(input_text)
     input_hash = hash_text(input_text)
     row = fetch_one(
         """
         INSERT INTO automation_runs (
             run_type, app_id, app_name, entrypoint, status, user_id, username,
-            role, position, thread_id, resource_type, resource_id, input_preview,
-            input_hash, metadata
+            role, position, thread_id, resource_type, resource_id, flow_id,
+            flow_key, flow_version_id, flow_version, publication_id, execution_source,
+            input_preview, input_hash, metadata
         )
         VALUES (
             %s, %s, %s, %s, 'running', %s, %s,
+            %s, %s, %s, %s, %s, %s,
             %s, %s, %s, %s, %s, %s,
             %s, %s::jsonb
         )
@@ -88,6 +109,12 @@ def start_run(
             thread_id,
             resource_type,
             resource_id,
+            flow["flow_id"],
+            flow["flow_key"],
+            flow["flow_version_id"],
+            flow["flow_version"],
+            flow["publication_id"],
+            flow["execution_source"],
             input_preview,
             input_hash,
             dumps_json(sanitize_metadata(metadata or {})),
@@ -225,6 +252,9 @@ def list_runs(
     user_id: str | None = None,
     resource_type: str | None = None,
     resource_id: str | None = None,
+    flow_key: str | None = None,
+    flow_version_id: str | None = None,
+    publication_id: str | None = None,
     limit: int = 80,
 ) -> list[dict[str, Any]]:
     conditions: list[str] = []
@@ -264,6 +294,18 @@ def list_runs(
         conditions.append("resource_id ILIKE %s")
         params.append(f"%{resource_id}%")
 
+    if flow_key:
+        conditions.append("flow_key ILIKE %s")
+        params.append(f"%{flow_key}%")
+
+    if flow_version_id:
+        conditions.append("flow_version_id = %s")
+        params.append(flow_version_id)
+
+    if publication_id:
+        conditions.append("publication_id = %s")
+        params.append(publication_id)
+
     where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
     bounded_limit = max(1, min(limit, 200))
     params.append(bounded_limit)
@@ -273,7 +315,9 @@ def list_runs(
         SELECT
             r.id, r.run_type, r.app_id, r.app_name, r.entrypoint, r.status,
             r.user_id, r.username, r.role, r.position, r.thread_id,
-            r.resource_type, r.resource_id, r.input_preview, r.output_preview,
+            r.resource_type, r.resource_id, r.flow_id, r.flow_key,
+            r.flow_version_id, r.flow_version, r.publication_id, r.execution_source,
+            r.input_preview, r.output_preview,
             r.error_message, r.duration_ms, r.metadata, r.started_at,
             r.finished_at, r.created_at,
             COALESCE(s.step_count, 0) AS step_count,
@@ -304,7 +348,9 @@ def get_run_detail(run_id: str, *, current_user: dict) -> dict[str, Any]:
         SELECT
             r.id, r.run_type, r.app_id, r.app_name, r.entrypoint, r.status,
             r.user_id, r.username, r.role, r.position, r.thread_id,
-            r.resource_type, r.resource_id, r.input_preview, r.output_preview,
+            r.resource_type, r.resource_id, r.flow_id, r.flow_key,
+            r.flow_version_id, r.flow_version, r.publication_id, r.execution_source,
+            r.input_preview, r.output_preview,
             r.error_message, r.duration_ms, r.metadata, r.started_at,
             r.finished_at, r.created_at,
             COALESCE(s.step_count, 0) AS step_count,
@@ -420,7 +466,9 @@ def sanitize_metadata(value: Any) -> Any:
 def sanitize_text(text: str) -> str:
     sanitized = text
     for pattern in SENSITIVE_PATTERNS:
-        if pattern.pattern.startswith("(?i)("):
+        if "callback" in pattern.pattern.lower():
+            sanitized = pattern.sub("[回调凭证已隐藏]", sanitized)
+        elif pattern.pattern.startswith("(?i)("):
             sanitized = pattern.sub(lambda match: f"{match.group(1)}=[REDACTED]", sanitized)
         else:
             sanitized = pattern.sub("[REDACTED]", sanitized)
@@ -450,6 +498,27 @@ def _normalize_status(value: str) -> str:
     return value
 
 
+def _normalize_flow_reference(flow_reference: dict[str, Any] | None) -> dict[str, Any]:
+    flow_reference = flow_reference or {}
+    return {
+        "flow_id": _optional_text(flow_reference.get("flow_id"), 80),
+        "flow_key": _optional_text(flow_reference.get("flow_key"), 200),
+        "flow_version_id": _optional_text(flow_reference.get("flow_version_id"), 80),
+        "flow_version": _optional_text(flow_reference.get("flow_version"), 120),
+        "publication_id": _optional_text(flow_reference.get("publication_id"), 80),
+        "execution_source": _optional_text(flow_reference.get("execution_source"), 120),
+    }
+
+
+def _optional_text(value: Any, limit: int) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    return text[:limit]
+
+
 def _can_read_run(current_user: dict, run: dict[str, Any]) -> bool:
     if current_user.get("role") == "admin":
         return True
@@ -475,16 +544,22 @@ def _map_run_row(row) -> dict[str, Any]:
         "thread_id": row[10],
         "resource_type": row[11],
         "resource_id": row[12],
-        "input_preview": row[13],
-        "output_preview": row[14],
-        "error_message": row[15],
-        "duration_ms": row[16],
-        "metadata": row[17] or {},
-        "started_at": isoformat(row[18]),
-        "finished_at": isoformat(row[19]),
-        "created_at": isoformat(row[20]),
-        "step_count": int(row[21] or 0),
-        "artifact_count": int(row[22] or 0),
+        "flow_id": str(row[13]) if row[13] else None,
+        "flow_key": row[14],
+        "flow_version_id": str(row[15]) if row[15] else None,
+        "flow_version": row[16],
+        "publication_id": str(row[17]) if row[17] else None,
+        "execution_source": row[18],
+        "input_preview": row[19],
+        "output_preview": row[20],
+        "error_message": row[21],
+        "duration_ms": row[22],
+        "metadata": row[23] or {},
+        "started_at": isoformat(row[24]),
+        "finished_at": isoformat(row[25]),
+        "created_at": isoformat(row[26]),
+        "step_count": int(row[27] or 0),
+        "artifact_count": int(row[28] or 0),
     }
 
 

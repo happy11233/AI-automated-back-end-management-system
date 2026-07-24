@@ -57,7 +57,7 @@ def decode_access_token(token: str) -> dict:
 def get_user_by_username(username: str) -> dict | None:
     row = fetch_one(
         """
-        SELECT id, username, role, department, position, password_hash
+        SELECT id, username, role, department, position, password_hash, display_name, email
         FROM users
         WHERE username = %s;
         """,
@@ -74,13 +74,15 @@ def get_user_by_username(username: str) -> dict | None:
         "department": row[3],
         "position": row[4],
         "password_hash": row[5],
+        "display_name": row[6],
+        "email": row[7],
     }
 
 
 def get_user_by_id(user_id: str) -> dict | None:
     row = fetch_one(
         """
-        SELECT id, username, role, department, position
+        SELECT id, username, role, department, position, display_name, email
         FROM users
         WHERE id = %s;
         """,
@@ -96,6 +98,8 @@ def get_user_by_id(user_id: str) -> dict | None:
         "role": row[2],
         "department": row[3],
         "position": row[4],
+        "display_name": row[5],
+        "email": row[6],
     }
 
 

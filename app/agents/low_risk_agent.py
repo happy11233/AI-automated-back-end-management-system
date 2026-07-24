@@ -19,7 +19,9 @@ def build_user_tools(current_user: dict, thread_id: str | None = None):
         return answer_question(
             question=query,
             role=current_user["role"],
+            user_id=current_user.get("id"),
             department=current_user.get("department"),
+            position=current_user.get("position"),
             top_k=5,
         )
 

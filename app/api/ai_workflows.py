@@ -77,6 +77,7 @@ class AiWorkflowRunResponse(BaseModel):
     status: str
     answer: str
     erp_references: list[dict[str, Any]] = Field(default_factory=list)
+    platform_draft: dict[str, Any] | None = None
     steps: list[AiWorkflowRunStep]
     created_at: str
 

@@ -21,12 +21,27 @@ try {
     screenshot: "/tmp/company-rag-customer-service-inbox-desktop.png",
     visible: [
       "客服自动化收件箱",
-      "自动接入与手动补录",
-      "Webhook",
-      "POST /api/customer-service/webhooks/messages",
+      "客服自动化工作台",
+      "消息处理",
+      "手动补录",
+      "Webhook 接入",
       "消息队列",
       "处理结果",
-      "加入收件箱",
+    ],
+    tabChecks: [
+      {
+        tab: "手动补录",
+        visible: ["加入收件箱", "刷新列表"],
+        placeholders: ["客户姓名", "客户原话，例如：Where is my order?"],
+      },
+      {
+        tab: "Webhook 接入",
+        visible: ["Webhook", "POST /api/customer-service/webhooks/messages"],
+      },
+      {
+        tab: "消息处理",
+        visible: ["消息队列", "处理结果"],
+      },
     ],
     hidden: ["财务 AI 自动化", "用户管理", "知识库"],
   });
@@ -38,7 +53,7 @@ try {
     path: "/automation/customer-service-inbox",
     screenshot: "/tmp/company-rag-customer-service-inbox-finance-hidden.png",
     visible: ["概览"],
-    hidden: ["客服自动化收件箱", "自动接入与手动补录", "POST /api/customer-service/webhooks/messages"],
+    hidden: ["客服自动化收件箱", "客服自动化工作台", "POST /api/customer-service/webhooks/messages"],
   });
 
   console.log(JSON.stringify({
@@ -55,7 +70,7 @@ try {
 
 process.exit(0);
 
-async function runInboxCase({ label, account, viewport, path, screenshot, visible, hidden }) {
+async function runInboxCase({ label, account, viewport, path, screenshot, visible, tabChecks = [], hidden }) {
   const page = await browser.newPage({ viewport });
   await page.goto(`${FRONTEND_URL}${path}`, { waitUntil: "networkidle" });
   await login(page, account);
@@ -66,6 +81,23 @@ async function runInboxCase({ label, account, viewport, path, screenshot, visibl
     const count = await page.getByText(text, { exact: false }).count();
     if (count === 0) {
       throw new Error(`${label}: expected visible text ${text}`);
+    }
+  }
+
+  for (const item of tabChecks) {
+    await page.getByRole("tab", { name: item.tab }).click();
+    await page.waitForTimeout(300);
+    for (const text of item.visible) {
+      const count = await page.getByText(text, { exact: false }).count();
+      if (count === 0) {
+        throw new Error(`${label}: expected visible text ${text} after opening tab ${item.tab}`);
+      }
+    }
+    for (const placeholder of item.placeholders || []) {
+      const count = await page.getByPlaceholder(placeholder, { exact: false }).count();
+      if (count === 0) {
+        throw new Error(`${label}: expected placeholder ${placeholder} after opening tab ${item.tab}`);
+      }
     }
   }
 

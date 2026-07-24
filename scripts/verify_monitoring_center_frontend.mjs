@@ -29,7 +29,7 @@ try {
     account: ACCOUNTS.admin,
     viewport: { width: 1440, height: 960 },
     screenshot: "/tmp/company-rag-monitoring-center-admin-desktop.png",
-    visible: ["监控中心", "服务健康", "运行趋势", "最近问题", "连接器状态", "审计动作 Top"],
+    visible: ["监控中心", "运行总数", "成功率", "总览", "运行问题", "分布分析", "连接审计"],
     hidden: ["input_preview", "output_preview", "error_message", "Authorization", "api_secret", "content_preview"],
   });
 
@@ -38,7 +38,7 @@ try {
     account: ACCOUNTS.admin,
     viewport: { width: 390, height: 844 },
     screenshot: "/tmp/company-rag-monitoring-center-admin-mobile.png",
-    visible: ["监控中心", "服务健康", "基础资产", "运行趋势"],
+    visible: ["监控中心", "运行总数", "总览", "运行问题", "分布分析"],
     hidden: ["input_preview", "output_preview", "error_message", "Authorization", "api_secret", "content_preview"],
   });
 
@@ -90,6 +90,11 @@ async function runMonitoringCase({ label, account, viewport, screenshot, visible
     }
   }
 
+  await checkMonitoringTab(page, "总览", ["服务健康", "基础资产", "运行趋势", "ERP 与 AI 评测"]);
+  await checkMonitoringTab(page, "运行问题", ["最近问题", "慢任务 Top"]);
+  await checkMonitoringTab(page, "分布分析", ["岗位运行分布", "自动化类型分布"]);
+  await checkMonitoringTab(page, "连接审计", ["连接器状态", "审计动作 Top"]);
+
   const overflow = await assertNoHorizontalOverflow(page, label);
   await page.screenshot({ path: screenshot, fullPage: true });
   await page.close();
@@ -99,6 +104,23 @@ async function runMonitoringCase({ label, account, viewport, screenshot, visible
     screenshot,
     overflow,
   };
+}
+
+async function checkMonitoringTab(page, tabName, visible) {
+  const exactTab = page.getByRole("tab", { name: tabName });
+  if (await exactTab.count()) {
+    await exactTab.click({ force: true });
+  } else {
+    await page.locator(".monitoringCenterTabs .ant-tabs-tab", { hasText: tabName }).first().click({ force: true });
+  }
+  await page.waitForTimeout(300);
+
+  for (const text of visible) {
+    const count = await page.getByText(text, { exact: false }).count();
+    if (count === 0) {
+      throw new Error(`expected visible text ${text} after opening monitoring tab ${tabName}`);
+    }
+  }
 }
 
 async function runEmployeeForbiddenCase() {

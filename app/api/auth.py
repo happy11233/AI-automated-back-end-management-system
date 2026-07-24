@@ -4,6 +4,7 @@ from pydantic import BaseModel
 
 from app.auth.security import authenticate_user, create_access_token, get_current_user
 from app.permissions import capabilities_for_position, erp_scopes_for_position
+from app.services.user_ai_app_permission_service import allowed_ai_app_ids_for_user
 
 
 router = APIRouter(
@@ -15,22 +16,29 @@ router = APIRouter(
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
+    id: str
     username: str
+    display_name: str | None = None
+    email: str | None = None
     role: str
     department: str | None = None
     position: str | None = None
     capabilities: list[str] = []
     erp_scopes: list[str] = []
+    allowed_ai_app_ids: list[str] = []
 
 
 class CurrentUserResponse(BaseModel):
     id: str
     username: str
+    display_name: str | None = None
+    email: str | None = None
     role: str
     department: str | None = None
     position: str | None = None
     capabilities: list[str] = []
     erp_scopes: list[str] = []
+    allowed_ai_app_ids: list[str] = []
 
 
 @router.post("/login", response_model=TokenResponse)
@@ -50,6 +58,8 @@ def login(form_data: OAuth2PasswordRequestForm = Depends()):
     access_token = create_access_token({
         "sub": user["id"],
         "username": user["username"],
+        "display_name": user.get("display_name"),
+        "email": user.get("email"),
         "role": user["role"],
         "department": user.get("department"),
         "position": user.get("position"),
@@ -58,12 +68,16 @@ def login(form_data: OAuth2PasswordRequestForm = Depends()):
     return {
         "access_token": access_token,
         "token_type": "bearer",
+        "id": user["id"],
         "username": user["username"],
+        "display_name": user.get("display_name"),
+        "email": user.get("email"),
         "role": user["role"],
         "department": user.get("department"),
         "position": user.get("position"),
         "capabilities": capabilities_for_position(user.get("position")),
         "erp_scopes": erp_scopes_for_position(user.get("position")),
+        "allowed_ai_app_ids": allowed_ai_app_ids_for_user(user),
     }
 
 
@@ -72,9 +86,12 @@ def me(current_user: dict = Depends(get_current_user)):
     return {
         "id": current_user["id"],
         "username": current_user["username"],
+        "display_name": current_user.get("display_name"),
+        "email": current_user.get("email"),
         "role": current_user["role"],
         "department": current_user.get("department"),
         "position": current_user.get("position"),
         "capabilities": capabilities_for_position(current_user.get("position")),
         "erp_scopes": erp_scopes_for_position(current_user.get("position")),
+        "allowed_ai_app_ids": allowed_ai_app_ids_for_user(current_user),
     }

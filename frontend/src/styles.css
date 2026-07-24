@@ -58,9 +58,15 @@ button {
 
 .pageStack {
   width: 100%;
+  gap: 16px !important;
+}
+
+.tooltipTitle {
+  cursor: help;
 }
 
 .menuButton {
+  display: block;
   width: 100%;
   padding: 0;
   border: 0;
@@ -68,6 +74,166 @@ button {
   background: transparent;
   text-align: left;
   cursor: pointer;
+}
+
+.ant-pro-sider,
+.ant-pro-sider .ant-layout-sider-children,
+.ant-pro-sider .ant-pro-sider-container,
+.ant-pro-sider .ant-pro-sider-menu {
+  background: #ffffff !important;
+}
+
+.ant-pro-sider .ant-layout-sider-children {
+  padding-inline: 0 !important;
+}
+
+.ant-pro-sider .ant-menu {
+  width: 100% !important;
+  padding: 12px 0 28px !important;
+  background: #ffffff !important;
+  border-inline-end: 0 !important;
+}
+
+.ant-pro-sider .ant-menu,
+.ant-pro-sider .ant-menu *,
+.ant-pro-sider .ant-motion-collapse,
+.ant-pro-sider .ant-motion-collapse *,
+.ant-pro-sider .ant-slide-up-enter,
+.ant-pro-sider .ant-slide-up-appear,
+.ant-pro-sider .ant-slide-up-leave {
+  transition: none !important;
+  animation: none !important;
+  animation-duration: 0s !important;
+}
+
+.ant-pro-sider .ant-motion-collapse {
+  transition-duration: 0s !important;
+}
+
+.ant-pro-sider .ant-menu-hidden,
+.ant-pro-sider .ant-menu-submenu-hidden,
+.ant-pro-sider .ant-menu-submenu-hidden > .ant-menu-sub,
+.ant-pro-sider .ant-menu-submenu-hidden > .ant-menu-inline {
+  display: none !important;
+  height: 0 !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+}
+
+.ant-pro-sider .ant-pro-base-menu-group + .ant-pro-base-menu-divider {
+  width: auto;
+  margin: 20px 0 22px !important;
+  border-color: #e1e3e6 !important;
+}
+
+.ant-pro-sider .ant-pro-base-menu-group:last-of-type + .ant-pro-base-menu-divider {
+  display: none;
+}
+
+.ant-pro-sider .ant-menu-item-group-title {
+  height: auto !important;
+  padding: 14px 16px 10px !important;
+  color: #4f5965 !important;
+  font-size: 14px !important;
+  font-weight: 700 !important;
+  line-height: 1.4 !important;
+}
+
+.ant-pro-sider .ant-menu-item,
+.ant-pro-sider .ant-menu-submenu-title {
+  height: 46px !important;
+  margin: 0 !important;
+  width: 100% !important;
+  padding-inline: 22px 14px !important;
+  color: #66717f !important;
+  font-size: 14px !important;
+  font-weight: 600 !important;
+  line-height: 46px !important;
+  border-radius: 0 !important;
+}
+
+.ant-pro-sider .ant-menu-submenu-title {
+  display: flex !important;
+  align-items: center !important;
+}
+
+.ant-pro-sider .ant-pro-base-menu-item-title {
+  gap: 0 !important;
+}
+
+.ant-pro-sider .ant-pro-base-menu-item-icon,
+.ant-pro-sider .anticon:not(.ant-menu-submenu-arrow) {
+  display: none !important;
+}
+
+.ant-pro-sider .ant-menu-title-content,
+.ant-pro-sider .ant-pro-base-menu-item-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ant-pro-sider .ant-menu-sub {
+  padding-inline-start: 0 !important;
+  background: transparent !important;
+}
+
+.ant-pro-sider .ant-menu-sub .ant-menu-item,
+.ant-pro-sider .ant-menu-sub .ant-menu-submenu-title {
+  height: 44px !important;
+  margin: 0 !important;
+  width: 100% !important;
+  padding-inline-start: 34px !important;
+  padding-inline-end: 14px !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  line-height: 44px !important;
+}
+
+.ant-pro-sider .ant-menu-item::after {
+  display: none !important;
+}
+
+.ant-pro-sider .ant-menu-item-selected {
+  background: #edf3fb !important;
+  color: #006bd6 !important;
+  font-weight: 700 !important;
+}
+
+.ant-pro-sider .ant-menu-submenu-selected > .ant-menu-submenu-title {
+  background: transparent !important;
+  color: #66717f !important;
+}
+
+.ant-pro-sider .ant-menu-item-selected .ant-menu-title-content,
+.ant-pro-sider .ant-menu-item-selected .ant-pro-base-menu-item-text {
+  color: #006bd6 !important;
+  font-weight: 700 !important;
+}
+
+.ant-pro-sider .ant-menu-item:hover,
+.ant-pro-sider .ant-menu-submenu-title:hover {
+  background: #f4f7fc !important;
+  color: #006bd6 !important;
+}
+
+.ant-pro-sider .ant-menu-submenu-arrow {
+  color: #7f858d !important;
+}
+
+.ant-pro-sider .ant-menu-submenu-selected > .ant-menu-submenu-title .ant-menu-submenu-arrow,
+.ant-pro-sider .ant-menu-submenu-title:hover .ant-menu-submenu-arrow {
+  color: #006bd6 !important;
+}
+
+.tableEllipsisText {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: help;
 }
 
 .userMenuButton {
@@ -116,12 +282,43 @@ button {
 }
 
 .chatThreadBar {
-  display: grid;
-  grid-template-columns: 72px minmax(0, 280px);
-  gap: 10px;
+  display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   max-width: 960px;
   margin: 0 auto 8px;
+  min-width: 0;
+}
+
+.chatThreadInfo {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.chatThreadTitleGroup {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.chatThreadTitle,
+.chatThreadReadonlyId {
+  display: inline-block;
+  max-width: min(300px, 40vw);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chatThreadTitleInput {
+  width: min(300px, 40vw);
+}
+
+.chatThreadActions {
+  flex: 0 0 auto;
 }
 
 .chatComposer {
@@ -147,6 +344,56 @@ button {
   gap: 28px;
   max-width: 960px;
   margin: 0 auto;
+  width: 100%;
+}
+
+.threadHistoryList {
+  display: grid;
+  gap: 8px;
+  max-height: 540px;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.threadHistoryItem {
+  display: grid;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  padding: 10px 12px;
+  text-align: left;
+  background: #f8fafc;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.threadHistoryItem:hover,
+.threadHistoryItem.active {
+  background: #eef6ff;
+  border-color: #91caff;
+}
+
+.threadHistoryTitleRow,
+.threadHistoryMeta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.threadHistoryTitle,
+.threadHistoryPreview {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.threadHistoryMeta {
+  font-size: 12px;
 }
 
 .chatEmptyState {
@@ -208,6 +455,32 @@ button {
 .messageBubble.system .messageContent,
 .messageBubble.tool .messageContent {
   font-size: 16px;
+}
+
+.messageAttachmentList {
+  width: 100%;
+  margin-top: 10px;
+}
+
+.messagePlatformDraft {
+  width: 100%;
+  margin-top: 12px;
+}
+
+.messagePlatformDraft .contextCard {
+  margin-top: 0;
+}
+
+.messageAttachmentItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #ffffff;
 }
 
 .uploadIcon {
@@ -361,9 +634,9 @@ button {
 }
 
 .aiAppCardBody {
-  display: grid;
-  grid-template-rows: 28px 52px auto 36px auto;
-  min-height: 268px;
+  display: flex;
+  flex-direction: column;
+  min-height: 248px;
   height: 100%;
   gap: 10px;
   min-width: 0;
@@ -384,16 +657,15 @@ button {
 .aiAppTitle {
   display: block;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .aiAppDescription {
-  height: 52px;
+  min-height: 0;
   margin-bottom: 0 !important;
-  overflow: hidden;
   line-height: 1.55;
+  overflow-wrap: anywhere;
 }
 
 .aiAppMetaGrid {
@@ -414,18 +686,30 @@ button {
 
 .aiAppMetaGrid .ant-typography {
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .aiAppSourceList {
   min-width: 0;
-  overflow: hidden;
+}
+
+.aiAppSourceList .ant-space-item {
+  max-width: 100%;
+}
+
+.aiAppSourceList .ant-tag {
+  max-width: 100%;
+  white-space: normal;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
 }
 
 .aiAppFooter {
-  align-self: end;
+  align-self: stretch;
+  display: flex;
+  justify-content: flex-end;
+  margin-top: auto;
 }
 
 .aiAppRoleBody {
@@ -440,6 +724,51 @@ button {
   margin-bottom: 0 !important;
   overflow: hidden;
   line-height: 1.55;
+}
+
+.userCreateForm {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(180px, 1fr));
+  gap: 12px 16px;
+  align-items: end;
+}
+
+.userCreateForm .ant-form-item {
+  margin-bottom: 0;
+}
+
+.userCreateActions {
+  align-self: end;
+}
+
+.userAiAppGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 10px;
+  padding: 4px 0;
+}
+
+.userAiAppItem {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  min-width: 0;
+  padding: 10px 12px;
+  background: #f8fafc;
+  border: 1px solid rgba(15, 23, 42, 0.06);
+  border-radius: 6px;
+}
+
+.userAiAppInfo {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.userAiAppInfo .ant-typography {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .aiWorkflowMetricRow .ant-col {
@@ -498,10 +827,9 @@ button {
 }
 
 .aiWorkflowCardBody {
-  display: grid;
-  grid-template-rows: 28px 72px auto 78px 34px minmax(160px, auto);
-  align-content: start;
-  min-height: 552px;
+  display: flex;
+  flex-direction: column;
+  min-height: 472px;
   height: 100%;
   gap: 10px;
   min-width: 0;
@@ -528,9 +856,8 @@ button {
 }
 
 .aiWorkflowDescription {
-  height: 72px;
   margin-bottom: 0 !important;
-  overflow: hidden;
+  min-height: 0;
   line-height: 1.55;
 }
 
@@ -561,7 +888,7 @@ button {
 
 .aiWorkflowStageList {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
   gap: 6px;
   min-width: 0;
 }
@@ -597,9 +924,9 @@ button {
 
 .aiWorkflowRunBox {
   display: grid;
-  grid-template-rows: 100px auto;
+  grid-template-rows: minmax(100px, auto) auto;
   gap: 10px;
-  align-self: end;
+  margin-top: auto;
   min-width: 0;
 }
 
@@ -610,10 +937,11 @@ button {
 }
 
 .aiWorkflowExternalHint {
-  height: 100px;
+  min-height: 100px;
+  max-height: 180px;
   margin-bottom: 0 !important;
   padding: 10px 12px;
-  overflow: hidden;
+  overflow: auto;
   color: #4b5563;
   line-height: 1.6;
   background: #f8fafc;
@@ -674,7 +1002,100 @@ button {
   margin-top: 8px;
 }
 
-.runRecordMetricRow .ant-col {
+.aiWorkflowDetailTabs {
+  min-width: 0;
+}
+
+.aiWorkflowDetailTabs .ant-tabs-nav {
+  margin-bottom: 14px;
+}
+
+.aiWorkflowDetailTabs .ant-tabs-content-holder,
+.aiWorkflowDetailTabs .ant-tabs-tabpane {
+  min-width: 0;
+}
+
+.aiWorkflowDetailTabGrid {
+  width: 100%;
+  margin-right: 0 !important;
+  margin-left: 0 !important;
+}
+
+.aiWorkflowDetailSectionCard {
+  height: 100%;
+}
+
+.aiWorkflowFocusedHero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: start;
+  padding: 18px 20px;
+  background: #ffffff;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 8px;
+}
+
+.aiWorkflowFocusedMain {
+  min-width: 0;
+}
+
+.aiWorkflowFocusedTitle {
+  margin: 10px 0 8px !important;
+}
+
+.aiWorkflowFocusedScenario {
+  max-width: 920px;
+  margin-bottom: 0 !important;
+  color: #4b5563;
+  line-height: 1.7;
+}
+
+.aiWorkflowFocusedActions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.aiWorkflowFocusedMetricGrid,
+.aiWorkflowFocusedInfoGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.aiWorkflowFocusedMetricGrid > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 14px 16px;
+  background: #ffffff;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 8px;
+}
+
+.aiWorkflowFocusedInput {
+  min-height: 168px !important;
+  resize: vertical;
+}
+
+.aiWorkflowFocusedExternalHint {
+  min-height: 168px;
+  margin-bottom: 0 !important;
+  padding: 12px 14px;
+  overflow: auto;
+  color: #4b5563;
+  line-height: 1.7;
+  background: #f8fafc;
+  border: 1px solid rgba(15, 23, 42, 0.06);
+  border-radius: 6px;
+}
+
+.runRecordMetricRow .ant-col,
+.businessActionMetricRow .ant-col,
+.platformTaskMetricRow .ant-col,
+.notificationMetricRow .ant-col,
+.feedbackMetricRow .ant-col {
   display: flex;
 }
 
@@ -691,6 +1112,133 @@ button {
 
 .runRecordMetricCard h3 {
   margin: 0 !important;
+}
+
+.feedbackFormGrid {
+  align-items: end;
+}
+
+.feedbackFormGrid .ant-input,
+.feedbackFormGrid .ant-select,
+.feedbackFormGrid .ant-input-affix-wrapper,
+.feedbackFormGrid textarea {
+  margin-top: 6px;
+}
+
+.feedbackFormActions {
+  display: flex;
+  justify-content: flex-end;
+  width: 100%;
+}
+
+.feedbackMetricCard h3 {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.fileDownloadToolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 16px;
+  margin-bottom: 16px;
+}
+
+.fileDownloadSearchControl {
+  flex: 1 1 280px;
+  max-width: 420px;
+  min-width: 240px;
+}
+
+.fileDownloadDateControl {
+  flex: 0 0 auto;
+}
+
+.fileDownloadTypeControl {
+  flex: 0 0 132px;
+}
+
+.generatedFileBusinessSummary {
+  width: 100%;
+  min-width: 0;
+}
+
+.generatedFileSummaryTitle,
+.generatedFileSummaryNote {
+  display: block;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.generatedFileSummaryTitle {
+  color: #273443;
+  font-size: 13px;
+}
+
+.generatedFileSummaryNote {
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.generatedFileMetricGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 10px;
+  width: 100%;
+}
+
+.generatedFileMetric {
+  display: grid;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 6px;
+  background: #f8fafc;
+}
+
+.generatedFileMetric .ant-typography {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.userSettingsSummaryRow .ant-col {
+  display: flex;
+}
+
+.userSettingsSummaryRow .ant-card {
+  width: 100%;
+}
+
+.userSettingsSummaryRow h3 {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.userSettingsForm {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(180px, 1fr));
+  gap: 12px 16px;
+  align-items: end;
+}
+
+.userSettingsForm.password {
+  grid-template-columns: repeat(3, minmax(180px, 1fr)) auto;
+}
+
+.userSettingsForm .ant-form-item {
+  margin-bottom: 0;
+}
+
+.userSettingsActions {
+  align-self: end;
+}
+
+.userSettingsActions .ant-btn {
+  min-width: 112px;
 }
 
 .runRecordFilterGrid {
@@ -739,6 +1287,29 @@ button {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
+}
+
+.runRecordDetailTabs {
+  min-width: 0;
+}
+
+.runRecordDetailTabs .ant-tabs-nav {
+  margin-bottom: 14px;
+}
+
+.runRecordDetailTabs .ant-tabs-content-holder,
+.runRecordDetailTabs .ant-tabs-tabpane {
+  min-width: 0;
+}
+
+.runRecordDetailIoGrid {
+  width: 100%;
+  margin-right: 0 !important;
+  margin-left: 0 !important;
+}
+
+.runRecordDetailSectionCard {
+  height: 100%;
 }
 
 .runRecordDetailItem {
@@ -1032,6 +1603,25 @@ button {
   overflow-wrap: anywhere;
 }
 
+.monitoringCenterTabs {
+  min-width: 0;
+}
+
+.monitoringCenterTabs .ant-tabs-nav {
+  margin-bottom: 14px;
+}
+
+.monitoringCenterTabs .ant-tabs-content-holder,
+.monitoringCenterTabs .ant-tabs-tabpane {
+  min-width: 0;
+}
+
+.monitoringCenterTabGrid {
+  width: 100%;
+  margin-right: 0 !important;
+  margin-left: 0 !important;
+}
+
 .monitoringMetricRow .ant-col,
 .monitoringPanelCol {
   display: flex;
@@ -1268,6 +1858,29 @@ button {
   gap: 10px;
 }
 
+.flowConfigDetailTabs {
+  min-width: 0;
+}
+
+.flowConfigDetailTabs .ant-tabs-nav {
+  margin-bottom: 14px;
+}
+
+.flowConfigDetailTabs .ant-tabs-content-holder,
+.flowConfigDetailTabs .ant-tabs-tabpane {
+  min-width: 0;
+}
+
+.flowConfigDetailTabGrid {
+  width: 100%;
+  margin-right: 0 !important;
+  margin-left: 0 !important;
+}
+
+.flowConfigDetailSectionCard {
+  height: 100%;
+}
+
 .flowConfigDetailItem {
   display: grid;
   gap: 4px;
@@ -1337,6 +1950,206 @@ button {
   border-radius: 6px;
 }
 
+.flowGovernancePanel {
+  min-width: 0;
+}
+
+.flowGovernanceDraftGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  align-items: end;
+}
+
+.flowGovernanceField {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.flowGovernanceFieldHeader {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.flowGovernanceWideField {
+  grid-column: 1 / -1;
+}
+
+.flowGovernanceActions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.flowGovernancePromptInput {
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.flowGovernanceToolGroup {
+  padding: 8px 10px;
+  background: #f8fafc;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 6px;
+}
+
+.flowGovernanceToolGroup .ant-checkbox-wrapper {
+  min-width: 0;
+  margin-inline-start: 0;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.flowGovernanceStepOrderList {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.flowGovernanceStepOrderItem {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+  padding: 8px 10px;
+  background: #ffffff;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 6px;
+}
+
+.flowGovernanceStepOrderText {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.flowGovernanceStepOrderText .ant-typography {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.flowGovernanceStepOrderActions {
+  flex-shrink: 0;
+}
+
+.flowGovernanceTable .ant-table-cell {
+  vertical-align: top;
+}
+
+.flowGovernanceActionCell {
+  max-width: 100%;
+}
+
+.flowEvidenceCard {
+  min-width: 0;
+}
+
+.flowEvidenceSummary {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+
+.flowEvidenceTable .ant-table-cell {
+  vertical-align: top;
+}
+
+.flowPreflightCard {
+  min-width: 0;
+}
+
+.flowPreflightSummary {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+
+.flowPreflightCheckGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.flowPreflightCheckItem {
+  min-width: 0;
+  padding: 10px 12px;
+  background: #f8fafc;
+  border: 1px solid rgba(15, 23, 42, 0.06);
+  border-radius: 6px;
+}
+
+.flowPreflightMessage {
+  margin: 8px 0 0 !important;
+  overflow-wrap: anywhere;
+  color: #4b5563;
+}
+
+.flowPreflightArtifactList {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(15, 23, 42, 0.08);
+}
+
+.flowPreflightArtifactItem {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.flowPreflightArtifactLabel {
+  color: #334155;
+  overflow-wrap: anywhere;
+}
+
+.flowPreflightArtifactCommand {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  color: #64748b;
+  overflow-wrap: anywhere;
+}
+
+.flowPreflightArtifactEvidence {
+  display: block;
+  font-size: 12px;
+  color: #475569;
+  overflow-wrap: anywhere;
+}
+
+.flowPreflightRepairList {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(15, 23, 42, 0.08);
+}
+
+.flowPreflightRepairItem {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.flowPreflightRepairPath {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  color: #334155;
+  overflow-wrap: anywhere;
+}
+
+.flowPreflightRepairSuggestion {
+  margin: 0 !important;
+  color: #64748b;
+  overflow-wrap: anywhere;
+}
+
 .connectorMetricRow .ant-col {
   display: flex;
 }
@@ -1379,9 +2192,9 @@ button {
 }
 
 .connectorCardBody {
-  display: grid;
-  grid-template-rows: 28px 52px auto 34px 54px auto;
-  min-height: 292px;
+  display: flex;
+  flex-direction: column;
+  min-height: 236px;
   height: 100%;
   gap: 10px;
   min-width: 0;
@@ -1454,6 +2267,29 @@ button {
   align-self: end;
 }
 
+.connectorDetailTabs {
+  min-width: 0;
+}
+
+.connectorDetailTabs .ant-tabs-nav {
+  margin-bottom: 14px;
+}
+
+.connectorDetailTabs .ant-tabs-content-holder,
+.connectorDetailTabs .ant-tabs-tabpane {
+  min-width: 0;
+}
+
+.connectorDetailTabGrid {
+  width: 100%;
+  margin-right: 0 !important;
+  margin-left: 0 !important;
+}
+
+.connectorDetailSectionCard {
+  height: 100%;
+}
+
 .connectorDetailGrid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1484,6 +2320,7 @@ button {
 .connectorRuleList {
   display: grid;
   gap: 8px;
+  margin-top: 8px;
 }
 
 .connectorRuleItem {
@@ -1529,25 +2366,23 @@ button {
 }
 
 .automationTaskBody {
-  display: grid;
-  grid-template-rows: 22px 68px 76px auto auto;
-  align-content: start;
-  min-height: 248px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
   height: 100%;
   gap: 10px;
 }
 
 .automationTaskTitle {
-  height: 22px;
+  min-height: 22px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .automationTaskDescription {
-  height: 68px;
   margin-bottom: 0 !important;
-  overflow: hidden;
+  min-height: 0;
   line-height: 1.55;
 }
 
@@ -1565,8 +2400,118 @@ button {
   margin-top: 2px;
 }
 
+.automationDirectoryCard {
+  width: 100%;
+  margin-top: 0;
+}
+
+.automationDirectoryCard > .ant-card-body {
+  height: 100%;
+}
+
+.automationDirectoryBody {
+  display: flex;
+  flex-direction: column;
+  min-height: 112px;
+  height: 100%;
+  gap: 10px;
+}
+
+.automationDirectoryTitle {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+}
+
+.automationDirectoryTitle .ant-space {
+  min-width: 0;
+}
+
+.automationDirectoryTitle .ant-typography {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.automationDirectoryDescription {
+  flex: 1;
+  margin-bottom: 0 !important;
+  color: #4b5563;
+  line-height: 1.6;
+}
+
+.automationDirectoryBody .ant-btn {
+  align-self: flex-start;
+}
+
+.automationInfoCard {
+  height: 100%;
+}
+
+.automationTaskDetailText {
+  margin-bottom: 0 !important;
+  padding: 10px 12px;
+  color: #4b5563;
+  line-height: 1.65;
+  background: #f8fafc;
+  border: 1px solid rgba(15, 23, 42, 0.06);
+  border-radius: 6px;
+}
+
+.automationTaskFocusedBody {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.automationTaskFocusedInput {
+  min-height: 180px !important;
+  resize: vertical;
+}
+
+.automationTaskResultText {
+  max-height: 420px;
+  margin-bottom: 0 !important;
+  overflow: auto;
+  white-space: pre-wrap;
+}
+
+.platformDraftSummaryGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.platformExecutionStatus {
+  width: 100%;
+  margin-bottom: 10px;
+}
+
 .fullWidthControl {
   width: 100%;
+}
+
+.customerInboxWorkspace {
+  min-width: 0;
+}
+
+.customerInboxWorkspace .ant-tabs-nav {
+  margin-bottom: 16px;
+}
+
+.customerInboxWorkspace .ant-tabs-content-holder,
+.customerInboxWorkspace .ant-tabs-tabpane {
+  min-width: 0;
+}
+
+.customerInboxTabPane {
+  width: 100%;
+  min-width: 0;
 }
 
 .customerInboxMessageCell {
@@ -1577,6 +2522,10 @@ button {
 .customerInboxToolbar {
   justify-content: flex-end;
   width: 100%;
+}
+
+.customerInboxToolbar .ant-select {
+  flex: 0 0 auto;
 }
 
 .customerWebhookInfo {
@@ -1688,6 +2637,10 @@ button {
   align-items: stretch;
 }
 
+.financeUploadControls.focused {
+  grid-template-columns: minmax(280px, 0.9fr) minmax(0, 1.1fr);
+}
+
 .financeUploadDragger {
   height: 142px;
 }
@@ -1712,10 +2665,19 @@ button {
   gap: 10px;
 }
 
+.financeUploadActionPane.focused {
+  grid-template-rows: auto minmax(150px, auto) auto;
+}
+
 .financeUploadInstruction {
   height: 76px !important;
   min-height: 76px !important;
   resize: vertical;
+}
+
+.financeUploadInstruction.focused {
+  height: 150px !important;
+  min-height: 150px !important;
 }
 
 @media (max-width: 900px) {
@@ -1745,9 +2707,110 @@ button {
   width: 100%;
 }
 
+.erpResultSummaryCard {
+  height: 100%;
+  background: #fbfcfe;
+}
+
+.erpResultSmallText {
+  max-width: 100%;
+  color: #5d6b7a;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.erpResultMessageCard {
+  background: #f7faff;
+  border-color: #d8e6ff;
+}
+
+.erpResultMessageIcon {
+  margin-top: 3px;
+  color: #2864d8;
+}
+
+.erpResultMessage {
+  margin-bottom: 0 !important;
+  color: #243447;
+  line-height: 1.7;
+}
+
+.erpRecordDetailTabs {
+  min-width: 0;
+}
+
+.erpRecordDetailTabs .ant-tabs-nav {
+  margin-bottom: 14px;
+}
+
+.erpRecordDetailTabs .ant-tabs-content-holder,
+.erpRecordDetailTabs .ant-tabs-tabpane {
+  min-width: 0;
+}
+
+.erpRecordDetailGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.erpRecordDetailItem {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 10px 12px;
+  background: #f8fafc;
+  border: 1px solid rgba(15, 23, 42, 0.06);
+  border-radius: 6px;
+}
+
+.erpRecordDetailSectionCard {
+  height: 100%;
+}
+
+.erpRecordDetailMessage {
+  margin-bottom: 0 !important;
+  overflow-wrap: anywhere;
+  line-height: 1.7;
+}
+
+.erpRecordText,
+.erpRecordMono {
+  display: block;
+  max-width: 100%;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.erpRecordMono {
+  color: #4b5563;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+}
+
+.erpRecordRawPre {
+  max-height: 420px;
+  margin: 0;
+  padding: 10px 12px;
+  overflow: auto;
+  color: #3f4a56;
+  font-size: 12px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: #f8fafc;
+  border: 1px solid rgba(15, 23, 42, 0.06);
+  border-radius: 6px;
+}
+
 .dashboardShortcutCard,
 .dashboardOverviewCard {
   margin-top: 0;
+}
+
+.dashboardShortcutCompactGrid {
+  align-items: stretch;
 }
 
 .dashboardShortcutCol,
@@ -1782,14 +2845,42 @@ button {
 
 .dashboardShortcutBody {
   display: grid;
-  grid-template-rows: 24px 48px auto;
-  min-height: 120px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  min-height: 48px;
   height: 100%;
-  gap: 8px;
+  gap: 10px;
+  align-items: center;
+}
+
+.dashboardShortcutCard.compact .dashboardShortcutBody {
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: auto;
+  min-height: 44px;
+  gap: 10px;
+  align-items: center;
 }
 
 .dashboardShortcutTitle {
   min-width: 0;
+  width: 100%;
+}
+
+.dashboardShortcutTitle .ant-space-item:last-child {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.dashboardShortcutTitle .ant-typography {
+  display: inline-block;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dashboardShortcutTitleText {
+  cursor: help;
 }
 
 .dashboardShortcutDescription {
@@ -1800,8 +2891,13 @@ button {
 }
 
 .dashboardShortcutButton {
-  align-self: end;
-  justify-self: start;
+  align-self: center;
+  justify-self: end;
+}
+
+.dashboardShortcutCard.compact .dashboardShortcutButton {
+  align-self: center;
+  justify-self: end;
 }
 
 .dashboardOverviewToolbar {
@@ -1810,6 +2906,14 @@ button {
   justify-content: space-between;
   gap: 12px;
   flex-wrap: wrap;
+}
+
+.dashboardOverviewToolbar.compact {
+  justify-content: flex-start;
+}
+
+.dashboardMarketSelect {
+  min-width: 176px;
 }
 
 .dashboardStatsGroup .ant-pro-card,
@@ -1826,6 +2930,57 @@ button {
   min-height: 164px;
 }
 
+.dashboardMetricGroup.compact .ant-pro-card-body {
+  min-height: 112px;
+}
+
+.dashboardMetricGroup.compact > .ant-pro-card-body {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(142px, 1fr));
+  gap: 8px;
+  min-width: 0;
+}
+
+.dashboardMetricGroup.compact .ant-pro-card-col {
+  width: 100% !important;
+  min-width: 0;
+  max-width: 100% !important;
+  margin-inline-start: 0 !important;
+}
+
+.dashboardMetricGroup.compact .ant-pro-card,
+.dashboardMetricGroup.compact .ant-pro-card-statistic,
+.dashboardMetricGroup.compact .ant-statistic {
+  min-width: 0;
+}
+
+.dashboardMetricGroup.compact .ant-statistic-content {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 4px;
+  max-width: 100%;
+  overflow: visible;
+  line-height: 1.2;
+  text-overflow: clip;
+  white-space: normal;
+  word-break: break-word;
+}
+
+.dashboardMetricGroup.compact .ant-statistic-content-value {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.dashboardMetricGroup.compact .ant-statistic-content-suffix {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.dashboardMetricGroup.compact .ant-pro-card-statistic-description {
+  display: none;
+}
+
 .dashboardOverviewBody {
   display: grid;
   grid-template-rows: 44px 28px minmax(0, 1fr);
@@ -1835,11 +2990,28 @@ button {
   min-width: 0;
 }
 
+.dashboardOverviewBody.compact {
+  grid-template-rows: auto minmax(0, 1fr);
+  min-height: 184px;
+}
+
 .dashboardOverviewDescription {
   height: 44px;
   margin-bottom: 0 !important;
   overflow: hidden;
   line-height: 1.55;
+}
+
+.dashboardOverviewAmount {
+  display: block;
+  min-width: 0;
+  color: #1677ff;
+  font-size: 13px;
+  overflow: visible;
+  line-height: 1.45;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .capabilityCard {
@@ -1853,6 +3025,18 @@ button {
   min-width: 0;
   min-height: 0;
   overflow: hidden;
+}
+
+.dashboardRecordList.compact {
+  grid-auto-rows: 42px;
+}
+
+.dashboardOverviewCard.compact .compactRecord {
+  padding: 8px 10px;
+}
+
+.dashboardOverviewCard.compact .compactRecordHeader {
+  align-items: center;
 }
 
 .dashboardOverviewEmpty {
@@ -1871,6 +3055,18 @@ button {
 
 .splitCard > .ant-pro-card-body {
   height: 100%;
+}
+
+.documentAuthorizationInline {
+  margin-top: 16px;
+}
+
+.documentAuthorizationDrawer .ant-drawer-content-wrapper {
+  max-width: 100vw;
+}
+
+.documentAuthorizationDrawer .ant-drawer-body {
+  overflow-x: hidden;
 }
 
 .compactRecord {
@@ -1920,6 +3116,282 @@ button {
   font-size: 12px;
   line-height: 1.6;
   white-space: pre-wrap;
+}
+
+.platformDraftToolbar {
+  display: grid;
+  grid-template-columns: minmax(420px, auto) 180px auto;
+  gap: 12px;
+  align-items: center;
+  max-width: 760px;
+  margin-bottom: 14px;
+}
+
+.platformDraftTypeSelect {
+  width: 180px;
+}
+
+.platformTaskToolbar,
+.notificationToolbar {
+  display: grid;
+  grid-template-columns: minmax(360px, auto) auto;
+  gap: 12px;
+  align-items: center;
+  max-width: 620px;
+  margin-bottom: 14px;
+}
+
+.platformDraftTable .ant-table-cell,
+.businessActionLoopTable .ant-table-cell,
+.platformTaskTable .ant-table-cell,
+.notificationTable .ant-table-cell,
+.feedbackTable .ant-table-cell {
+  vertical-align: top;
+}
+
+.businessActionLoopTable .runRecordPreview {
+  max-width: 320px;
+}
+
+.businessLoopTimelineWrap {
+  width: 100%;
+  min-width: 0;
+}
+
+.businessLoopTimeline {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(56px, 1fr));
+  gap: 8px;
+  width: 100%;
+}
+
+.businessLoopTimelineStep {
+  display: grid;
+  gap: 4px;
+  justify-items: center;
+  min-width: 0;
+  padding: 6px 4px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 6px;
+  background: #f8fafc;
+}
+
+.businessLoopTimelineDot {
+  width: 10px;
+  height: 10px;
+  border: 2px solid #9aa4b2;
+  border-radius: 50%;
+  background: #ffffff;
+}
+
+.businessLoopTimelineStep.done .businessLoopTimelineDot {
+  border-color: #2e7d32;
+  background: #2e7d32;
+}
+
+.businessLoopTimelineStep.active .businessLoopTimelineDot {
+  border-color: #1677ff;
+  background: #e6f4ff;
+}
+
+.businessLoopTimelineStep.danger .businessLoopTimelineDot {
+  border-color: #cf1322;
+  background: #fff1f0;
+}
+
+.businessLoopTimelineLabel {
+  max-width: 100%;
+  color: #344054;
+  font-size: 12px;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+  text-align: center;
+}
+
+.dangerText {
+  color: #b42318;
+}
+
+.businessActionLoopActions {
+  max-width: 150px;
+}
+
+.platformDraftActionCell,
+.platformTaskActionCell,
+.notificationActionCell {
+  max-width: 210px;
+}
+
+.platformTaskDetailGrid,
+.platformDraftDetailGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.platformTaskDetailTabs .ant-tabs-nav,
+.platformDraftDetailTabs .ant-tabs-nav {
+  margin-bottom: 12px;
+}
+
+.platformTaskDetailTabs .ant-tabs-content-holder,
+.platformTaskDetailTabs .ant-tabs-tabpane {
+  min-width: 0;
+}
+
+.platformTaskError {
+  max-height: 120px;
+  margin: 0;
+  padding: 10px 12px;
+  overflow: auto;
+  color: #b42318;
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  background: #fff1f0;
+  border: 1px solid #ffccc7;
+  border-radius: 6px;
+}
+
+.platformDraftMessage {
+  max-height: 96px;
+  margin: 0;
+  overflow: auto;
+  color: #3f4a56;
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.platformDraftPre {
+  max-height: 420px;
+  margin: 0;
+  padding: 12px;
+  overflow: auto;
+  color: #2f3b45;
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  background: #f8fafc;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 6px;
+}
+
+.businessDraftSummaryGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.businessTaskSummaryGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.businessDraftSectionCard .ant-card-head {
+  min-height: 38px;
+}
+
+.businessDraftText,
+.businessDraftLongText {
+  margin: 0;
+  color: #2f3b45;
+  font-size: 13px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+}
+
+.businessDraftLongText {
+  max-height: 260px;
+  overflow: auto;
+}
+
+.businessDraftList {
+  margin: 0;
+  padding-left: 20px;
+  color: #2f3b45;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.businessDraftList li + li {
+  margin-top: 6px;
+}
+
+.businessTaskTimeline {
+  display: grid;
+  gap: 12px;
+}
+
+.businessTaskTimelineItem {
+  position: relative;
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr);
+  gap: 10px;
+  min-width: 0;
+}
+
+.businessTaskTimelineItem + .businessTaskTimelineItem::before {
+  position: absolute;
+  top: -12px;
+  bottom: calc(100% - 8px);
+  left: 6px;
+  width: 2px;
+  content: "";
+  background: #d8dee6;
+}
+
+.businessTaskTimelineDot {
+  width: 12px;
+  height: 12px;
+  margin-top: 4px;
+  border: 2px solid #8c96a3;
+  border-radius: 50%;
+  background: #ffffff;
+}
+
+.businessTaskTimelineItem.done .businessTaskTimelineDot {
+  border-color: #2e7d32;
+  background: #2e7d32;
+}
+
+.businessTaskTimelineItem.active .businessTaskTimelineDot {
+  border-color: #1677ff;
+  background: #e6f4ff;
+}
+
+.businessTaskTimelineItem.warning .businessTaskTimelineDot {
+  border-color: #d48806;
+  background: #fff7e6;
+}
+
+.businessTaskTimelineItem.danger .businessTaskTimelineDot {
+  border-color: #cf1322;
+  background: #fff1f0;
+}
+
+.businessTaskTimelineBody {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.businessTaskTimelineText {
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.businessTaskFailureText {
+  margin: 0;
+  color: #b42318;
+  font-size: 13px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+}
+
+.technicalDetailsCollapse .ant-collapse-content-box {
+  padding: 0;
 }
 
 .ant-pro-layout .ant-pro-layout-bg-list {
@@ -1977,31 +3449,57 @@ button {
   }
 
   .aiAppCardBody {
-    grid-template-rows: auto 68px auto auto auto;
     min-height: 0;
   }
 
-	  .aiAppMetaGrid {
-	    grid-template-columns: 1fr;
-	  }
+  .aiAppMetaGrid {
+    grid-template-columns: 1fr;
+  }
 
-	  .aiWorkflowCardBody {
-	    grid-template-rows: auto 84px auto auto auto auto;
-	    min-height: 0;
-	  }
+  .userCreateForm,
+  .userAiAppGrid,
+  .userSettingsForm,
+  .userSettingsForm.password {
+    grid-template-columns: 1fr;
+  }
 
-	  .aiWorkflowMetaGrid {
-	    grid-template-columns: 1fr;
-	  }
+  .aiWorkflowCardBody {
+    min-height: 0;
+  }
 
-	  .aiWorkflowStageList {
-	    grid-template-columns: repeat(2, minmax(0, 1fr));
-	  }
+  .aiWorkflowMetaGrid {
+    grid-template-columns: 1fr;
+  }
 
-	  .aiWorkflowFooter {
-	    align-items: stretch;
-	    flex-direction: column;
-	  }
+  .aiWorkflowStageList {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .aiWorkflowFooter {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .aiWorkflowFocusedHero {
+    grid-template-columns: 1fr;
+  }
+
+  .aiWorkflowFocusedActions {
+    justify-content: flex-start;
+  }
+
+  .aiWorkflowFocusedMetricGrid,
+  .aiWorkflowFocusedInfoGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .financeUploadControls.focused {
+    grid-template-columns: 1fr;
+  }
+
+  .automationDirectoryTitle {
+    grid-template-columns: 1fr;
+  }
 
 	  .runRecordFilterGrid,
 	  .runRecordDetailGrid,
@@ -2011,13 +3509,38 @@ button {
 	  .aiWorkflowFilterGrid,
 	  .aiWorkflowFilterGrid.admin,
 	  .aiWorkflowDetailGrid,
-	  .flowConfigFilterGrid,
-	  .flowConfigFilterGrid.admin,
-	  .flowConfigDetailGrid,
-  .connectorDetailGrid,
-  .customerInboxDetailGrid {
+		  .flowConfigFilterGrid,
+		  .flowConfigFilterGrid.admin,
+		  .flowConfigDetailGrid,
+  .flowGovernanceDraftGrid,
+  .flowPreflightCheckGrid,
+  .erpRecordDetailGrid,
+	  .connectorDetailGrid,
+	  .customerInboxDetailGrid,
+  .platformTaskToolbar,
+  .notificationToolbar,
+  .platformTaskDetailGrid,
+  .platformDraftDetailGrid,
+  .businessDraftSummaryGrid,
+  .businessTaskSummaryGrid {
+	    grid-template-columns: 1fr;
+	    max-width: none;
+	  }
+
+  .platformDraftToolbar {
     grid-template-columns: 1fr;
     max-width: none;
+  }
+
+  .platformDraftToolbar .ant-segmented,
+  .platformTaskToolbar .ant-segmented,
+  .notificationToolbar .ant-segmented {
+    width: 100%;
+    overflow-x: auto;
+  }
+
+  .platformDraftTypeSelect {
+    width: 100%;
   }
 
   .customerWebhookInfo {
@@ -2059,10 +3582,86 @@ button {
     flex-direction: column;
   }
 
-  .publicLlmWidget {
+.publicLlmWidget {
     right: 12px;
     bottom: 12px;
     width: calc(100vw - 24px);
     height: min(560px, calc(100vh - 72px));
+  }
+}
+
+.platformExecutorFormGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  align-items: end;
+}
+
+.platformExecutorField {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.platformExecutorField .ant-select,
+.platformExecutorField .ant-input,
+.platformExecutorField .ant-input-number {
+  width: 100%;
+}
+
+.platformExecutorWideField {
+  grid-column: span 2;
+}
+
+.platformExecutorSwitchRow,
+.platformExecutorButtonRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.platformExecutorButtonRow {
+  justify-content: flex-end;
+}
+
+.platformExecutorTable .ant-table-cell,
+.platformExecutorExpanded {
+  overflow-wrap: anywhere;
+}
+
+.platformExecutorExpanded {
+  display: grid;
+  gap: 6px;
+  max-width: 920px;
+}
+
+.platformExecutorActionCell {
+  min-width: 0;
+}
+
+.approvalSummaryText {
+  display: block;
+  max-width: 100%;
+  line-height: 1.55;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 1100px) {
+  .platformExecutorFormGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .platformExecutorFormGrid,
+  .platformExecutorWideField {
+    grid-template-columns: 1fr;
+    grid-column: auto;
+  }
+
+  .platformExecutorButtonRow {
+    justify-content: flex-start;
   }
 }

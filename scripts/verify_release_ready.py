@@ -99,7 +99,6 @@ def _check_chat_references(token: str) -> dict:
         method="POST",
         payload={
             "message": "帮我查一下 AMZ-JP-250-6630188-4402197 的销售发票",
-            "thread_id": "verify-release-ready-finance",
         },
         timeout=60,
     )

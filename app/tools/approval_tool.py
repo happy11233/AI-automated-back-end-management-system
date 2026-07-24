@@ -2,6 +2,8 @@ from uuid import UUID
 from langchain_core.tools import tool
 from app.db import fetch_one
 from app.json_utils import dumps_json
+from app.services.approval_summary_service import summarize_approval
+from app.services.logging_service import ensure_chat_thread
 from app.services.mcp_service import create_external_ticket
 
 
@@ -40,17 +42,17 @@ def create_approval_request(
         **payload,
         "external_ticket": ticket_result,
     }
+    summary = summarize_approval(action_type, enriched_payload)
+    enriched_payload = {
+        **enriched_payload,
+        "summary_cn": summary["summary"],
+        "summary_source": summary["source"],
+    }
 
-    fetch_one(
-        """
-        INSERT INTO chat_threads (id, user_id, title)
-        VALUES (%s, %s, %s)
-        ON CONFLICT (id)
-        DO UPDATE SET updated_at = now()
-        RETURNING id;
-        """,
-        (thread_id, user_id, "人工审批会话"),
-    )
+    if user_id is None:
+        raise ValueError("审批请求缺少用户标识")
+
+    ensure_chat_thread(thread_id, user_id, "人工审批会话")
 
     row = fetch_one(
         """

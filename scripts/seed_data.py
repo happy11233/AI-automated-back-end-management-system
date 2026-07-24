@@ -73,7 +73,7 @@ def main():
         source="internal-policy/admin-refund.md",
         visibility="admin",
         department="管理部",
-        text="超过500元的特殊退款需要管理员审批，普通员工不能直接执行退款。",
+        text="超过500元的特殊退款需要客服岗位审批，普通员工不能直接执行退款。",
     )
 
     close_pool()

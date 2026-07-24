@@ -49,6 +49,9 @@ CREATE TABLE IF NOT EXISTS automation_run_artifacts (
     mime_type TEXT,
     size_bytes INTEGER CHECK (size_bytes IS NULL OR size_bytes >= 0),
     external_ref TEXT,
+    storage_path TEXT,
+    expires_at TIMESTAMPTZ,
+    downloadable BOOLEAN NOT NULL DEFAULT FALSE,
     metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -73,3 +76,6 @@ ON automation_run_steps(run_id, step_order, started_at);
 
 CREATE INDEX IF NOT EXISTS idx_automation_run_artifacts_run_id
 ON automation_run_artifacts(run_id, created_at);
+
+CREATE INDEX IF NOT EXISTS idx_automation_run_artifacts_downloadable_expires
+ON automation_run_artifacts(downloadable, expires_at, created_at DESC);

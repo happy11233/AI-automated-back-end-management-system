@@ -132,9 +132,9 @@ class ERPNextProvider(ERPProvider):
             "Delivery Note": ["name", "customer", "customer_name", "lr_no", "title"],
             "Issue": ["name", "subject", "customer", "description"],
             "GL Entry": ["name", "account", "voucher_no"],
-            "Payment Entry": ["name", "party"],
+            "Payment Entry": ["name", "party", "reference_no", "remarks"],
             "Salary Slip": ["name", "employee", "employee_name"],
-            "Purchase Invoice": ["name", "supplier"],
+            "Purchase Invoice": ["name", "supplier", "bill_no"],
         }.get(doctype, ["name"])
 
         return [[field, "like", f"%{query}%"] for field in searchable_fields]

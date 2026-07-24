@@ -1,17 +1,189 @@
+from uuid import uuid4
+
+from app.config import settings
 from app.db import execute, fetch_all, fetch_one
 from app.json_utils import dumps_json
 from app.services.run_record_service import sanitize_metadata
 
-def ensure_chat_thread(thread_id: str, user_id: str, title: str | None = None) -> None:
+
+def ensure_chat_thread_schema() -> None:
     execute(
         """
-        INSERT INTO chat_threads (id, user_id, title)
-        VALUES (%s, %s, %s)
-        ON CONFLICT (id)
-        DO UPDATE SET updated_at = now();
-        """,
-        (thread_id, user_id, title),
+        ALTER TABLE chat_threads
+        ADD COLUMN IF NOT EXISTS position TEXT;
+
+        CREATE INDEX IF NOT EXISTS idx_chat_threads_user_updated_at
+        ON chat_threads(user_id, updated_at DESC);
+
+        CREATE INDEX IF NOT EXISTS idx_chat_threads_user_position_updated_at
+        ON chat_threads(user_id, position, updated_at DESC);
+        """
     )
+
+
+def create_chat_thread(user_id: str, title: str | None = None, position: str | None = None) -> dict:
+    thread_id = f"thread-{uuid4()}"
+    row = fetch_one(
+        """
+        INSERT INTO chat_threads (id, user_id, title, position)
+        VALUES (%s, %s, %s, %s)
+        RETURNING id, user_id, title, status, position, created_at, updated_at;
+        """,
+        (thread_id, user_id, title, position),
+    )
+    return _thread_from_row(row)
+
+
+def ensure_chat_thread(
+    thread_id: str,
+    user_id: str,
+    title: str | None = None,
+    position: str | None = None,
+) -> dict:
+    existing = get_thread(thread_id)
+    if existing is not None:
+        if existing["user_id"] != user_id:
+            raise PermissionError("没有权限使用该会话。")
+        if position and existing.get("position") and existing.get("position") != position:
+            raise PermissionError("没有权限使用其他岗位的会话。")
+        touch_chat_thread(thread_id, title=title or existing.get("title"))
+        return get_thread(thread_id) or existing
+
+    row = fetch_one(
+        """
+        INSERT INTO chat_threads (id, user_id, title, position)
+        VALUES (%s, %s, %s, %s)
+        RETURNING id, user_id, title, status, position, created_at, updated_at;
+        """,
+        (thread_id, user_id, title, position),
+    )
+    return _thread_from_row(row)
+
+
+def list_chat_threads(
+    current_user: dict,
+    limit: int = 80,
+    search: str | None = None,
+) -> list[dict]:
+    limit = max(1, min(limit, 200))
+    conditions = ["t.updated_at >= now() - (%s || ' days')::interval"]
+    params: list[object] = [settings.chat_thread_retention_days]
+
+    if current_user.get("role") != "admin":
+        conditions.append("t.user_id = %s")
+        params.append(current_user["id"])
+        conditions.append("COALESCE(t.position, u.position) = %s")
+        params.append(current_user.get("position"))
+
+    if search:
+        conditions.append(
+            """
+            (
+                t.id ILIKE %s
+                OR t.title ILIKE %s
+                OR u.username ILIKE %s
+                OR u.display_name ILIKE %s
+                OR u.position ILIKE %s
+            )
+            """
+        )
+        like_search = f"%{search}%"
+        params.extend([like_search] * 5)
+
+    params.append(limit)
+    rows = fetch_all(
+        f"""
+        SELECT
+            t.id,
+            t.user_id,
+            t.title,
+            t.status,
+            t.position,
+            t.created_at,
+            t.updated_at,
+            u.username,
+            u.display_name,
+            u.role,
+            u.position,
+            COALESCE(stats.message_count, 0) AS message_count,
+            last_message.content AS last_message_preview,
+            last_message.role AS last_message_role
+        FROM chat_threads t
+        LEFT JOIN users u ON u.id = t.user_id
+        LEFT JOIN LATERAL (
+            SELECT COUNT(*) AS message_count
+            FROM chat_messages m
+            WHERE m.thread_id = t.id
+        ) stats ON true
+        LEFT JOIN LATERAL (
+            SELECT role, content
+            FROM chat_messages m
+            WHERE m.thread_id = t.id
+            ORDER BY m.created_at DESC
+            LIMIT 1
+        ) last_message ON true
+        WHERE {" AND ".join(conditions)}
+        ORDER BY t.updated_at DESC
+        LIMIT %s;
+        """,
+        tuple(params),
+    )
+
+    return [_thread_list_item_from_row(row) for row in rows]
+
+
+def get_latest_thread_for_user(user_id: str, position: str | None = None) -> dict | None:
+    position_filter = "AND COALESCE(position, %s) = %s" if position else ""
+    params: tuple[object, ...]
+    if position:
+        params = (user_id, settings.chat_thread_retention_days, position, position)
+    else:
+        params = (user_id, settings.chat_thread_retention_days)
+
+    row = fetch_one(
+        f"""
+        SELECT id, user_id, title, status, position, created_at, updated_at
+        FROM chat_threads
+        WHERE user_id = %s
+          AND updated_at >= now() - (%s || ' days')::interval
+          {position_filter}
+        ORDER BY updated_at DESC
+        LIMIT 1;
+        """,
+        params,
+    )
+    return _thread_from_row(row) if row else None
+
+
+def touch_chat_thread(thread_id: str, title: str | None = None) -> None:
+    execute(
+        """
+        UPDATE chat_threads
+        SET
+            title = CASE
+                WHEN %s::text IS NOT NULL
+                  AND (title IS NULL OR title = '' OR title = '新会话')
+                THEN %s::text
+                ELSE title
+            END,
+            updated_at = now()
+        WHERE id = %s;
+        """,
+        (title, title, thread_id),
+    )
+
+
+def update_chat_thread_title(thread_id: str, title: str) -> dict | None:
+    row = fetch_one(
+        """
+        UPDATE chat_threads
+        SET title = %s
+        WHERE id = %s
+        RETURNING id, user_id, title, status, created_at, updated_at;
+        """,
+        (title, thread_id),
+    )
+    return _thread_from_row(row) if row else None
 
 
 def save_chat_message(
@@ -91,7 +263,7 @@ def save_approval_message(
 def get_thread(thread_id: str) -> dict | None:
     row = fetch_one(
         """
-        SELECT id, user_id, title, status, created_at, updated_at
+        SELECT id, user_id, title, status, position, created_at, updated_at
         FROM chat_threads
         WHERE id = %s;
         """,
@@ -106,8 +278,39 @@ def get_thread(thread_id: str) -> dict | None:
         "user_id": str(row[1]) if row[1] else None,
         "title": row[2],
         "status": row[3],
-        "created_at": row[4],
-        "updated_at": row[5],
+        "position": row[4],
+        "created_at": row[5],
+        "updated_at": row[6],
+    }
+
+
+def _thread_from_row(row) -> dict:
+    return {
+        "id": row[0],
+        "user_id": str(row[1]) if row[1] else None,
+        "title": row[2],
+        "status": row[3],
+        "position": row[4],
+        "created_at": row[5],
+        "updated_at": row[6],
+    }
+
+
+def _thread_list_item_from_row(row) -> dict:
+    return {
+        "id": row[0],
+        "user_id": str(row[1]) if row[1] else None,
+        "title": row[2],
+        "status": row[3],
+        "position": row[4] or row[10],
+        "created_at": row[5],
+        "updated_at": row[6],
+        "username": row[7],
+        "display_name": row[8],
+        "role": row[9],
+        "message_count": int(row[11] or 0),
+        "last_message_preview": (row[12] or "")[:160],
+        "last_message_role": row[13],
     }
 
 

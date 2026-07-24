@@ -5,6 +5,7 @@ const require = createRequire(import.meta.url);
 const { chromium } = requirePlaywright();
 
 const FRONTEND_URL = (process.env.VERIFY_FRONTEND_URL || "http://127.0.0.1:5173").replace(/\/$/, "");
+const API_BASE_URL = (process.env.VERIFY_API_BASE_URL || "http://127.0.0.1:8001").replace(/\/$/, "");
 const CHROME_EXECUTABLE_PATH = process.env.VERIFY_CHROME_PATH || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 
 const ACCOUNTS = {
@@ -12,13 +13,17 @@ const ACCOUNTS = {
     username: "admin_demo",
     password: "Admin123456",
   },
-  finance: {
-    username: "finance_demo",
-    password: "Finance123456",
-  },
   operations: {
     username: "operations_demo",
     password: "Operations123456",
+  },
+  customer_service: {
+    username: "employee_demo",
+    password: "Employee123456",
+  },
+  finance: {
+    username: "finance_demo",
+    password: "Finance123456",
   },
 };
 
@@ -28,139 +33,130 @@ const browser = await chromium.launch({
 });
 
 try {
-  const adminDesktop = await runEffectCase({
-    label: "admin_effect_analytics_desktop",
-    account: ACCOUNTS.admin,
-    viewport: { width: 1440, height: 960 },
-    screenshot: "/tmp/company-rag-effect-analytics-admin-desktop.png",
-    visible: ["效果分析", "自动化次数", "成功率", "执行趋势", "岗位效果排行", "审计安全摘要"],
-    hidden: ["input_preview", "output_preview", "Authorization", "api_secret"],
-  });
-
-  const financeMobile = await runEffectCase({
-    label: "finance_effect_analytics_mobile",
-    account: ACCOUNTS.finance,
-    viewport: { width: 390, height: 844 },
-    screenshot: "/tmp/company-rag-effect-analytics-finance-mobile.png",
-    visible: ["效果分析", "自动化次数", "成功率", "执行趋势", "财务"],
-    hidden: ["运营", "input_preview", "output_preview", "Authorization", "api_secret"],
-  });
-
-  const operationsScoped = await runEmployeeScopedCase();
+  const adminDesktop = await runAdminEffectCase();
+  const forbiddenCases = [];
+  for (const [name, account] of Object.entries(ACCOUNTS).filter(([name]) => name !== "admin")) {
+    forbiddenCases.push(await runForbiddenRouteCase({
+      label: `${name}_effect_analytics_forbidden`,
+      account,
+      path: "/effect-analytics",
+      forbiddenText: "效果分析",
+    }));
+  }
+  const apiForbidden = await verifyApiForbidden("/effect-analytics?date_range=30d");
 
   console.log(JSON.stringify({
     ok: true,
-    results: [adminDesktop, financeMobile, operationsScoped],
-    note: "real browser, real frontend, real API login; no mock/stub/fake",
+    results: [adminDesktop, ...forbiddenCases],
+    apiForbidden,
+    note: "real browser, real frontend, real API login; effect analytics is admin-only; no mock/stub/fake",
   }, null, 2));
 } finally {
   await browser.close();
 }
 
-async function runEffectCase({ label, account, viewport, screenshot, visible, hidden }) {
-  const page = await browser.newPage({ viewport });
-  await page.goto(`${FRONTEND_URL}/effect-analytics`, { waitUntil: "networkidle" });
-  await login(page, account);
+async function runAdminEffectCase() {
+  const context = await browser.newContext({ viewport: { width: 1440, height: 960 } });
+  const page = await context.newPage();
+  const screenshot = "/tmp/company-rag-effect-analytics-admin-desktop.png";
+  try {
+    await loginAtPath(page, ACCOUNTS.admin, "/effect-analytics");
+    await Promise.all([
+      page.waitForResponse(
+        (response) => response.url().includes("/api/effect-analytics") && response.status() === 200,
+        { timeout: 30000 },
+      ),
+      page.goto(`${FRONTEND_URL}/effect-analytics`, { waitUntil: "networkidle" }),
+    ]);
+    await page.getByText("效果分析", { exact: false }).first().waitFor({
+      state: "visible",
+      timeout: 30000,
+    });
+    await page.waitForTimeout(800);
 
-  await Promise.all([
-    page.waitForResponse(
-      (response) => response.url().includes("/api/effect-analytics") && response.status() === 200,
-      { timeout: 30000 },
-    ),
-    page.goto(`${FRONTEND_URL}/effect-analytics`, { waitUntil: "networkidle" }),
-  ]);
-  await page.getByText("效果分析", { exact: false }).first().waitFor({
-    state: "visible",
-    timeout: 30000,
+    for (const text of ["效果分析", "自动化次数", "成功率", "执行趋势", "岗位效果排行", "审计安全摘要"]) {
+      const count = await page.getByText(text, { exact: false }).count();
+      if (count === 0) {
+        throw new Error(`admin_effect_analytics_desktop: expected visible text ${text}`);
+      }
+    }
+
+    for (const text of ["input_preview", "output_preview", "Authorization", "api_secret"]) {
+      const count = await page.getByText(text, { exact: false }).count();
+      if (count > 0) {
+        throw new Error(`admin_effect_analytics_desktop: unexpected sensitive text ${text}`);
+      }
+    }
+
+    const overflow = await assertNoHorizontalOverflow(page, "admin_effect_analytics_desktop");
+    await page.screenshot({ path: screenshot, fullPage: true });
+
+    return {
+      label: "admin_effect_analytics_desktop",
+      screenshot,
+      overflow,
+    };
+  } finally {
+    await context.close();
+  }
+}
+
+async function runForbiddenRouteCase({ label, account, path, forbiddenText }) {
+  const context = await browser.newContext({ viewport: { width: 1366, height: 900 } });
+  const page = await context.newPage();
+  try {
+    await loginAtPath(page, account, path);
+    await page.waitForURL("**/dashboard", { timeout: 15000 });
+    await page.getByText("概览", { exact: false }).first().waitFor({
+      state: "visible",
+      timeout: 15000,
+    });
+    await page.waitForTimeout(600);
+
+    const forbiddenCount = await mainContent(page).getByText(forbiddenText, { exact: false }).count();
+    if (forbiddenCount > 0) {
+      throw new Error(`${label}: forbidden page text still visible`);
+    }
+
+    const overflow = await assertNoHorizontalOverflow(page, label);
+    return {
+      label,
+      currentUrl: page.url(),
+      overflow,
+    };
+  } finally {
+    await context.close();
+  }
+}
+
+async function verifyApiForbidden(path) {
+  const results = [];
+  for (const [name, account] of Object.entries(ACCOUNTS).filter(([name]) => name !== "admin")) {
+    const token = await loginByApi(account);
+    const response = await fetch(`${API_BASE_URL}${path}`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+    if (response.status !== 403) {
+      throw new Error(`${name}: expected ${path} to return 403, got ${response.status}: ${await response.text()}`);
+    }
+    results.push({ account: name, status: response.status });
+  }
+  return results;
+}
+
+async function loginAtPath(page, account, path) {
+  await page.goto(FRONTEND_URL, { waitUntil: "networkidle" });
+  await page.evaluate(() => {
+    localStorage.removeItem("access_token");
+    localStorage.removeItem("username");
+    localStorage.removeItem("role");
+    localStorage.removeItem("position");
+    localStorage.removeItem("allowed_ai_app_ids");
   });
-  await page.waitForTimeout(800);
-
-  for (const text of visible) {
-    const count = await page.getByText(text, { exact: false }).count();
-    if (count === 0) {
-      throw new Error(`${label}: expected visible text ${text}`);
-    }
-  }
-
-  for (const text of hidden) {
-    const count = await page.getByText(text, { exact: false }).count();
-    if (count > 0) {
-      throw new Error(`${label}: unexpected sensitive/cross-scope text ${text}`);
-    }
-  }
-
-  const overflow = await assertNoHorizontalOverflow(page, label);
-  await page.screenshot({ path: screenshot, fullPage: true });
-  await page.close();
-
-  return {
-    label,
-    screenshot,
-    overflow,
-  };
-}
-
-async function runEmployeeScopedCase() {
-  const page = await browser.newPage({ viewport: { width: 1366, height: 900 } });
-  await page.goto(`${FRONTEND_URL}/effect-analytics`, { waitUntil: "networkidle" });
-  await login(page, ACCOUNTS.operations);
-
-  const responsePromise = page.waitForResponse(
-    (response) => response.url().includes("/api/effect-analytics") && response.status() === 200,
-    { timeout: 30000 },
-  );
-  await page.goto(`${FRONTEND_URL}/effect-analytics`, { waitUntil: "networkidle" });
-  const response = await responsePromise;
-  const payload = await response.json();
-
-  if (payload.scope.position !== "operations") {
-    throw new Error(`operations scope should stay operations: ${JSON.stringify(payload.scope)}`);
-  }
-
-  for (const item of payload.position_ranking) {
-    if (item.position !== "operations") {
-      throw new Error(`operations employee saw cross-position analytics: ${JSON.stringify(item)}`);
-    }
-  }
-
-  await page.getByText("运营", { exact: false }).first().waitFor({
-    state: "visible",
-    timeout: 15000,
-  });
-
-  const financeCount = await page.getByText("财务", { exact: false }).count();
-  if (financeCount > 0) {
-    throw new Error("operations employee should not see finance analytics");
-  }
-
-  const overflow = await assertNoHorizontalOverflow(page, "operations_effect_analytics_scoped");
-  await page.close();
-
-  return {
-    label: "operations_effect_analytics_scoped",
-    scope: payload.scope,
-    overflow,
-  };
-}
-
-async function assertNoHorizontalOverflow(page, label) {
-  const overflow = await page.evaluate(() => ({
-    width: document.documentElement.scrollWidth,
-    clientWidth: document.documentElement.clientWidth,
-    bodyWidth: document.body.scrollWidth,
-  }));
-  if (overflow.width > overflow.clientWidth + 2 || overflow.bodyWidth > overflow.clientWidth + 2) {
-    throw new Error(`${label}: horizontal overflow ${JSON.stringify(overflow)}`);
-  }
-  return overflow;
-}
-
-async function login(page, account) {
-  const loginButton = page.getByRole("button", { name: "登录" });
-  const count = await loginButton.count();
-  if (count > 0) {
-    await loginButton.first().click();
-  }
+  await page.goto(`${FRONTEND_URL}${path}`, { waitUntil: "networkidle" });
+  await page.getByRole("button", { name: /登录|未登录/ }).first().click();
   const modal = page.locator(".ant-modal").filter({ hasText: "登录 Company RAG Agent" }).first();
   await modal.waitFor({ state: "visible", timeout: 10000 });
   await modal.locator("input").nth(0).fill(account.username);
@@ -174,6 +170,39 @@ async function login(page, account) {
   await page.waitForFunction(() => Boolean(window.localStorage.getItem("access_token")), null, {
     timeout: 10000,
   });
+}
+
+async function loginByApi(account) {
+  const body = new URLSearchParams();
+  body.set("username", account.username);
+  body.set("password", account.password);
+  const response = await fetch(`${API_BASE_URL}/auth/login`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body,
+  });
+  if (response.status !== 200) {
+    throw new Error(`login failed for ${account.username}: ${response.status} ${await response.text()}`);
+  }
+  return (await response.json()).access_token;
+}
+
+function mainContent(page) {
+  return page.locator(".ant-pro-page-container").first();
+}
+
+async function assertNoHorizontalOverflow(page, label) {
+  const overflow = await page.evaluate(() => ({
+    width: document.documentElement.scrollWidth,
+    clientWidth: document.documentElement.clientWidth,
+    bodyWidth: document.body.scrollWidth,
+  }));
+  if (overflow.width > overflow.clientWidth + 2 || overflow.bodyWidth > overflow.clientWidth + 2) {
+    throw new Error(`${label}: horizontal overflow ${JSON.stringify(overflow)}`);
+  }
+  return overflow;
 }
 
 function requirePlaywright() {

@@ -36,7 +36,8 @@ refund：用户想申请退款、特殊退款、取消订单退款，或者询�
 erp：用户想查询 ERP 里的商品、价格、销售订单列表、客户资料、物流单、工单、工资、财务分录、收付款等业务数据。
 chitchat：用户在问候、寒暄、感谢、说再见、闲聊，例如你好、谢谢、你是谁、早上好。
 
-必须只返回结构化结果，intent 字段只能是 policy、order、refund、erp、chitchat 之一。
+必须只返回 JSON 结构化结果，JSON 对象中只能包含 intent 字段。
+intent 字段只能是 policy、order、refund、erp、chitchat 之一。
 """.strip(),
     ),
     (
@@ -54,9 +55,12 @@ def classify_user_intent(user_input: str) -> str:
     if deterministic_intent:
         return deterministic_intent
 
-    result = intent_chain.invoke({
-        "user_input": user_input,
-    })
+    try:
+        result = intent_chain.invoke({
+            "user_input": user_input,
+        })
+    except Exception:
+        return _classify_by_rules(user_input) or "chitchat"
 
     return result.intent
 

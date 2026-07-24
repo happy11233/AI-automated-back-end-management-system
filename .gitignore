@@ -1,13 +1,90 @@
-.venv/
+# Environment and secrets
 .env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+
+# Python
+.venv/
+venv/
+env/
 __pycache__/
-*.pyc
-.DS_Store
-data/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
 
+# Node / frontend
+node_modules/
 frontend/node_modules/
+dist/
 frontend/dist/
+.vite/
+frontend/.vite/
 frontend/tsconfig.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
 
-.idea/
+# Runtime data, generated files, and local databases
+/data/
+/uploads/
+/generated/
+/artifacts/
+/reports/
+/tmp/
+/temp/
+*.sqlite
+*.sqlite3
+*.db
+*.dump
+
+# Logs and local diagnostics
 *.log
+logs/
+coverage/
+test-results/
+playwright-report/
+screenshots/
+*.har
+*.trace.zip
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Codex / loop engineering / spec coding local artifacts
+.codex/
+.codex-*
+.specify/
+.specs/
+specs/
+.loop/
+.loop-engineering/
+loop-engineering/
+loop_engineering/
+.github/
+
+# Internal planning docs generated during loop engineering or spec coding.
+# Keep only the public README and the sample RAG document used by local demos.
+docs/*
+!docs/refund.md
+!docs/.gitkeep
+
+# Generated evaluation outputs
+eval/*_report.json
+eval/reports/

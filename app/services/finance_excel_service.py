@@ -33,6 +33,7 @@ def transform_finance_excel(
     source_filename: str,
     content: bytes,
     instruction: str,
+    erp_context: list[dict[str, Any]] | None = None,
 ) -> FinanceExcelTransformResult:
     suffix = Path(source_filename or "").suffix.lower()
     if suffix not in ALLOWED_EXCEL_EXTENSIONS:
@@ -50,11 +51,13 @@ def transform_finance_excel(
         or "请按财务复核要求整理表格，生成数值汇总，并指出需要人工复核的异常。"
     )
     sheet_summaries = _build_sheet_summaries(sheets)
+    normalized_erp_context = erp_context or []
     ai_suggestion = _build_ai_suggestion(
         instruction=normalized_instruction,
         source_filename=source_filename,
         sheets=sheets,
         sheet_summaries=sheet_summaries,
+        erp_context=normalized_erp_context,
     )
     workbook = _build_output_workbook(
         source_filename=source_filename,
@@ -62,6 +65,7 @@ def transform_finance_excel(
         sheets=sheets,
         sheet_summaries=sheet_summaries,
         ai_suggestion=ai_suggestion,
+        erp_context=normalized_erp_context,
     )
 
     output = BytesIO()
@@ -80,6 +84,17 @@ def transform_finance_excel(
             "sheet_count": len(sheets),
             "total_rows": sum(summary["row_count"] for summary in sheet_summaries),
             "total_columns": sum(summary["column_count"] for summary in sheet_summaries),
+            "erp_resource_count": len(normalized_erp_context),
+            "erp_resources": [
+                {
+                    "resource": str(item.get("resource") or ""),
+                    "label": str(item.get("label") or item.get("resource") or ""),
+                    "ok": bool(item.get("ok")),
+                    "status": str(item.get("status") or ""),
+                    "result_count": len(item.get("items") or []),
+                }
+                for item in normalized_erp_context
+            ],
             "instruction_preview": normalized_instruction[:500],
             "output_bytes": len(output_content),
         },
@@ -149,12 +164,14 @@ def _build_ai_suggestion(
     source_filename: str,
     sheets: dict[str, pd.DataFrame],
     sheet_summaries: list[dict[str, Any]],
+    erp_context: list[dict[str, Any]],
 ) -> str:
     prompt = _build_ai_prompt(
         instruction=instruction,
         source_filename=source_filename,
         sheets=sheets,
         sheet_summaries=sheet_summaries,
+        erp_context=erp_context,
     )
 
     try:
@@ -173,6 +190,7 @@ def _build_ai_prompt(
     source_filename: str,
     sheets: dict[str, pd.DataFrame],
     sheet_summaries: list[dict[str, Any]],
+    erp_context: list[dict[str, Any]],
 ) -> str:
     samples: list[str] = []
     for sheet_name, frame in sheets.items():
@@ -182,6 +200,20 @@ def _build_ai_prompt(
             f"Columns: {', '.join(str(column) for column in frame.columns)}\n"
             f"Sample rows: {sample_rows}"
         )
+
+    erp_summaries = [
+        {
+            "resource": str(item.get("resource") or ""),
+            "label": str(item.get("label") or item.get("resource") or ""),
+            "provider": str(item.get("provider_label") or item.get("provider") or ""),
+            "status": str(item.get("status") or ""),
+            "ok": bool(item.get("ok")),
+            "message": str(item.get("message") or "")[:300],
+            "result_count": len(item.get("items") or []),
+            "sample_rows": (item.get("items") or [])[:5],
+        }
+        for item in erp_context
+    ]
 
     return f"""你是跨境电商企业内部财务 AI 助手。
 请只围绕财务岗位可见数据做表格整理建议，不要输出越权内容。
@@ -195,11 +227,15 @@ def _build_ai_prompt(
 样例数据：
 {chr(10).join(samples)}
 
+财务权限内 ERP 表：
+{erp_summaries or "本次未选择 ERP 表"}
+
 请输出：
 1. 本次新 Excel 应如何使用
-2. 关键汇总指标应该重点看哪些列
-3. 可能的异常和复核点
-4. 如果要继续生成工资/利润/费用分析表，下一步需要补充哪些字段
+2. 上传 Excel 与已选 ERP 表可以如何合并或核对
+3. 关键汇总指标应该重点看哪些列
+4. 可能的异常和复核点
+5. 如果要继续生成工资/利润/费用分析表，下一步需要补充哪些字段
 """
 
 
@@ -210,6 +246,7 @@ def _build_output_workbook(
     sheets: dict[str, pd.DataFrame],
     sheet_summaries: list[dict[str, Any]],
     ai_suggestion: str,
+    erp_context: list[dict[str, Any]],
 ) -> Workbook:
     workbook = Workbook()
     summary_sheet = workbook.active
@@ -225,6 +262,15 @@ def _build_output_workbook(
     _write_ai_suggestion_sheet(workbook, ai_suggestion)
 
     used_titles = set(workbook.sheetnames)
+    if erp_context:
+        _write_erp_summary_sheet(workbook, erp_context)
+        used_titles = set(workbook.sheetnames)
+        for item in erp_context:
+            output_sheet = workbook.create_sheet(
+                title=_unique_sheet_title(f"ERP_{item.get('resource') or 'resource'}", used_titles)
+            )
+            _write_erp_resource_sheet(output_sheet, item)
+
     for sheet_name, frame in sheets.items():
         output_sheet = workbook.create_sheet(
             title=_unique_sheet_title(f"整理_{sheet_name}", used_titles)
@@ -272,6 +318,58 @@ def _write_summary_sheet(
     _style_sheet(sheet)
     sheet.freeze_panes = "A2"
     _auto_width(sheet, max_width=70)
+
+
+def _write_erp_summary_sheet(
+    workbook: Workbook,
+    erp_context: list[dict[str, Any]],
+) -> None:
+    sheet = workbook.create_sheet("ERP数据摘要")
+    sheet.append(["ERP资源", "资源名称", "提供方", "状态", "结果数", "说明"])
+
+    for item in erp_context:
+        sheet.append(
+            [
+                str(item.get("resource") or ""),
+                str(item.get("label") or item.get("resource") or ""),
+                str(item.get("provider_label") or item.get("provider") or ""),
+                "成功" if item.get("ok") else str(item.get("status") or "失败"),
+                len(item.get("items") or []),
+                str(item.get("message") or ""),
+            ]
+        )
+
+    _style_sheet(sheet)
+    sheet.freeze_panes = "A2"
+    _auto_width(sheet, max_width=60)
+
+
+def _write_erp_resource_sheet(sheet, item: dict[str, Any]) -> None:
+    items = item.get("items")
+    if not isinstance(items, list) or not items:
+        sheet.append(["ERP资源", "状态", "说明"])
+        sheet.append(
+            [
+                str(item.get("resource") or ""),
+                str(item.get("status") or ""),
+                str(item.get("message") or "未返回可写入的数据"),
+            ]
+        )
+        _style_sheet(sheet)
+        sheet.freeze_panes = "A2"
+        _auto_width(sheet, max_width=60)
+        return
+
+    frame = pd.DataFrame([_flatten_record(row) for row in items if isinstance(row, dict)])
+    if frame.empty:
+        sheet.append(["ERP资源", "状态", "说明"])
+        sheet.append([str(item.get("resource") or ""), str(item.get("status") or ""), "ERP 返回的数据格式无法写入表格"])
+        _style_sheet(sheet)
+        sheet.freeze_panes = "A2"
+        _auto_width(sheet, max_width=60)
+        return
+
+    _write_dataframe_sheet(sheet, frame)
 
 
 def _write_numeric_summary_sheet(
@@ -335,6 +433,13 @@ def _write_dataframe_sheet(sheet, frame: pd.DataFrame) -> None:
     _auto_width(sheet)
 
 
+def _flatten_record(record: dict[str, Any]) -> dict[str, Any]:
+    return {
+        str(key): _clean_excel_value(value)
+        for key, value in record.items()
+    }
+
+
 def _style_sheet(sheet) -> None:
     header_fill = PatternFill("solid", fgColor="1F4E78")
     header_font = Font(color="FFFFFF", bold=True)
@@ -367,6 +472,12 @@ def _auto_width(sheet, *, max_width: int = 38) -> None:
 
 
 def _clean_excel_value(value: Any) -> Any:
+    if value is None:
+        return ""
+
+    if isinstance(value, (dict, list, tuple, set)):
+        return str(value)
+
     if pd.isna(value):
         return ""
 

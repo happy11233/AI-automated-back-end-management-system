@@ -28,6 +28,11 @@ class EvalCase:
     question: str
     role: str
     department: str | None
+    position: str | None
+    market_scope: str | None
+    store_scope: str | None
+    field_scope: str | None
+    max_sensitivity_level: str | None
     should_refuse: bool
     expected_evidence: list[dict[str, Any]]
 
@@ -58,6 +63,11 @@ def load_eval_cases(dataset_path: Path) -> list[EvalCase]:
                     question=raw_case["question"],
                     role=raw_case.get("role", "employee"),
                     department=raw_case.get("department"),
+                    position=raw_case.get("position"),
+                    market_scope=raw_case.get("market_scope"),
+                    store_scope=raw_case.get("store_scope"),
+                    field_scope=raw_case.get("field_scope"),
+                    max_sensitivity_level=raw_case.get("max_sensitivity_level"),
                     should_refuse=should_refuse,
                     expected_evidence=expected_evidence,
                 )
@@ -76,6 +86,11 @@ def evaluate_cases(cases: list[EvalCase], top_k: int) -> dict[str, Any]:
             role=case.role,
             top_k=top_k,
             department=case.department,
+            position=case.position,
+            market_scope=case.market_scope,
+            store_scope=case.store_scope,
+            field_scope=case.field_scope,
+            max_sensitivity_level=case.max_sensitivity_level,
         )
 
         if case.should_refuse:
@@ -136,6 +151,11 @@ def evaluate_refusal_case(case: EvalCase, top_k: int) -> dict[str, Any]:
         role=case.role,
         top_k=top_k,
         department=case.department,
+        position=case.position,
+        market_scope=case.market_scope,
+        store_scope=case.store_scope,
+        field_scope=case.field_scope,
+        max_sensitivity_level=case.max_sensitivity_level,
     )
     answer = result["answer"]
     refused = is_refusal_answer(answer)
@@ -239,6 +259,8 @@ def summarize_chunk(chunk: dict[str, Any], rank: int) -> dict[str, Any]:
         "source": chunk.get("source"),
         "score": chunk.get("score"),
         "retrieval_sources": chunk.get("retrieval_sources", []),
+        "field_scope": chunk.get("field_scope"),
+        "sensitivity_level": chunk.get("sensitivity_level"),
         "content_preview": chunk.get("content", "")[:120],
     }
 

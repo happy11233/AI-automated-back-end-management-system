@@ -23,9 +23,10 @@ class Settings(BaseSettings):
     context_summary_interval: int = 6
     context_memory_limit: int = 20
     context_enable_llm_summary: bool = True
-    chat_message_retention_days: int = 180
+    chat_message_retention_days: int = 15
     audit_log_retention_days: int = 365
-    closed_thread_retention_days: int = 365
+    chat_thread_retention_days: int = 15
+    closed_thread_retention_days: int = 15
     user_memory_retention_days: int = 365
     jwt_secret_key: str
     jwt_algorithm: str = "HS256"
@@ -58,6 +59,29 @@ class Settings(BaseSettings):
     erp_yonyou_app_secret: str | None = None
     customer_service_webhook_secret: str | None = None
     customer_service_webhook_secret_header: str = "X-Customer-Service-Webhook-Secret"
+    generated_file_retention_days: int = 30
+    generated_file_storage_dir: str = "data/generated_files"
+    smtp_host: str | None = None
+    smtp_port: int = 587
+    smtp_username: str | None = None
+    smtp_password: str | None = None
+    smtp_from_email: str | None = None
+    smtp_use_tls: bool = False
+    smtp_use_starttls: bool = True
+    smtp_timeout_seconds: int = 10
+    platform_action_executor_webhook_url: str | None = None
+    platform_action_executor_api_key: str | None = None
+    platform_action_executor_timeout_seconds: int = 12
+    platform_action_executor_allowed_hosts: str = ""
+    platform_action_executor_allowed_schemes: str = "https"
+    platform_action_executor_allowed_ports: str = "443"
+    platform_action_executor_allow_private_network: bool = False
+    platform_action_executor_require_allowlist: bool = True
+    platform_action_execution_callback_secret: str | None = None
+    platform_action_execution_callback_signature_header: str = "X-Platform-Callback-Signature"
+    platform_action_execution_callback_timestamp_header: str = "X-Platform-Callback-Timestamp"
+    platform_action_execution_callback_nonce_header: str = "X-Platform-Callback-Nonce"
+    platform_action_execution_callback_tolerance_seconds: int = 300
 
     model_config = SettingsConfigDict(
         env_file=".env",

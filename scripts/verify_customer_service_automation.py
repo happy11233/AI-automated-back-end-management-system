@@ -47,7 +47,12 @@ def main() -> None:
     assert low_risk_item["status"] in {"auto_reply_ready", "drafted"}, low_risk_item
     assert low_risk_item["reply_draft"], low_risk_item
     assert low_risk_result["run_id"], low_risk_result
-    assert [step["step_order"] for step in low_risk_result["steps"]] == [1, 2, 3, 4], low_risk_result["steps"]
+    assert [step["step_order"] for step in low_risk_result["steps"]] == [1, 2, 3, 4, 5, 6], low_risk_result["steps"]
+    assert low_risk_result["steps"][-2]["step_name"] == "save_reply_platform_draft", low_risk_result["steps"]
+    assert low_risk_result["steps"][-1]["step_name"] == "submit_external_writeback", low_risk_result["steps"]
+    assert low_risk_item["metadata"].get("platform_draft_id"), low_risk_item
+    assert low_risk_item["metadata"].get("writeback_status") in {"rpa_ready", "draft_saved"}, low_risk_item
+    assert low_risk_item["metadata"].get("latest_execution_id"), low_risk_item
 
     high_risk_detail = post_json(
         tokens["customer_service"],
@@ -79,12 +84,19 @@ def main() -> None:
     ids = {item["id"] for item in listing["items"]}
     assert low_risk_id in ids and high_risk_id in ids, listing
 
-    run_detail = get_json(tokens["customer_service"], f"/run-records/{low_risk_result['run_id']}")
+    customer_run_detail_forbidden = requests.get(
+        f"{API_BASE_URL}/run-records/{low_risk_result['run_id']}",
+        headers=auth_headers(tokens["customer_service"]),
+        timeout=30,
+    )
+    assert customer_run_detail_forbidden.status_code == 403, customer_run_detail_forbidden.text
+
+    run_detail = get_json(tokens["admin"], f"/run-records/{low_risk_result['run_id']}")
     assert run_detail["run"]["run_type"] == "customer_service_automation", run_detail["run"]
     assert run_detail["run"]["resource_type"] == "customer_service_message", run_detail["run"]
     assert len(run_detail["steps"]) >= 4, run_detail["steps"]
 
-    approvals = get_json(tokens["admin"], "/admin/approvals")
+    approvals = get_json(tokens["customer_service"], "/approvals")
     assert any(item["id"] == high_risk_item["approval_id"] for item in approvals["items"]), approvals
 
     forbidden_create = requests.post(
@@ -130,7 +142,13 @@ def main() -> None:
     workflow_items = get_json(tokens["customer_service"], "/ai-workflows")["items"]
     assert any(item["id"] == "customer_service_message_loop" for item in workflow_items), workflow_items
 
-    flow_items = get_json(tokens["customer_service"], "/automation-flows")["items"]
+    customer_flow_forbidden = requests.get(
+        f"{API_BASE_URL}/automation-flows",
+        headers=auth_headers(tokens["customer_service"]),
+        timeout=30,
+    )
+    assert customer_flow_forbidden.status_code == 403, customer_flow_forbidden.text
+    flow_items = get_json(tokens["admin"], "/automation-flows")["items"]
     assert any(item["app_id"] == "customer-service-message-loop" for item in flow_items), flow_items
 
     raw_outputs = json.dumps([low_risk_result, high_risk_result, run_detail, webhook_result], ensure_ascii=False)
@@ -159,6 +177,10 @@ def main() -> None:
             "risk_level": webhook_item["risk_level"],
             "status": webhook_item["status"],
             "run_id": webhook_result["run_id"],
+        },
+        "admin_only": {
+            "customer_run_detail": customer_run_detail_forbidden.status_code,
+            "customer_flow_config": customer_flow_forbidden.status_code,
         },
         "note": "real API, real auth, real DB, real ERP/RAG/LLM path; no mock/stub/fake",
     }, ensure_ascii=False))

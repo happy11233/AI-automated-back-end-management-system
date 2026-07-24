@@ -82,6 +82,12 @@ def main() -> None:
     if failures:
         raise SystemExit(f"ERP chat verification failed: {', '.join(failures)}")
 
+    print(json.dumps({
+        "ok": True,
+        "checked_cases": len(CASES),
+        "note": "real API, real auth, real ERP provider chat path; no mock/stub/fake",
+    }, ensure_ascii=False))
+
 
 def _login(username: str, password: str) -> str:
     body = urlencode({"username": username, "password": password}).encode()

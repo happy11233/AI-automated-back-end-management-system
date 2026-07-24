@@ -1,3 +1,6 @@
+from argparse import ArgumentParser
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 import http.client
 import json
 import os
@@ -5,17 +8,19 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from tempfile import TemporaryDirectory
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
-
-from openpyxl import Workbook, load_workbook
 
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 FRONTEND_DIR = ROOT_DIR / "frontend"
 DEFAULT_API_BASE_URL = "http://127.0.0.1:8001"
+PROFILES = ("quick", "api", "release")
+ALL_PROFILES = frozenset(PROFILES)
+API_RELEASE_PROFILES = frozenset({"api", "release"})
+QUICK_RELEASE_PROFILES = frozenset({"quick", "release"})
+RELEASE_ONLY_PROFILE = frozenset({"release"})
 WORKSPACE_NODE_MODULES = Path(
     "/Users/xiaoxiang/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules"
 )
@@ -25,58 +30,194 @@ class VerificationError(RuntimeError):
     pass
 
 
-def main() -> None:
+@dataclass(frozen=True)
+class Step:
+    label: str
+    profiles: frozenset[str]
+    action: Callable[[], None]
+
+
+def main(argv: Sequence[str] | None = None) -> None:
+    args = _parse_args(argv)
     api_base_url = os.getenv("VERIFY_API_BASE_URL", DEFAULT_API_BASE_URL).rstrip("/")
     python_bin = _python_bin()
+    steps = [step for step in _build_steps(api_base_url, python_bin) if args.profile in step.profiles]
 
-    steps = [
-        (
-            "后端 Python 语法编译",
-            lambda: _run([str(python_bin), "-m", "compileall", "app", "scripts"]),
-        ),
-        ("API 健康检查", lambda: _check_api_health(api_base_url)),
-        ("ERP 管理员诊断", lambda: _check_erp_diagnostics(api_base_url)),
-        (
-            "ERP 对话权限回归",
-            lambda: _run([str(python_bin), "scripts/verify_erp_chat.py"]),
-        ),
-        (
-            "岗位越权权限回归",
-            lambda: _run([str(python_bin), "scripts/verify_position_permissions.py"]),
-        ),
-        (
-            "发布前稳定化回归",
-            lambda: _run([str(python_bin), "scripts/verify_release_ready.py"]),
-        ),
-        (
-            "客服自动化闭环回归",
-            lambda: _run([str(python_bin), "scripts/verify_customer_service_automation.py"]),
-        ),
-        (
-            "客服自动化收件箱前端回归",
-            lambda: _run_node(["node", "scripts/verify_customer_service_inbox_frontend.mjs"]),
-        ),
-        ("财务 Excel 生成回归", lambda: _check_finance_excel_transform(api_base_url)),
-        (
-            "财务对账自动化回归",
-            lambda: _run([str(python_bin), "scripts/verify_finance_reconciliation.py"]),
-        ),
-        ("前端构建", lambda: _run(["npm", "run", "build"], cwd=FRONTEND_DIR)),
-        ("前端权限可见性回归", lambda: _check_frontend_permissions()),
-    ]
+    if args.list:
+        print(f"验证 profile：{args.profile}")
+        for index, step in enumerate(steps, start=1):
+            print(f"{index}. {step.label}")
+        return
 
+    print(f"验证 profile：{args.profile}（{len(steps)} 步）", flush=True)
     started_at = time.monotonic()
 
-    for index, (label, action) in enumerate(steps, start=1):
-        print(f"\n[{index}/{len(steps)}] {label}", flush=True)
+    for index, step in enumerate(steps, start=1):
+        print(f"\n[{index}/{len(steps)}] {step.label}", flush=True)
         step_started_at = time.monotonic()
         try:
-            action()
+            step.action()
         except Exception as error:
-            raise SystemExit(f"\n验证失败：{label}\n原因：{error}") from error
-        print(f"通过：{label}（{time.monotonic() - step_started_at:.1f}s）", flush=True)
+            raise SystemExit(f"\n验证失败：{step.label}\n原因：{error}") from error
+        print(f"通过：{step.label}（{time.monotonic() - step_started_at:.1f}s）", flush=True)
 
     print(f"\n全部验证通过（总耗时 {time.monotonic() - started_at:.1f}s）", flush=True)
+
+
+def _parse_args(argv: Sequence[str] | None):
+    parser = ArgumentParser(description="Company RAG Agent 分层验证入口")
+    parser.add_argument(
+        "--profile",
+        choices=PROFILES,
+        default="release",
+        help="quick=CI 快检；api=真实 API/数据库回归；release=发布前全量真实闸门（默认）",
+    )
+    parser.add_argument("--list", action="store_true", help="只列出当前 profile 会执行的步骤")
+    return parser.parse_args(argv)
+
+
+def _build_steps(api_base_url: str, python_bin: Path) -> list[Step]:
+    return [
+        Step(
+            "后端 Python 语法编译",
+            ALL_PROFILES,
+            lambda: _run([str(python_bin), "-m", "compileall", "app", "scripts"]),
+        ),
+        Step(
+            "数据库迁移静态检查",
+            ALL_PROFILES,
+            lambda: _run([str(python_bin), "scripts/verify_sql_migrations.py", "--mode", "static"]),
+        ),
+        Step(
+            "Skill Registry 静态检查",
+            ALL_PROFILES,
+            lambda: _run([str(python_bin), "scripts/verify_skill_registry.py"]),
+        ),
+        Step(
+            "数据库迁移真实 PostgreSQL 回放",
+            API_RELEASE_PROFILES,
+            lambda: _run([str(python_bin), "scripts/verify_sql_migrations.py", "--mode", "runtime"]),
+        ),
+        Step("API 健康检查", API_RELEASE_PROFILES, lambda: _check_api_health(api_base_url)),
+        Step("ERP 管理员诊断", API_RELEASE_PROFILES, lambda: _check_erp_diagnostics(api_base_url)),
+        Step(
+            "ERP 对话权限回归",
+            API_RELEASE_PROFILES,
+            lambda: _run([str(python_bin), "scripts/verify_erp_chat.py"]),
+        ),
+        Step(
+            "聊天 ReAct 守卫回归",
+            API_RELEASE_PROFILES,
+            lambda: _run([str(python_bin), "scripts/verify_chat_react_guardrails.py"]),
+        ),
+        Step(
+            "岗位越权权限回归",
+            API_RELEASE_PROFILES,
+            lambda: _run([str(python_bin), "scripts/verify_position_permissions.py"]),
+        ),
+        Step(
+            "管理员用户生命周期回归",
+            API_RELEASE_PROFILES,
+            lambda: _run([str(python_bin), "scripts/verify_admin_user_lifecycle.py"]),
+        ),
+        Step(
+            "发布前稳定化回归",
+            API_RELEASE_PROFILES,
+            lambda: _run([str(python_bin), "scripts/verify_release_ready.py"]),
+        ),
+        Step(
+            "AI 工作流真实执行回归",
+            API_RELEASE_PROFILES,
+            lambda: _run([str(python_bin), "scripts/verify_ai_workflows.py"]),
+        ),
+        Step(
+            "客服自动化闭环回归",
+            API_RELEASE_PROFILES,
+            lambda: _run([str(python_bin), "scripts/verify_customer_service_automation.py"]),
+        ),
+        Step(
+            "客服退款审批回归",
+            API_RELEASE_PROFILES,
+            lambda: _run([str(python_bin), "scripts/verify_customer_service_refund_approvals.py"]),
+        ),
+        Step(
+            "业务闭环 owner 隔离回归",
+            API_RELEASE_PROFILES,
+            lambda: _run([str(python_bin), "scripts/verify_business_action_owner_isolation.py"]),
+        ),
+        Step(
+            "平台草稿自动化回归",
+            API_RELEASE_PROFILES,
+            lambda: _run([str(python_bin), "scripts/verify_platform_draft_automation.py"]),
+        ),
+        Step(
+            "自动化流程版本治理回归",
+            API_RELEASE_PROFILES,
+            lambda: _run([str(python_bin), "scripts/verify_automation_flow_versions.py"]),
+        ),
+        Step(
+            "自动化运行记录版本引用回归",
+            API_RELEASE_PROFILES,
+            lambda: _run([str(python_bin), "scripts/verify_automation_run_flow_references.py"]),
+        ),
+        Step(
+            "RAG 岗位 scope 隔离回归",
+            API_RELEASE_PROFILES,
+            lambda: _run([str(python_bin), "scripts/verify_rag_position_scope.py"]),
+        ),
+        Step(
+            "RAG 站点店铺 scope 隔离回归",
+            API_RELEASE_PROFILES,
+            lambda: _run([str(python_bin), "scripts/verify_rag_business_scope.py"]),
+        ),
+        Step(
+            "RAG 字段敏感级别 scope 隔离回归",
+            API_RELEASE_PROFILES,
+            lambda: _run([str(python_bin), "scripts/verify_rag_field_sensitivity_scope.py"]),
+        ),
+        Step(
+            "RAG 用户团队授权隔离回归",
+            API_RELEASE_PROFILES,
+            lambda: _run([str(python_bin), "scripts/verify_rag_user_team_authorization.py"]),
+        ),
+        Step(
+            "RAG 授权管理 API 与审计回归",
+            API_RELEASE_PROFILES,
+            lambda: _run([str(python_bin), "scripts/verify_rag_authorization_admin_api.py"]),
+        ),
+        Step(
+            "RAG 授权命中拒绝审计回归",
+            API_RELEASE_PROFILES,
+            lambda: _run([str(python_bin), "scripts/verify_rag_authorization_audit.py"]),
+        ),
+        Step(
+            "客服自动化收件箱前端回归",
+            RELEASE_ONLY_PROFILE,
+            lambda: _run_node(["node", "scripts/verify_customer_service_inbox_frontend.mjs"]),
+        ),
+        Step(
+            "财务 Excel 生成回归",
+            API_RELEASE_PROFILES,
+            lambda: _run([str(python_bin), "scripts/verify_finance_excel_transform.py"]),
+        ),
+        Step(
+            "财务工资导出回归",
+            API_RELEASE_PROFILES,
+            lambda: _run([str(python_bin), "scripts/verify_finance_salary_export.py"]),
+        ),
+        Step(
+            "财务对账自动化回归",
+            API_RELEASE_PROFILES,
+            lambda: _run([str(python_bin), "scripts/verify_finance_reconciliation.py"]),
+        ),
+        Step("前端构建", QUICK_RELEASE_PROFILES, lambda: _run(["npm", "run", "build"], cwd=FRONTEND_DIR)),
+        Step("前端权限可见性回归", RELEASE_ONLY_PROFILE, lambda: _check_frontend_permissions()),
+        Step(
+            "RAG 授权管理前端回归",
+            RELEASE_ONLY_PROFILE,
+            lambda: _run_node(["node", "scripts/verify_rag_authorization_frontend.mjs"]),
+        ),
+    ]
 
 
 def _python_bin() -> Path:
@@ -172,131 +313,6 @@ def _login_admin(api_base_url: str) -> str:
     return str(token)
 
 
-def _login_user(api_base_url: str, username: str, password: str) -> str:
-    body = urlencode({"username": username, "password": password}).encode()
-    payload = _request_json(
-        f"{api_base_url}/auth/login",
-        method="POST",
-        body=body,
-        headers={"Content-Type": "application/x-www-form-urlencoded"},
-        timeout=10,
-    )
-
-    token = payload.get("access_token")
-    if not token:
-        raise VerificationError(f"{username} 登录成功响应中没有 access_token")
-
-    return str(token)
-
-
-def _check_finance_excel_transform(api_base_url: str) -> None:
-    token = _login_user(api_base_url, "finance_demo", "Finance123456")
-
-    with TemporaryDirectory() as temp_dir:
-        input_path = Path(temp_dir) / "finance_input.xlsx"
-        output_path = Path(temp_dir) / "finance_output.xlsx"
-        _build_sample_finance_workbook(input_path)
-        content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        boundary = f"----codex-finance-{int(time.time() * 1000)}"
-        body = _build_multipart_body(
-            boundary=boundary,
-            fields={
-                "instruction": "按店铺统计销售额、成本、利润，标记利润为负或金额为空的记录。",
-            },
-            files={
-                "file": {
-                    "filename": input_path.name,
-                    "content_type": content_type,
-                    "content": input_path.read_bytes(),
-                },
-            },
-        )
-        raw = _request_bytes(
-            f"{api_base_url}/automation/finance/excel-transform",
-            method="POST",
-            body=body,
-            headers={
-                "Authorization": f"Bearer {token}",
-                "Content-Type": f"multipart/form-data; boundary={boundary}",
-            },
-            timeout=60,
-        )
-        output_path.write_bytes(raw)
-
-        workbook = load_workbook(output_path, data_only=True)
-        expected_sheets = {"处理摘要", "数值汇总", "AI建议"}
-        missing_sheets = expected_sheets.difference(workbook.sheetnames)
-        if missing_sheets:
-            raise VerificationError(f"生成 Excel 缺少 sheet：{', '.join(sorted(missing_sheets))}")
-
-        if workbook["数值汇总"].max_row < 2:
-            raise VerificationError("生成 Excel 的数值汇总为空")
-
-        print(
-            json.dumps(
-                {
-                    "filename": output_path.name,
-                    "sheets": workbook.sheetnames,
-                    "bytes": len(raw),
-                },
-                ensure_ascii=False,
-            )
-        )
-
-
-def _build_sample_finance_workbook(path: Path) -> None:
-    workbook = Workbook()
-    sheet = workbook.active
-    sheet.title = "Amazon销售明细"
-    sheet.append(["店铺", "订单号", "销售额", "成本", "利润"])
-    sheet.append(["US Store", "AMZ-US-112-4589012-7783401", 59.99, 31.5, 28.49])
-    sheet.append(["DE Store", "AMZ-DE-305-7712468-1290045", 42.5, 25.2, 17.3])
-    sheet.append(["JP Store", "AMZ-JP-250-6630188-4402197", 41.97, 44.0, -2.03])
-    workbook.save(path)
-
-
-def _build_multipart_body(
-    *,
-    boundary: str,
-    fields: dict[str, str],
-    files: dict[str, dict[str, bytes | str]],
-) -> bytes:
-    chunks: list[bytes] = []
-
-    for name, value in fields.items():
-        chunks.extend(
-            [
-                f"--{boundary}\r\n".encode(),
-                f'Content-Disposition: form-data; name="{name}"\r\n\r\n'.encode(),
-                value.encode("utf-8"),
-                b"\r\n",
-            ]
-        )
-
-    for name, file_item in files.items():
-        filename = str(file_item["filename"])
-        content_type = str(file_item["content_type"])
-        content = file_item["content"]
-        if not isinstance(content, bytes):
-            raise TypeError("multipart file content must be bytes")
-
-        chunks.extend(
-            [
-                f"--{boundary}\r\n".encode(),
-                (
-                    f'Content-Disposition: form-data; name="{name}"; '
-                    f'filename="{filename}"\r\n'
-                ).encode(),
-                f"Content-Type: {content_type}\r\n\r\n".encode(),
-                content,
-                b"\r\n",
-            ]
-        )
-
-    chunks.append(f"--{boundary}--\r\n".encode())
-    return b"".join(chunks)
-
-
 def _request_json(
     url: str,
     *,
@@ -327,28 +343,6 @@ def _request_json(
         raise VerificationError(f"{url} 返回 JSON 不是对象：{payload!r}")
 
     return payload
-
-
-def _request_bytes(
-    url: str,
-    *,
-    method: str,
-    body: bytes | None = None,
-    headers: dict[str, str] | None = None,
-    timeout: int,
-) -> bytes:
-    request = Request(url, data=body, headers=headers or {}, method=method)
-
-    try:
-        with urlopen(request, timeout=timeout) as response:
-            return response.read()
-    except HTTPError as error:
-        raw = error.read().decode("utf-8", errors="replace")
-        raise VerificationError(f"{url} 返回 HTTP {error.code}: {_preview(raw)}") from error
-    except URLError as error:
-        raise VerificationError(f"{url} 无法连接：{error.reason}") from error
-    except TimeoutError as error:
-        raise VerificationError(f"{url} 请求超时") from error
 
 
 def _preview(value: str, length: int = 300) -> str:

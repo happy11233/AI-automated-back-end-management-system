@@ -442,6 +442,7 @@ def cleanup_expired_context(
     chat_days = chat_message_retention_days or settings.chat_message_retention_days
     audit_days = audit_log_retention_days or settings.audit_log_retention_days
     thread_days = closed_thread_retention_days or settings.closed_thread_retention_days
+    all_thread_days = settings.chat_thread_retention_days
 
     with transaction() as conn:
         with conn.cursor() as cur:
@@ -477,21 +478,33 @@ def cleanup_expired_context(
             cur.execute(
                 """
                 DELETE FROM chat_threads
+                WHERE updated_at < now() - (%s || ' days')::interval
+                RETURNING 1;
+                """,
+                (all_thread_days,),
+            )
+            expired_thread_count = len(cur.fetchall())
+
+            cur.execute(
+                """
+                DELETE FROM chat_threads
                 WHERE status = 'closed'
                   AND updated_at < now() - (%s || ' days')::interval
                 RETURNING 1;
                 """,
                 (thread_days,),
             )
-            expired_thread_count = len(cur.fetchall())
+            expired_closed_thread_count = len(cur.fetchall())
 
     return {
         "expired_memories_deleted": expired_memory_count,
         "expired_audit_logs_deleted": expired_audit_count,
         "expired_chat_messages_deleted": expired_message_count,
-        "expired_closed_threads_deleted": expired_thread_count,
+        "expired_chat_threads_deleted": expired_thread_count,
+        "expired_closed_threads_deleted": expired_closed_thread_count,
         "chat_message_retention_days": chat_days,
         "audit_log_retention_days": audit_days,
+        "chat_thread_retention_days": all_thread_days,
         "closed_thread_retention_days": thread_days,
     }
 

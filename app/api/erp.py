@@ -1,3 +1,4 @@
+import re
 from datetime import date, datetime, timedelta
 from typing import Any
 
@@ -23,6 +24,7 @@ from app.permissions import (
     is_valid_position,
 )
 from app.services.logging_service import write_audit_log
+from app.services.automation_flow_version_service import resolve_flow_execution_reference
 from app.services.run_record_service import (
     elapsed_ms,
     finish_run,
@@ -30,6 +32,7 @@ from app.services.run_record_service import (
     record_step,
     start_run,
 )
+from app.services.user_ai_app_permission_service import is_ai_app_allowed
 
 
 router = APIRouter(
@@ -118,6 +121,12 @@ class ERPDashboardSection(BaseModel):
     items: list[dict[str, Any]]
 
 
+class ERPDashboardFilterOption(BaseModel):
+    label: str
+    value: str
+    count: int = 0
+
+
 class ERPDashboardOverviewResponse(BaseModel):
     provider: str
     provider_label: str
@@ -132,6 +141,8 @@ class ERPDashboardOverviewResponse(BaseModel):
     date_range_label: str
     title: str
     message: str
+    market_options: list[ERPDashboardFilterOption] = Field(default_factory=list)
+    store_options: list[ERPDashboardFilterOption] = Field(default_factory=list)
     metrics: list[ERPDashboardMetric]
     sections: list[ERPDashboardSection]
 
@@ -171,6 +182,10 @@ DASHBOARD_MARKETS: dict[str, dict[str, Any]] = {
         "label": "日本站",
         "markers": ["AMZ-JP", "JP Store", "Amazon JP", "YAMATO-JP"],
     },
+    "other": {
+        "label": "其他/未识别站点",
+        "markers": [],
+    },
 }
 
 DASHBOARD_STORES: dict[str, dict[str, Any]] = {
@@ -189,6 +204,10 @@ DASHBOARD_STORES: dict[str, dict[str, Any]] = {
     "jp_store": {
         "label": "JP Store",
         "markers": ["JP Store", "Amazon JP", "AMZ-JP", "YAMATO-JP"],
+    },
+    "other_store": {
+        "label": "其他/未识别店铺",
+        "markers": [],
     },
 }
 
@@ -257,15 +276,15 @@ def get_erp_diagnostics(current_user: dict = Depends(require_admin)):
 
 @router.get("/dashboard-overview", response_model=ERPDashboardOverviewResponse)
 def get_erp_dashboard_overview(
-    market: str = Query(default="all", pattern="^(all|us|de|jp)$"),
-    store: str = Query(default="all", pattern="^(all|us_store|de_store|jp_store)$"),
+    market: str = Query(default="all", pattern="^[a-z0-9_-]{1,40}$"),
+    store: str = Query(default="all", pattern="^(all|us_store|de_store|jp_store|other_store)$"),
     date_range: str = Query(default="all", pattern="^(all|today|7d|30d)$"),
     current_user: dict = Depends(get_current_user),
 ):
     provider = get_active_provider()
     role = str(current_user.get("role") or "employee")
     position = current_user.get("position")
-    market_config = DASHBOARD_MARKETS.get(market, DASHBOARD_MARKETS["all"])
+    market_config = _dashboard_market_config(market)
     market_label = str(market_config["label"])
     store_config = DASHBOARD_STORES.get(store, DASHBOARD_STORES["all"])
     store_label = str(store_config["label"])
@@ -311,6 +330,14 @@ def get_erp_dashboard_overview(
             "date_range_label": date_range_label,
             "title": "平台运行概览",
             "message": "管理员首页展示平台连接状态，不直接展开岗位业务数据。",
+            "market_options": _dashboard_filter_options(
+                filter_type="market",
+                sections=[],
+            ),
+            "store_options": _dashboard_filter_options(
+                filter_type="store",
+                sections=[],
+            ),
             "metrics": metrics,
             "sections": [],
         }
@@ -377,6 +404,14 @@ def get_erp_dashboard_overview(
         "date_range_label": date_range_label,
         "title": f"{position_label}数据概览",
         "message": f"已按{position_label}岗位权限加载 {market_label} / {store_label} / {date_range_label} ERP 工作台概览。",
+        "market_options": _dashboard_filter_options(
+            filter_type="market",
+            sections=sections,
+        ),
+        "store_options": _dashboard_filter_options(
+            filter_type="store",
+            sections=sections,
+        ),
         "metrics": metrics,
         "sections": sections,
     }
@@ -411,6 +446,15 @@ def query_erp(
     request: ERPQueryRequest,
     current_user: dict = Depends(get_current_user),
 ):
+    if current_user.get("role") != "admin" and not is_ai_app_allowed(
+        current_user,
+        f"{current_user.get('position')}-erp-query",
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="ERP 数据问答助手已被管理员禁用。",
+        )
+
     resource = resolve_resource_name(request.resource)
     if resource is None:
         raise HTTPException(
@@ -423,6 +467,15 @@ def query_erp(
     definition = ERP_RESOURCE_CATALOG[resource]
     position = current_user.get("position")
     position_label = POSITION_LABELS.get(str(position), "管理员")
+    flow_reference = (
+        resolve_flow_execution_reference(
+            flow_key=f"automation:{position}:erp-query",
+            current_user=current_user,
+            execution_source="manual_query",
+        )
+        if is_valid_position(position)
+        else None
+    )
     run_id = start_run(
         run_type="erp_query",
         app_id=f"{position or 'admin'}-erp-query",
@@ -431,6 +484,7 @@ def query_erp(
         current_user=current_user,
         resource_type="erp",
         resource_id=resource,
+        flow_reference=flow_reference,
         input_text=request.query,
         metadata={
             "provider": provider.provider_id,
@@ -722,7 +776,7 @@ def _query_dashboard_section(
         result = provider.query_resource(
             resource=resource,
             provider_resource=provider_resource,
-            query=_dashboard_market_query(resource, market),
+            query=None,
             filters=None,
             fields=provider_fields_for(resource, provider.provider_id),
             limit=30,
@@ -737,22 +791,22 @@ def _query_dashboard_section(
 
     items = result.get("items") if isinstance(result.get("items"), list) else []
     normalized_items = [item for item in items if isinstance(item, dict)]
-    filtered_items = _filter_dashboard_items_by_market(
-        resource=resource,
+    base_items = _filter_dashboard_items_by_date_range(
         items=normalized_items,
+        date_range=date_range,
+        date_range_config=date_range_config,
+    )
+    market_filtered_items = _filter_dashboard_items_by_market(
+        resource=resource,
+        items=base_items,
         market=market,
         market_config=market_config,
     )
     filtered_items = _filter_dashboard_items_by_store(
         resource=resource,
-        items=filtered_items,
+        items=market_filtered_items,
         store=store,
         store_config=store_config,
-    )
-    filtered_items = _filter_dashboard_items_by_date_range(
-        items=filtered_items,
-        date_range=date_range,
-        date_range_config=date_range_config,
     )
     total_count = len(filtered_items)
     amount_total = _dashboard_amount_total(resource, filtered_items)
@@ -776,14 +830,19 @@ def _query_dashboard_section(
         "amount_total": amount_total,
         "amount_label": amount_label,
         "items": filtered_items[:5],
+        "all_items": base_items,
     }
 
 
-def _dashboard_market_query(resource: str, market: str) -> str | None:
-    if market == "all" or resource in GLOBAL_DASHBOARD_RESOURCES:
-        return None
+def _dashboard_market_config(market: str) -> dict[str, Any]:
+    if market in DASHBOARD_MARKETS:
+        return DASHBOARD_MARKETS[market]
 
-    return f"AMZ-{market.upper()}"
+    code = market.strip().lower()
+    return {
+        "label": _dashboard_dynamic_market_label(code),
+        "markers": _dashboard_dynamic_market_markers(code),
+    }
 
 
 def _filter_dashboard_items_by_market(
@@ -794,6 +853,13 @@ def _filter_dashboard_items_by_market(
 ) -> list[dict[str, Any]]:
     if market == "all" or resource in GLOBAL_DASHBOARD_RESOURCES:
         return items
+
+    if market == "other":
+        return [
+            item
+            for item in items
+            if _dashboard_item_market_key(item) == "other"
+        ]
 
     markers = [str(item).lower() for item in market_config.get("markers", [])]
     if not markers:
@@ -816,6 +882,13 @@ def _filter_dashboard_items_by_store(
     if store == "all" or resource in GLOBAL_DASHBOARD_RESOURCES:
         return items
 
+    if store == "other_store":
+        return [
+            item
+            for item in items
+            if _dashboard_item_store_key(item) == "other_store"
+        ]
+
     markers = [str(item).lower() for item in store_config.get("markers", [])]
     if not markers:
         return items
@@ -830,6 +903,120 @@ def _filter_dashboard_items_by_store(
 
 def _dashboard_item_text(item: dict[str, Any]) -> str:
     return " ".join(str(value) for value in item.values() if value is not None).lower()
+
+
+def _dashboard_item_market_key(item: dict[str, Any]) -> str:
+    text = _dashboard_item_text(item)
+    for key, config in DASHBOARD_MARKETS.items():
+        if key in {"all", "other"}:
+            continue
+        markers = [str(value).lower() for value in config.get("markers", [])]
+        if markers and any(marker in text for marker in markers):
+            return key
+
+    match = re.search(r"\bamz[-_ ]([a-z]{2})\b", text)
+    if match:
+        code = match.group(1).lower()
+        if code not in DASHBOARD_MARKETS:
+            return code
+
+    return "other"
+
+
+def _dashboard_item_store_key(item: dict[str, Any]) -> str:
+    text = _dashboard_item_text(item)
+    for key, config in DASHBOARD_STORES.items():
+        if key in {"all", "other_store"}:
+            continue
+        markers = [str(value).lower() for value in config.get("markers", [])]
+        if markers and any(marker in text for marker in markers):
+            return key
+
+    return "other_store"
+
+
+def _dashboard_filter_options(
+    filter_type: str,
+    sections: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    if filter_type == "store":
+        configs = DASHBOARD_STORES
+        other_key = "other_store"
+        classifier = _dashboard_item_store_key
+    else:
+        configs = DASHBOARD_MARKETS
+        other_key = "other"
+        classifier = _dashboard_item_market_key
+
+    counts = {key: 0 for key in configs if key != "all"}
+    for section in sections:
+        if section.get("resource") in GLOBAL_DASHBOARD_RESOURCES:
+            continue
+        for item in section.get("all_items") or []:
+            if not isinstance(item, dict):
+                continue
+            key = classifier(item)
+            counts[key] = counts.get(key, 0) + 1
+
+    options = [
+        {
+            "label": str(configs["all"]["label"]),
+            "value": "all",
+            "count": sum(counts.values()),
+        }
+    ]
+    for key, config in configs.items():
+        if key == "all":
+            continue
+        count = counts.get(key, 0)
+        if count <= 0 and key == other_key:
+            continue
+        options.append({
+            "label": str(config["label"]),
+            "value": key,
+            "count": count,
+        })
+
+    for key in sorted(set(counts) - set(configs)):
+        count = counts.get(key, 0)
+        if count <= 0:
+            continue
+        label = _dashboard_dynamic_market_label(key) if filter_type == "market" else str(key)
+        options.append({
+            "label": label,
+            "value": key,
+            "count": count,
+        })
+
+    return options
+
+
+def _dashboard_dynamic_market_markers(code: str) -> list[str]:
+    normalized = code.strip().lower()
+    if not re.fullmatch(r"[a-z0-9_-]{1,40}", normalized):
+        return []
+
+    upper = normalized.upper()
+    return [
+        f"AMZ-{upper}",
+        f"Amazon {upper}",
+        f"{upper} Store",
+    ]
+
+
+def _dashboard_dynamic_market_label(code: str) -> str:
+    labels = {
+        "uk": "英国站",
+        "gb": "英国站",
+        "ca": "加拿大站",
+        "au": "澳大利亚站",
+        "fr": "法国站",
+        "it": "意大利站",
+        "es": "西班牙站",
+        "mx": "墨西哥站",
+    }
+    normalized = code.strip().lower()
+    return labels.get(normalized, f"{normalized.upper()} 站")
 
 
 def _filter_dashboard_items_by_date_range(

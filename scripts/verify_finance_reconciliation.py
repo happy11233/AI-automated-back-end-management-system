@@ -81,7 +81,13 @@ def main() -> None:
     )
     assert forbidden.status_code == 403, forbidden.text
 
-    flow_items = get_json(tokens["finance"], "/automation-flows")["items"]
+    finance_flow_forbidden = requests.get(
+        f"{API_BASE_URL}/automation-flows",
+        headers=auth_headers(tokens["finance"]),
+        timeout=30,
+    )
+    assert finance_flow_forbidden.status_code == 403, finance_flow_forbidden.text
+    flow_items = get_json(tokens["admin"], "/automation-flows")["items"]
     assert any(item["app_id"] == "finance-reconciliation" for item in flow_items), flow_items
 
     workflow_items = get_json(tokens["finance"], "/ai-workflows")["items"]
@@ -101,6 +107,7 @@ def main() -> None:
         "profit_rows": profit_sheet.max_row - 1,
         "anomaly_rows": anomaly_sheet.max_row - 1,
         "latest_run_id": run_items[0]["id"],
+        "finance_flow_config_forbidden": finance_flow_forbidden.status_code,
         "note": "real API, real auth, real xlsx upload/download, real workbook inspection; no mock/stub/fake",
     }, ensure_ascii=False))
 

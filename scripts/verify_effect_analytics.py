@@ -22,8 +22,14 @@ def main() -> None:
     finance_token = login(*ACCOUNTS["finance"])
 
     admin_payload = get_json(admin_token, "/effect-analytics?date_range=all")
-    operations_payload = get_json(operations_token, "/effect-analytics?date_range=all&position=finance")
-    finance_payload = get_json(finance_token, "/effect-analytics?date_range=all&position=operations")
+    operations_forbidden = assert_forbidden(
+        operations_token,
+        "/effect-analytics?date_range=all&position=finance",
+    )
+    finance_forbidden = assert_forbidden(
+        finance_token,
+        "/effect-analytics?date_range=all&position=operations",
+    )
 
     assert admin_payload["scope"]["role"] == "admin"
     assert admin_payload["summary"]["total_runs"] >= 4, admin_payload["summary"]
@@ -32,42 +38,29 @@ def main() -> None:
     assert admin_payload["app_ranking"], "admin should see app ranking from real runs"
     assert admin_payload["audit_summary"]["total_events"] > 0, admin_payload["audit_summary"]
 
-    assert operations_payload["scope"]["role"] == "employee"
-    assert operations_payload["scope"]["position"] == "operations", operations_payload["scope"]
-    assert all(
-        item["position"] == "operations"
-        for item in operations_payload["position_ranking"]
-    ), operations_payload["position_ranking"]
-
-    assert finance_payload["scope"]["role"] == "employee"
-    assert finance_payload["scope"]["position"] == "finance", finance_payload["scope"]
-    assert all(
-        item["position"] == "finance"
-        for item in finance_payload["position_ranking"]
-    ), finance_payload["position_ranking"]
-
-    for payload in [admin_payload, operations_payload, finance_payload]:
-        raw_payload = json.dumps(payload, ensure_ascii=False)
-        for sensitive_text in [
-            "Bearer ",
-            "api_secret",
-            "password",
-            "Authorization",
-            "input_preview",
-            "output_preview",
-            "error_message",
-            "resource_id",
-            "external_ref",
-        ]:
-            assert sensitive_text not in raw_payload, sensitive_text
+    raw_payload = json.dumps(admin_payload, ensure_ascii=False)
+    for sensitive_text in [
+        "Bearer ",
+        "api_secret",
+        "password",
+        "Authorization",
+        "input_preview",
+        "output_preview",
+        "error_message",
+        "resource_id",
+        "external_ref",
+    ]:
+        assert sensitive_text not in raw_payload, sensitive_text
 
     print(json.dumps({
         "ok": True,
         "admin_total_runs": admin_payload["summary"]["total_runs"],
-        "operations_total_runs": operations_payload["summary"]["total_runs"],
-        "finance_total_runs": finance_payload["summary"]["total_runs"],
+        "employee_forbidden": {
+            "operations": operations_forbidden,
+            "finance": finance_forbidden,
+        },
         "audit_events": admin_payload["audit_summary"]["total_events"],
-        "note": "real API, real auth, real PostgreSQL run records/audit logs; no mock/stub/fake",
+        "note": "real API, real auth, real PostgreSQL run records/audit logs; effect analytics is admin-only; no mock/stub/fake",
     }, ensure_ascii=False))
 
 
@@ -85,6 +78,12 @@ def get_json(token: str, path: str) -> dict[str, Any]:
     response = requests.get(f"{API_BASE_URL}{path}", headers=auth_headers(token), timeout=60)
     assert response.status_code == 200, response.text
     return response.json()
+
+
+def assert_forbidden(token: str, path: str) -> int:
+    response = requests.get(f"{API_BASE_URL}{path}", headers=auth_headers(token), timeout=60)
+    assert response.status_code == 403, response.text
+    return response.status_code
 
 
 def auth_headers(token: str) -> dict[str, str]:

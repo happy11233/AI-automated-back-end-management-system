@@ -105,17 +105,15 @@ def main() -> None:
     assert reconciliation_response.status_code == 200, reconciliation_response.text[:500]
     assert reconciliation_response.content[:2] == b"PK"
 
-    chat_thread_id = f"thread-{test_run_id}"
     chat_response = post_json(
         finance_token,
         "/chat",
         {
-            "thread_id": chat_thread_id,
             "message": f"{test_run_id} 帮我查看销售发票相关信息，只需要摘要。",
         },
         timeout=180,
     )
-    assert chat_response["thread_id"] == chat_thread_id
+    assert chat_response["thread_id"].startswith("thread-"), chat_response
     assert "answer" in chat_response
 
     admin_runs = get_json(admin_token, "/run-records?limit=120")["items"]
@@ -125,18 +123,15 @@ def main() -> None:
     assert_has_run(admin_runs, "finance_reconciliation", "finance", "succeeded")
     assert_has_run(admin_runs, "chat", "finance", "succeeded")
 
-    finance_runs = get_json(finance_token, "/run-records?limit=120")["items"]
-    assert finance_runs, "finance account should see its own runs"
-    assert all(item["position"] == "finance" for item in finance_runs), finance_runs[:3]
-    assert all(item["username"] == ACCOUNTS["finance"][0] for item in finance_runs), finance_runs[:3]
-
-    other_finance_run = next(item for item in finance_runs if item["run_type"] == "finance_excel_transform")
-    forbidden_detail = requests.get(
-        f"{API_BASE_URL}/run-records/{other_finance_run['id']}",
-        headers=auth_headers(customer_token),
-        timeout=30,
-    )
-    assert forbidden_detail.status_code == 403, forbidden_detail.text
+    other_finance_run = next(item for item in admin_runs if item["run_type"] == "finance_excel_transform")
+    employee_forbidden = {
+        "operations_list": assert_forbidden(operations_token, "/run-records?limit=1"),
+        "customer_service_list": assert_forbidden(customer_token, "/run-records?limit=1"),
+        "finance_list": assert_forbidden(finance_token, "/run-records?limit=1"),
+        "operations_detail": assert_forbidden(operations_token, f"/run-records/{other_finance_run['id']}"),
+        "customer_service_detail": assert_forbidden(customer_token, f"/run-records/{other_finance_run['id']}"),
+        "finance_detail": assert_forbidden(finance_token, f"/run-records/{other_finance_run['id']}"),
+    }
 
     detail = get_json(admin_token, f"/run-records/{other_finance_run['id']}")
     assert detail["steps"], "finance excel run should have steps"
@@ -156,7 +151,8 @@ def main() -> None:
         "test_run_id": test_run_id,
         "db_counts": db_counts,
         "finance_run_id": other_finance_run["id"],
-        "note": "real API, real PostgreSQL, real ERP/LLM paths; no mock/stub/fake",
+        "employee_forbidden": employee_forbidden,
+        "note": "real API, real PostgreSQL, real ERP/LLM paths; run records are admin-only; no mock/stub/fake",
     }, ensure_ascii=False))
 
 
@@ -174,6 +170,12 @@ def get_json(token: str, path: str) -> dict[str, Any]:
     response = requests.get(f"{API_BASE_URL}{path}", headers=auth_headers(token), timeout=60)
     assert response.status_code == 200, response.text
     return response.json()
+
+
+def assert_forbidden(token: str, path: str) -> int:
+    response = requests.get(f"{API_BASE_URL}{path}", headers=auth_headers(token), timeout=60)
+    assert response.status_code == 403, response.text
+    return response.status_code
 
 
 def post_json(token: str, path: str, payload: dict[str, Any], timeout: int = 60) -> dict[str, Any]:

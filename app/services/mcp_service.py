@@ -7,6 +7,11 @@ from app.rag.ingest import ingest_documents, mark_missing_documents_deleted
 def sync_document_system_to_rag(
     visibility: str,
     department: str | None = None,
+    position_scope: str | None = None,
+    market_scope: str | None = None,
+    store_scope: str | None = None,
+    field_scope: str | None = None,
+    sensitivity_level: str | None = None,
 ) -> dict:
     documents = call_mcp_tool("document_system", "list_documents")
     synced_items = []
@@ -31,6 +36,11 @@ def sync_document_system_to_rag(
             source=document_detail["source"],
             visibility=visibility,
             department=department,
+            position_scope=position_scope,
+            market_scope=market_scope,
+            store_scope=store_scope,
+            field_scope=field_scope,
+            sensitivity_level=sensitivity_level,
             raw_documents=[
                 Document(
                     page_content=content,
@@ -61,6 +71,11 @@ def sync_document_system_to_rag(
         ],
         visibility=visibility,
         department=department,
+        position_scope=position_scope,
+        market_scope=market_scope,
+        store_scope=store_scope,
+        field_scope=field_scope,
+        sensitivity_level=sensitivity_level,
     )
 
     return {

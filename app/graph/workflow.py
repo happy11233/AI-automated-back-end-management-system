@@ -22,6 +22,10 @@ CHITCHAT_SYSTEM_PROMPT = """
 """.strip()
 
 def classify_intent(state: AgentState) -> dict:
+    forced_intent = state.get("forced_intent")
+    if forced_intent in {"policy", "order", "refund", "erp", "chitchat"}:
+        return {"intent": forced_intent}
+
     intent = classify_user_intent(state["user_input"])
     return {"intent": intent}
 
@@ -57,7 +61,13 @@ def retrieve_policy(state: AgentState) -> dict:
     result = search_knowledge_base.invoke({
         "query": query,
         "role": state["role"],
+        "user_id": state.get("user_id"),
         "department": state.get("department"),
+        "position": state.get("position"),
+        "market_scope": state.get("market_scope"),
+        "store_scope": state.get("store_scope"),
+        "field_scope": state.get("field_scope"),
+        "max_sensitivity_level": state.get("max_sensitivity_level"),
     })
 
     return {"rag_result": result}

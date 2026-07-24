@@ -2,6 +2,9 @@ from app.db import fetch_all, transaction
 from app.json_utils import dumps_json
 
 
+REFUND_APPROVAL_ACTIONS = {"refund", "customer_service_refund"}
+
+
 def execute_refund_for_approval(approval_id: str) -> dict:
     with transaction() as conn:
         with conn.cursor() as cur:
@@ -22,7 +25,7 @@ def execute_refund_for_approval(approval_id: str) -> dict:
                     "message": "审批记录不存在。",
                 }
 
-            if approval[1] != "refund":
+            if approval[1] not in REFUND_APPROVAL_ACTIONS:
                 return {
                     "success": False,
                     "message": "该审批不是退款审批。",

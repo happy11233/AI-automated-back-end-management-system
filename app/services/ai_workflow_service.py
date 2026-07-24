@@ -10,6 +10,11 @@ from app.permissions import POSITION_LABELS, is_valid_position
 from app.services.automation_service import build_automation_prompt
 from app.services.erp_service import query_erp_for_current_user, summarize_erp_items
 from app.services.logging_service import write_audit_log
+from app.services.platform_action_executor_service import execute_platform_draft_action
+from app.services.platform_draft_service import (
+    create_platform_draft,
+    listing_content_from_answer,
+)
 from app.services.run_record_service import (
     elapsed_ms,
     finish_run,
@@ -18,10 +23,11 @@ from app.services.run_record_service import (
     sanitize_text,
     start_run,
 )
+from app.services.user_ai_app_permission_service import is_ai_app_allowed
 
 
 WORKFLOW_VERSION = "2026.07.17"
-SUPPORTED_EXECUTION_MODES = {"llm_generate", "erp_then_llm"}
+SUPPORTED_EXECUTION_MODES = {"llm_generate", "erp_then_llm", "listing_draft_writeback"}
 
 
 WORKFLOW_DEFINITIONS: list[dict[str, Any]] = [
@@ -31,22 +37,22 @@ WORKFLOW_DEFINITIONS: list[dict[str, Any]] = [
         "position": "operations",
         "category": "运营增长",
         "scenario": "新品 SKU 上架前，自动生成 Listing、标题、五点描述、关键词和促销文案草稿。",
-        "business_value": "减少运营反复整理卖点、关键词和促销文案的时间。",
+        "business_value": "减少运营反复整理卖点、关键词和促销文案的时间，并自动写入跨境平台草稿等待审核。",
         "trigger_type": "manual_form",
-        "automation_level": "draft_auto",
-        "execution_mode": "llm_generate",
+        "automation_level": "tool_auto",
+        "execution_mode": "listing_draft_writeback",
         "entry_view": "automation_operations",
         "entry_label": "打开运营 AI 自动化",
         "source_task_id": "listing",
         "input_placeholder": "输入 SKU、品名、材质、尺寸、站点、目标人群、竞品差异和合规限制。",
-        "output_contract": "Listing 草稿、标题、五点描述、后台搜索词、促销文案和中文优化备注。",
+        "output_contract": "Listing 草稿、标题、五点描述、后台搜索词、促销文案、中文优化备注，以及已保存的跨境平台草稿 ID。",
         "requires_approval": False,
-        "approval_policy": "内容草稿不直接发布到 Amazon，由运营复核后使用。",
-        "tools": ["llm.chat", "run_records"],
+        "approval_policy": "AI 只保存平台草稿，不直接发布到 Amazon；运营审核通过后发布。",
+        "tools": ["llm.chat", "platform_drafts.write", "rpa.queue_ready", "run_records"],
         "erp_resources": ["Item", "Item Price", "Sales Order"],
-        "writeback_target": "运行记录；后续可接 Amazon Listing 草稿或 ERP 商品档案。",
-        "notification_target": "运营负责人在工作台查看结果。",
-        "saved_minutes": 25,
+        "writeback_target": "写入 platform_drafts，状态 pending_review；可由 Amazon SP-API/ERP/影刀 RPA 读取后写入外部平台草稿。",
+        "notification_target": "运营负责人在草稿区查看并审核发布。",
+        "saved_minutes": 45,
     },
     {
         "id": "operations_competitor_analysis",
@@ -168,43 +174,43 @@ WORKFLOW_DEFINITIONS: list[dict[str, Any]] = [
         "name": "财务工资统计",
         "position": "finance",
         "category": "财务分析",
-        "scenario": "财务粘贴工资、奖金、扣款或部门信息，AI 自动生成工资汇总和异常复核清单。",
-        "business_value": "减少财务整理工资汇总、人数统计和异常说明的时间。",
+        "scenario": "财务用模糊问题要求工资表时，AI 自动识别期间，查询 ERP 工资单并生成 Excel。",
+        "business_value": "减少财务登录 ERP、筛选工资期间、复制员工工资明细和整理 Excel 的重复操作。",
         "trigger_type": "manual_form",
-        "automation_level": "draft_auto",
-        "execution_mode": "llm_generate",
+        "automation_level": "tool_auto",
+        "execution_mode": "external_existing_endpoint",
         "entry_view": "automation_finance",
-        "entry_label": "打开财务 AI 自动化",
+        "entry_label": "打开统计工资",
         "source_task_id": "salary_summary",
-        "input_placeholder": "输入工资期间、部门、人数、基本工资、奖金、扣款、社保和异常说明。",
-        "output_contract": "工资汇总、总额、人数、异常项和复核建议。",
+        "input_placeholder": "例如：把这个月所有员工的工资表发我。",
+        "output_contract": "工资明细 Excel、自动化摘要、意图识别结果、总额、人数和复核建议。",
         "requires_approval": True,
         "approval_policy": "工资数据只能由财务岗位处理，发放或调整需人工审批。",
-        "tools": ["llm.chat", "run_records"],
-        "erp_resources": ["Salary Slip", "GL Entry", "Payment Entry"],
-        "writeback_target": "运行记录；后续可接工资表或财务 Excel。",
+        "tools": ["intent.recognizer", "erp.provider.query", "openpyxl.write_workbook", "run_records"],
+        "erp_resources": ["Salary Slip"],
+        "writeback_target": "下载工资 Excel；运行记录保存意图、期间、员工数、金额合计和文件产物。",
         "notification_target": "财务负责人在工作台查看。",
         "saved_minutes": 25,
     },
     {
         "id": "finance_excel_settlement",
-        "name": "财务 Excel 结算整理",
+        "name": "财务 Excel 生成",
         "position": "finance",
         "category": "文件自动化",
-        "scenario": "上传 Amazon 结算表、工资表或费用表，系统生成新 Excel、摘要和异常提示。",
-        "business_value": "减少财务复制粘贴、分类、对账和做汇总表的重复操作。",
+        "scenario": "上传 Amazon 结算表、工资表或费用表，并选择财务权限内 ERP 表，系统生成新 Excel、摘要和异常提示。",
+        "business_value": "减少财务复制粘贴、跨表查 ERP、分类、对账和做汇总表的重复操作。",
         "trigger_type": "manual_file_upload",
         "automation_level": "tool_auto",
         "execution_mode": "external_existing_endpoint",
-        "entry_view": "automation_finance",
-        "entry_label": "打开财务 Excel 上传",
+        "entry_view": "automation_finance_excel_transform",
+        "entry_label": "打开财务 Excel 生成",
         "source_task_id": "finance_excel_transform",
-        "input_placeholder": "请到财务 AI 自动化页面上传真实 Excel 文件。",
-        "output_contract": "新 Excel 文件、处理摘要、数值汇总、异常提示。",
+        "input_placeholder": "请到财务 Excel 生成页面选择或上传真实 Excel 文件，并按需选择销售发票、收付款单、总账分录等 ERP 表。",
+        "output_contract": "新 Excel 文件、处理摘要、ERP 数据摘要、数值汇总、异常提示。",
         "requires_approval": False,
         "approval_policy": "生成结果需财务复核后使用，不自动入账。",
-        "tools": ["pandas.read_excel", "openpyxl.write_workbook", "llm.chat", "run_records"],
-        "erp_resources": ["Sales Invoice", "Payment Entry", "GL Entry"],
+        "tools": ["erp.provider.query", "pandas.read_excel", "openpyxl.write_workbook", "llm.chat", "run_records"],
+        "erp_resources": ["Sales Invoice", "Payment Entry", "GL Entry", "Salary Slip", "Purchase Invoice"],
         "writeback_target": "下载新 Excel；运行记录保存文件摘要和产物信息。",
         "notification_target": "财务在页面下载结果。",
         "saved_minutes": 35,
@@ -283,6 +289,7 @@ def run_ai_workflow(
     )
     steps: list[dict[str, Any]] = []
     erp_references: list[dict[str, Any]] = []
+    platform_draft: dict[str, Any] | None = None
     erp_summary = ""
 
     try:
@@ -336,7 +343,7 @@ def run_ai_workflow(
         answer = chat(prompt)
         steps.append(_record_workflow_step(
             run_id=run_id,
-            order=3 if workflow["execution_mode"] == "erp_then_llm" else 2,
+            order=len(steps) + 1,
             name="ai_generate_decision",
             status_value="succeeded",
             workflow=workflow,
@@ -345,9 +352,84 @@ def run_ai_workflow(
             duration_ms=elapsed_ms(prompt_started_ms),
         ))
 
+        if workflow["execution_mode"] == "listing_draft_writeback":
+            writeback_started_ms = now_ms()
+            draft_content = listing_content_from_answer(answer=answer, input_text=normalized_input)
+            platform_draft = create_platform_draft(
+                draft_type="listing",
+                platform="amazon",
+                external_target="amazon_seller_central",
+                title=str(draft_content.get("listing_title") or workflow["name"]),
+                position="operations",
+                owner_user_id=execution_user.get("id"),
+                source_run_id=run_id,
+                source_resource_type="ai_workflow",
+                source_resource_id=str(workflow["id"]),
+                content=draft_content,
+                writeback_status="rpa_ready",
+                writeback_message=(
+                    "已保存到跨境平台草稿区，等待运营审核；可由 Amazon SP-API、ERP 连接器或影刀 RPA 同步到外部平台草稿。"
+                ),
+                metadata={
+                    "automation": "operations_listing_launch",
+                    "source": "ai_workflow",
+                    "saved_by_ai": True,
+                },
+            )
+            steps.append(_record_workflow_step(
+                run_id=run_id,
+                order=len(steps) + 1,
+                name="save_platform_draft",
+                status_value="succeeded",
+                workflow=workflow,
+                input_text=str(workflow["id"]),
+                output_text={
+                    "draft_id": platform_draft["id"],
+                    "status": platform_draft["status"],
+                    "writeback_status": platform_draft["writeback_status"],
+                    "external_target": platform_draft["external_target"],
+                },
+                duration_ms=elapsed_ms(writeback_started_ms),
+            ))
+            action_started_ms = now_ms()
+            action_result = execute_platform_draft_action(
+                draft_id=platform_draft["id"],
+                current_user=execution_user,
+                trigger_source="ai_workflow",
+            )
+            platform_draft = action_result["draft"]
+            steps.append(_record_workflow_step(
+                run_id=run_id,
+                order=len(steps) + 1,
+                name="submit_external_writeback",
+                status_value=(
+                    "succeeded"
+                    if action_result["execution"]["status"] == "succeeded"
+                    else "blocked"
+                    if action_result["execution"]["status"] == "waiting_executor"
+                    else "failed"
+                ),
+                workflow=workflow,
+                input_text=str(workflow["id"]),
+                output_text={
+                    "execution_id": action_result["execution"]["id"],
+                    "execution_status": action_result["execution"]["status"],
+                    "executor_type": action_result["execution"]["executor_type"],
+                    "writeback_status": platform_draft["writeback_status"],
+                },
+                duration_ms=elapsed_ms(action_started_ms),
+            ))
+            answer = (
+                "AI 已完成完整 Listing 自动化，并提交外部写回执行闭环。\n"
+                f"草稿 ID：{platform_draft['id']}\n"
+                f"写回目标：{platform_draft['external_target']}\n"
+                f"写回状态：{platform_draft['writeback_status']}\n\n"
+                f"{answer}"
+            )
+
         steps.append(_record_workflow_step(
             run_id=run_id,
-            order=4 if workflow["execution_mode"] == "erp_then_llm" else 3,
+            order=len(steps) + 1,
             name="write_run_record",
             status_value="succeeded",
             workflow=workflow,
@@ -364,6 +446,7 @@ def run_ai_workflow(
                 **_run_metadata(workflow),
                 "erp_reference_count": len(erp_references),
                 "step_count": len(steps),
+                "platform_draft_id": platform_draft.get("id") if platform_draft else None,
             },
         )
     except Exception as error:
@@ -402,6 +485,7 @@ def run_ai_workflow(
             "execution_mode": workflow["execution_mode"],
             "requires_approval": workflow["requires_approval"],
             "run_id": run_id,
+            "platform_draft_id": platform_draft.get("id") if platform_draft else None,
         },
     )
 
@@ -411,6 +495,7 @@ def run_ai_workflow(
         "status": "succeeded",
         "answer": answer,
         "erp_references": erp_references,
+        "platform_draft": platform_draft,
         "steps": steps,
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
@@ -444,7 +529,11 @@ def _can_view_workflow(current_user: dict, workflow: dict[str, Any]) -> bool:
         return True
 
     position = current_user.get("position")
-    return is_valid_position(position) and workflow.get("position") == position
+    return (
+        is_valid_position(position)
+        and workflow.get("position") == position
+        and is_ai_app_allowed(current_user, _app_id_for_workflow(workflow))
+    )
 
 
 def _find_workflow(workflow_id: str) -> dict[str, Any]:
@@ -453,6 +542,20 @@ def _find_workflow(workflow_id: str) -> dict[str, Any]:
             return workflow
 
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="AI 工作流不存在")
+
+
+def _app_id_for_workflow(workflow: dict[str, Any]) -> str:
+    source_task_id = str(workflow.get("source_task_id") or "")
+    if source_task_id == "finance_excel_transform":
+        return "finance-excel-transform"
+    if source_task_id == "finance_reconciliation":
+        return "finance-reconciliation"
+    if source_task_id == "customer_service_message_loop":
+        return "customer-service-message-loop"
+    if source_task_id:
+        return f"automation-{source_task_id}"
+
+    return str(workflow["id"])
 
 
 def _execution_user_for_workflow(current_user: dict, workflow: dict[str, Any]) -> dict[str, Any]:
@@ -467,12 +570,18 @@ def _execution_user_for_workflow(current_user: dict, workflow: dict[str, Any]) -
 
 def _build_workflow_prompt(*, workflow: dict[str, Any], input_text: str, erp_summary: str) -> str:
     source_task_id = workflow.get("source_task_id")
-    if workflow["execution_mode"] == "llm_generate" and source_task_id:
-        return build_automation_prompt(
+    if workflow["execution_mode"] in {"llm_generate", "listing_draft_writeback"} and source_task_id:
+        prompt = build_automation_prompt(
             position=str(workflow["position"]),
             task_id=str(source_task_id),
             input_text=input_text,
         )
+        if workflow["execution_mode"] == "listing_draft_writeback":
+            prompt += (
+                "\n系统执行说明：你需要一次性完成标题、五点描述、产品描述、后台搜索词、促销文案和审核备注，"
+                "后续系统会自动保存为平台草稿，不要要求员工再分步骤复制粘贴。\n"
+            )
+        return prompt
 
     erp_block = erp_summary or "本次未检索到 ERP 记录，请基于用户提供的信息生成建议，并明确标注需要人工确认的信息。"
     return f"""你是跨境电商企业内部的 {workflow['position_label'] if 'position_label' in workflow else POSITION_LABELS[workflow['position']]} AI 工作流助手。

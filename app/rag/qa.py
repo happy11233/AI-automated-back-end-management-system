@@ -62,6 +62,11 @@ def build_citations(chunks: list[dict]) -> list[dict]:
             "source": chunk["source"],
             "visibility": chunk["visibility"],
             "department": chunk.get("department"),
+            "position_scope": chunk.get("position_scope"),
+            "market_scope": chunk.get("market_scope"),
+            "store_scope": chunk.get("store_scope"),
+            "field_scope": chunk.get("field_scope"),
+            "sensitivity_level": chunk.get("sensitivity_level"),
             "score": chunk["score"],
             "retrieval_sources": chunk.get("retrieval_sources", []),
         })
@@ -73,13 +78,25 @@ def answer_question(
     question: str,
     role: str,
     top_k: int = 5,
+    user_id: str | None = None,
     department: str | None = None,
+    position: str | None = None,
+    market_scope: str | None = None,
+    store_scope: str | None = None,
+    field_scope: str | None = None,
+    max_sensitivity_level: str | None = None,
 ) -> dict:
     chunks = retrieve_chunks(
         question,
         role=role,
         top_k=top_k,
+        user_id=user_id,
         department=department,
+        position=position,
+        market_scope=market_scope,
+        store_scope=store_scope,
+        field_scope=field_scope,
+        max_sensitivity_level=max_sensitivity_level,
     )
 
     if not chunks:
@@ -105,6 +122,11 @@ def answer_question(
         "retrieval": {
             "top_k": top_k,
             "department": department,
+            "position": position,
+            "market_scope": market_scope,
+            "store_scope": store_scope,
+            "field_scope": field_scope,
+            "max_sensitivity_level": max_sensitivity_level,
             "chunk_count": len(chunks),
         },
     }

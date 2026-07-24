@@ -1,0 +1,1 @@
+"""Operations listing skill."""

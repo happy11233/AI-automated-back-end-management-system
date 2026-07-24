@@ -288,6 +288,12 @@ def main() -> None:
             f"Position permission verification failed: {', '.join(failures)}"
         )
 
+    print(json.dumps({
+        "ok": True,
+        "checked_cases": len(cases),
+        "note": "real API, real auth, real ERP/automation/chat permission paths; no mock/stub/fake",
+    }, ensure_ascii=False))
+
 
 def _login(username: str, password: str) -> str:
     body = urlencode({"username": username, "password": password}).encode()

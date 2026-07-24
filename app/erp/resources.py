@@ -110,7 +110,7 @@ ERP_RESOURCE_CATALOG: dict[str, dict[str, Any]] = {
             "kingdee": "CN_PAYAPPLY",
             "yonyou": "payment-entry",
         },
-        "erpnext_fields": ["name", "posting_date", "payment_type", "party", "paid_amount", "status"],
+        "erpnext_fields": ["name", "posting_date", "payment_type", "party", "paid_amount", "status", "reference_no"],
     },
     "Salary Slip": {
         "label": "工资单",
@@ -143,7 +143,7 @@ ERP_RESOURCE_CATALOG: dict[str, dict[str, Any]] = {
             "kingdee": "AP_PAYABLE",
             "yonyou": "purchase-invoice",
         },
-        "erpnext_fields": ["name", "supplier", "posting_date", "due_date", "status", "grand_total", "outstanding_amount"],
+        "erpnext_fields": ["name", "supplier", "posting_date", "due_date", "bill_no", "status", "grand_total", "outstanding_amount"],
     },
 }
 

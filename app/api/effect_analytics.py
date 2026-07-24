@@ -3,7 +3,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 
-from app.auth.security import get_current_user
+from app.auth.security import require_admin
 from app.services.effect_analytics_service import build_effect_analytics
 
 
@@ -128,7 +128,7 @@ class EffectAnalyticsResponse(BaseModel):
 def get_effect_analytics(
     date_range: str = Query(default="30d", pattern="^(7d|30d|90d|all)$"),
     position: str | None = Query(default=None),
-    current_user: dict[str, Any] = Depends(get_current_user),
+    current_user: dict[str, Any] = Depends(require_admin),
 ):
     return build_effect_analytics(
         current_user=current_user,

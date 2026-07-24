@@ -18,11 +18,11 @@ class AutomationTaskSpec(TypedDict):
 AUTOMATION_TASKS: dict[str, dict[str, AutomationTaskSpec]] = {
     "operations": {
         "listing": {
-            "label": "生成 Listing",
-            "placeholder": "输入产品名称、卖点、尺寸、材质、目标站点、受众、合规限制等信息。",
+            "label": "Listing 全流程上架草稿",
+            "placeholder": "一句话输入 SKU、产品名称、卖点、尺寸、材质、目标站点、受众、竞品差异和合规限制，AI 自动完成完整 Listing 并保存草稿。",
             "instruction": (
-                "生成适合 Amazon 跨境电商运营使用的 Listing，默认英文输出。"
-                "请围绕转化率、搜索词覆盖、卖点表达和合规性来写。"
+                "一次性完成 Amazon 跨境电商 Listing 上架草稿自动化，默认英文输出。"
+                "系统会把标题、五点描述、产品描述、后台搜索词和促销文案写入平台草稿区，等待运营审核发布。"
             ),
             "output_format": (
                 "请按以下结构输出：\n"
@@ -30,7 +30,9 @@ AUTOMATION_TASKS: dict[str, dict[str, AutomationTaskSpec]] = {
                 "2. Five Bullet Points (English)\n"
                 "3. Product Description (English)\n"
                 "4. Backend Search Terms (English, comma separated)\n"
-                "5. Chinese Optimization Notes"
+                "5. Promotion Copy (English)\n"
+                "6. Chinese Optimization Notes\n"
+                "系统动作：生成后自动保存到跨境平台草稿，不需要员工逐条复制粘贴。"
             ),
         },
         "title": {
@@ -139,22 +141,22 @@ AUTOMATION_TASKS: dict[str, dict[str, AutomationTaskSpec]] = {
         },
         "salary_summary": {
             "label": "统计工资",
-            "placeholder": "输入工资明细、人数、部门、期间、奖金、扣款等信息。",
+            "placeholder": "例如：把这个月所有员工的工资表发我。",
             "instruction": (
-                "统计工资信息并形成便于财务复核的汇总结果，突出总额、人数和异常项。"
+                "识别财务自然语言请求，按期间查询 ERP 工资单，并生成可下载的员工工资 Excel。"
             ),
             "output_format": (
-                "请输出：工资汇总表、总额、人数、异常项、复核建议。"
+                "输出：工资明细 Excel、自动化摘要、意图识别结果、总额、人数和复核建议。"
             ),
         },
         "excel_transform": {
             "label": "Excel 生成",
-            "placeholder": "输入 Excel 结构、列名、整理规则和目标表要求。暂未上传文件时可直接粘贴表头与样例数据。",
+            "placeholder": "请到财务 Excel 生成页面选择或上传 Excel，并可选择销售发票、收付款单等财务 ERP 表辅助生成。",
             "instruction": (
-                "根据输入把原始表格整理为新的 Excel 结构建议，适合后续程序生成新表。"
+                "上传真实财务 Excel 文件，并可选择财务岗位权限内 ERP 表，生成处理摘要、数值汇总、AI 建议和新工作簿。"
             ),
             "output_format": (
-                "请输出 JSON 风格结果：sheet_name、columns、rows、notes。rows 需要按二维数组展示。"
+                "输出：新 Excel 文件、处理摘要、ERP 数据摘要、数值汇总、AI 建议和整理后的数据 Sheet。"
             ),
         },
     },

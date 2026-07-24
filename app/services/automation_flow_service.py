@@ -7,9 +7,72 @@ from fastapi import HTTPException, status
 from app.erp.resources import list_resource_definitions
 from app.permissions import POSITION_LABELS, erp_scopes_for_position, is_valid_position
 from app.services.automation_service import AUTOMATION_TASKS
+from app.services.user_ai_app_permission_service import is_ai_app_allowed
 
 
 FLOW_VERSION = "2026.07.17"
+TOOL_PARAMETER_SPECS: dict[str, dict[str, dict[str, Any]]] = {
+    "approval.request": {
+        "required_for_high_risk": {"type": "boolean", "default": True},
+    },
+    "customer_service.messages": {
+        "auto_route_low_risk": {"type": "boolean", "default": True},
+    },
+    "document.loader": {
+        "max_bytes": {"type": "integer", "min": 1, "max": 20 * 1024 * 1024, "default": 8 * 1024 * 1024},
+    },
+    "erp.provider.query": {
+        "limit": {"type": "integer", "min": 1, "max": 100, "default": 20},
+    },
+    "field_mapping": {
+        "min_confidence": {"type": "number", "min": 0, "max": 1, "default": 0.7},
+    },
+    "intent.recognizer": {
+        "confidence_threshold": {"type": "number", "min": 0, "max": 1, "default": 0.6},
+    },
+    "langgraph.workflow": {
+        "max_tool_turns": {"type": "integer", "min": 1, "max": 8, "default": 4},
+    },
+    "llm.chat": {
+        "max_tokens": {"type": "integer", "min": 128, "max": 8192, "default": 2048},
+        "temperature": {"type": "number", "min": 0, "max": 1, "default": 0.2},
+    },
+    "openpyxl.write_workbook": {
+        "include_summary_sheet": {"type": "boolean", "default": True},
+    },
+    "order_sku_matching": {
+        "fuzzy_match_threshold": {"type": "number", "min": 0, "max": 1, "default": 0.9},
+    },
+    "pandas.read_excel": {
+        "max_preview_rows": {"type": "integer", "min": 1, "max": 100, "default": 20},
+    },
+    "pgvector.upsert": {
+        "batch_size": {"type": "integer", "min": 1, "max": 1000, "default": 100},
+    },
+    "profit_calculation": {
+        "currency_precision": {"type": "integer", "min": 0, "max": 6, "default": 2},
+    },
+    "rag.ingest": {
+        "chunk_size": {"type": "integer", "min": 200, "max": 2000, "default": 800},
+    },
+    "rag.retrieve": {
+        "top_k": {"type": "integer", "min": 1, "max": 10, "default": 5},
+    },
+}
+
+
+def default_tool_parameters_for_tools(allowed_tools: list[str]) -> dict[str, dict[str, Any]]:
+    parameters: dict[str, dict[str, Any]] = {}
+    for tool in allowed_tools:
+        spec = TOOL_PARAMETER_SPECS.get(tool)
+        if not spec:
+            continue
+        parameters[tool] = {
+            name: parameter_spec["default"]
+            for name, parameter_spec in spec.items()
+            if "default" in parameter_spec
+        }
+    return parameters
 
 
 def list_flow_configs(current_user: dict) -> list[dict[str, Any]]:
@@ -28,6 +91,13 @@ def list_flow_configs(current_user: dict) -> list[dict[str, Any]]:
 
     if current_user.get("role") == "admin":
         flows.extend(_admin_platform_flows())
+
+    if current_user.get("role") != "admin":
+        flows = [
+            item
+            for item in flows
+            if is_ai_app_allowed(current_user, str(item["app_id"]))
+        ]
 
     return flows
 
@@ -54,6 +124,13 @@ def _visible_positions(current_user: dict) -> list[str]:
 def _automation_task_flows(position: str) -> list[dict[str, Any]]:
     flows = []
     for task_id, spec in AUTOMATION_TASKS.get(position, {}).items():
+        if position == "finance" and task_id == "excel_transform":
+            continue
+
+        if position == "finance" and task_id == "salary_summary":
+            flows.append(_finance_salary_export_flow())
+            continue
+
         flows.append(
             _base_flow(
                 flow_id=f"automation:{position}:{task_id}",
@@ -110,12 +187,58 @@ def _automation_task_flows(position: str) -> list[dict[str, Any]]:
     return flows
 
 
+def _finance_salary_export_flow() -> dict[str, Any]:
+    return _base_flow(
+        flow_id="automation:finance:salary-export",
+        app_id="automation-salary_summary",
+        name="统计工资",
+        description="识别财务自然语言请求，按月份查询真实 ERP 工资单，并生成工资明细 Excel。",
+        category="财务分析",
+        position="finance",
+        trigger_type="manual_query",
+        entrypoint="/automation/finance/salary-export 或 /chat/stream",
+        input_schema=[
+            {
+                "name": "message",
+                "label": "财务请求",
+                "type": "textarea",
+                "required": True,
+                "max_length": 1000,
+                "placeholder": "把这个月所有员工的工资表发我",
+            }
+        ],
+        output_schema=[
+            {"name": "workbook", "label": "工资 Excel", "type": "xlsx"},
+            {"name": "summary", "label": "自动化摘要", "type": "json"},
+            {"name": "intent", "label": "意图识别", "type": "json"},
+        ],
+        prompt_summary="该流程不依赖粘贴工资数据；后端先识别自然语言里的工资导出意图和期间，再调用 ERP provider 查询 Salary Slip。",
+        prompt_template_preview="规则识别：工资/薪资/工资表 + 本月/上月/指定月份；命中后构造 ERP 日期过滤并生成 Excel。",
+        allowed_tools=["intent.recognizer", "erp.provider.query", "openpyxl.write_workbook"],
+        allowed_erp_resources=list_resource_definitions(["Salary Slip"]),
+        permission_rules=[
+            "只有财务岗位或管理员可导出工资表",
+            "员工账号还要通过管理员 AI 应用启用状态校验",
+            "运营和客服不能通过聊天或接口查询工资数据",
+        ],
+        approval_policy="工资表导出为只读文件；实际发放、调薪和付款仍需人工审批。",
+        failure_strategy="意图不明确、ERP 工资单为空或 provider 错误会返回真实错误并写入失败运行记录。",
+        steps=[
+            _step("position_guard", "校验财务岗位和应用启用状态", ["current_user.position", "app_id"]),
+            _step("intent_recognition", "识别工资导出意图和月份范围", ["message"]),
+            _step("erp_salary_query", "按日期过滤查询 ERP Salary Slip", ["start_date", "end_date"]),
+            _step("write_workbook", "生成工资明细、自动化摘要和意图识别 Sheet", ["salary_slips"]),
+            _step("record_artifact", "写入运行记录和 Excel 产物摘要", ["filename", "metadata"]),
+        ],
+    )
+
+
 def _finance_excel_flow() -> dict[str, Any]:
     return _base_flow(
         flow_id="automation:finance:excel-file-transform",
         app_id="finance-excel-transform",
         name="财务 Excel 生成",
-        description="上传真实 Excel 文件，生成处理摘要、数值汇总、AI 建议和整理后的新工作簿。",
+        description="上传真实 Excel 文件，并可选择财务岗位权限内 ERP 表生成处理摘要、ERP 数据摘要、数值汇总、AI 建议和整理后的新工作簿。",
         category="文件自动化",
         position="finance",
         trigger_type="manual_file_upload",
@@ -130,6 +253,14 @@ def _finance_excel_flow() -> dict[str, Any]:
                 "max_bytes": 8 * 1024 * 1024,
             },
             {
+                "name": "erp_resources",
+                "label": "财务 ERP 表",
+                "type": "multi_select",
+                "required": False,
+                "options": list_resource_definitions(erp_scopes_for_position("finance")),
+                "max_items": 5,
+            },
+            {
                 "name": "instruction",
                 "label": "财务处理要求",
                 "type": "textarea",
@@ -141,23 +272,26 @@ def _finance_excel_flow() -> dict[str, Any]:
             {"name": "workbook", "label": "新 Excel 文件", "type": "xlsx"},
             {"name": "metadata", "label": "文件摘要", "type": "json"},
         ],
-        prompt_summary="仅读取 Excel 摘要、sheet 概览和少量样例行给大模型生成财务复核建议，不保存完整 Excel 内容到运行记录。",
-        prompt_template_preview="财务 AI 助手根据源文件名、处理要求、sheet 概览和样例数据输出复核建议。",
-        allowed_tools=["pandas.read_excel", "openpyxl.write_workbook", "llm.chat"],
-        allowed_erp_resources=[],
+        prompt_summary="仅读取 Excel 摘要、sheet 概览、少量样例行和已选 ERP 财务表摘要给大模型生成财务复核建议，不保存完整 Excel 内容到运行记录。",
+        prompt_template_preview="财务 AI 助手根据源文件名、处理要求、sheet 概览、样例数据和权限内 ERP 表摘要输出复核建议。",
+        allowed_tools=["erp.provider.query", "pandas.read_excel", "openpyxl.write_workbook", "llm.chat"],
+        allowed_erp_resources=list_resource_definitions(erp_scopes_for_position("finance")),
         permission_rules=[
             "仅财务岗位或管理员可以上传财务 Excel",
+            "ERP 表只能选择财务岗位允许的资源",
             "文件大小限制 8MB",
-            "运行记录只保存文件名、sheet 数、行列数和输出字节数",
+            "运行记录只保存文件名、sheet 数、行列数、ERP 表名称和输出字节数",
         ],
         approval_policy="当前流程不需要审批；生成结果需由财务人员人工复核后使用。",
         failure_strategy="读取失败、格式不支持或生成失败时返回真实错误，并写入失败运行记录。",
         steps=[
             _step("validate_file", "校验文件类型、大小和岗位权限", ["file"]),
+            _step("validate_erp_resources", "校验选择的 ERP 表属于财务岗位权限", ["erp_resources"]),
+            _step("query_erp_context", "查询选中的真实财务 ERP 表", ["erp_resources"]),
             _step("read_excel", "读取真实 Excel workbook", ["file"]),
             _step("build_finance_summary", "生成 sheet 和数值摘要", ["sheets"]),
-            _step("llm_finance_suggestion", "调用大模型生成财务建议", ["summary"]),
-            _step("write_workbook", "生成新的 Excel 文件", ["workbook"]),
+            _step("llm_finance_suggestion", "结合 Excel 摘要和 ERP 表摘要生成财务建议", ["summary", "erp_context"]),
+            _step("write_workbook", "生成包含 ERP 数据摘要的新 Excel 文件", ["workbook"]),
             _step("record_artifact", "写入文件产物摘要", ["filename", "metadata"]),
         ],
     )
@@ -352,7 +486,7 @@ def _chat_flow(position: str) -> dict[str, Any]:
             "ERP 查询节点只能访问岗位允许资源",
             "运行记录只保存输入/输出预览和引用数量，不复制完整上下文",
         ],
-        approval_policy="高风险退款等动作会创建审批请求，管理员审核后才执行。",
+        approval_policy="高风险退款等动作会创建审批请求，由客服岗位审核后才执行。",
         failure_strategy="图节点异常会返回真实错误事件，并将 run 标记为 failed。",
         steps=[
             _step("position_guard", "岗位越权关键词拦截", ["message"]),
@@ -448,6 +582,7 @@ def _base_flow(
             "chat_model": "qwen-plus",
             "streaming": entrypoint.endswith("/stream") or "stream" in entrypoint,
             "secrets_visible": False,
+            "tool_parameters": default_tool_parameters_for_tools(allowed_tools),
         },
         "allowed_tools": allowed_tools,
         "allowed_erp_resources": allowed_erp_resources,

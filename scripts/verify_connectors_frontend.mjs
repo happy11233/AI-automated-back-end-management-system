@@ -89,15 +89,31 @@ async function runConnectorCase({ label, account, viewport, screenshot, visible,
 
   const targetCard = page.locator(".connectorCard", { hasText: openDetailText }).first();
   await targetCard.locator(".ant-btn-primary").click();
-  await page.getByText("配置项", { exact: false }).first().waitFor({
+  const detailModal = page.locator(".ant-modal").filter({ hasText: "连接器 /" }).first();
+  await detailModal.waitFor({
     state: "visible",
     timeout: 15000,
   });
-  await page.getByText("资源映射", { exact: false }).first().waitFor({
+  await detailModal.getByRole("tab", { name: "基础信息" }).waitFor({
     state: "visible",
     timeout: 15000,
   });
-  await page.getByText("健康信息", { exact: false }).first().waitFor({
+  await openDetailTab(detailModal, "健康");
+  await detailModal.getByText("健康信息", { exact: false }).first().waitFor({
+    state: "visible",
+    timeout: 15000,
+  });
+  await openDetailTab(detailModal, "配置");
+  await detailModal.getByText("配置项", { exact: false }).first().waitFor({
+    state: "visible",
+    timeout: 15000,
+  });
+  await detailModal.getByText("下一步", { exact: false }).first().waitFor({
+    state: "visible",
+    timeout: 15000,
+  });
+  await openDetailTab(detailModal, "资源映射");
+  await detailModal.getByText("外部对象", { exact: false }).first().waitFor({
     state: "visible",
     timeout: 15000,
   });
@@ -119,6 +135,19 @@ async function runConnectorCase({ label, account, viewport, screenshot, visible,
     screenshot,
     overflow,
   };
+}
+
+async function openDetailTab(modal, name) {
+  const exactTab = modal.getByRole("tab", { name });
+  if (await exactTab.count()) {
+    await exactTab.click({ force: true });
+    await modal.page().waitForTimeout(300);
+    return;
+  }
+
+  const tab = modal.locator(".ant-tabs-tab", { hasText: name }).first();
+  await tab.click({ force: true });
+  await modal.page().waitForTimeout(300);
 }
 
 async function runEmployeeForbiddenCase() {

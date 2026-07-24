@@ -3,7 +3,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 
-from app.auth.security import get_current_user
+from app.auth.security import require_admin
 from app.services.run_record_service import get_run_detail, list_runs
 
 
@@ -27,6 +27,12 @@ class RunRecordItem(BaseModel):
     thread_id: str | None
     resource_type: str | None
     resource_id: str | None
+    flow_id: str | None
+    flow_key: str | None
+    flow_version_id: str | None
+    flow_version: str | None
+    publication_id: str | None
+    execution_source: str | None
     input_preview: str | None
     output_preview: str | None
     error_message: str | None
@@ -88,8 +94,11 @@ def get_run_records(
     user_id: str | None = Query(default=None),
     resource_type: str | None = Query(default=None),
     resource_id: str | None = Query(default=None),
+    flow_key: str | None = Query(default=None),
+    flow_version_id: str | None = Query(default=None),
+    publication_id: str | None = Query(default=None),
     limit: int = Query(default=80, ge=1, le=200),
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_admin),
 ):
     return {
         "items": list_runs(
@@ -101,6 +110,9 @@ def get_run_records(
             user_id=user_id,
             resource_type=resource_type,
             resource_id=resource_id,
+            flow_key=flow_key,
+            flow_version_id=flow_version_id,
+            publication_id=publication_id,
             limit=limit,
         )
     }
@@ -109,6 +121,6 @@ def get_run_records(
 @router.get("/{run_id}", response_model=RunRecordDetailResponse)
 def get_run_record_detail(
     run_id: str,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_admin),
 ):
     return get_run_detail(run_id, current_user=current_user)

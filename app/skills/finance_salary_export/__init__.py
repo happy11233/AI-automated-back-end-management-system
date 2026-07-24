@@ -1,0 +1,1 @@
+"""Finance salary export skill."""

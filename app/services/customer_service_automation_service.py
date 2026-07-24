@@ -15,6 +15,12 @@ from app.permissions import POSITION_LABELS, is_valid_position
 from app.rag.qa import answer_question
 from app.services.erp_service import query_erp_for_current_user, summarize_erp_items
 from app.services.logging_service import write_audit_log
+from app.services.automation_flow_version_service import resolve_flow_execution_reference
+from app.services.platform_action_executor_service import execute_platform_draft_action
+from app.services.platform_draft_service import (
+    create_platform_draft,
+    customer_reply_content_from_message,
+)
 from app.services.run_record_service import (
     elapsed_ms,
     finish_run,
@@ -23,6 +29,7 @@ from app.services.run_record_service import (
     sanitize_metadata,
     start_run,
 )
+from app.services.user_ai_app_permission_service import is_ai_app_allowed
 from app.tools.approval_tool import create_approval_request
 
 
@@ -339,6 +346,11 @@ def process_customer_message(*, message_id: str, current_user: dict) -> dict[str
         current_user=_execution_user(current_user),
         resource_type="customer_service_message",
         resource_id=message_id,
+        flow_reference=resolve_flow_execution_reference(
+            flow_key="automation:customer_service:message-loop",
+            current_user=_execution_user(current_user),
+            execution_source="manual_case_or_webhook",
+        ),
         input_text=item["message"],
         metadata={
             "channel": item["channel"],
@@ -386,7 +398,9 @@ def process_customer_message(*, message_id: str, current_user: dict) -> dict[str
         rag_result = answer_question(
             question=_rag_question(item, classification),
             role="employee",
+            user_id=current_user.get("id"),
             department="客服部",
+            position="customer_service",
             top_k=5,
         )
         rag_summary = str(rag_result.get("answer") or "")
@@ -455,6 +469,129 @@ def process_customer_message(*, message_id: str, current_user: dict) -> dict[str
             approval_result=approval_result,
             duration_ms=elapsed_ms(started_ms),
         )
+        draft_started_ms = now_ms()
+        platform_draft = create_platform_draft(
+            draft_type="customer_reply",
+            platform=str(item.get("channel") or "amazon"),
+            external_target="customer_service_reply_queue",
+            title=_customer_reply_draft_title(final_item),
+            position="customer_service",
+            owner_user_id=current_user.get("id"),
+            source_run_id=run_id,
+            source_resource_type="customer_service_message",
+            source_resource_id=message_id,
+            content=customer_reply_content_from_message(final_item),
+            writeback_status="rpa_ready" if final_item["risk_level"] == "low" else "draft_saved",
+            writeback_message=(
+                "AI 已保存客服回复草稿，低风险可由客服系统/影刀 RPA 发送；高风险需人工审核后再发送。"
+            ),
+            metadata={
+                "automation": "customer_service_message_loop",
+                "intent": final_item.get("intent"),
+                "risk_level": final_item.get("risk_level"),
+                "status": final_item.get("status"),
+                "saved_by_ai": True,
+            },
+        )
+        _record_loop_step(
+            steps=steps,
+            run_id=run_id,
+            order=5,
+            name="save_reply_platform_draft",
+            status_value="succeeded",
+            input_text=message_id,
+            output_text={
+                "draft_id": platform_draft["id"],
+                "status": platform_draft["status"],
+                "writeback_status": platform_draft["writeback_status"],
+            },
+            duration_ms=elapsed_ms(draft_started_ms),
+            metadata={
+                "draft_id": platform_draft["id"],
+                "external_target": platform_draft["external_target"],
+            },
+        )
+        final_item["metadata"] = {
+            **(final_item.get("metadata") or {}),
+            "platform_draft_id": platform_draft["id"],
+            "platform_draft_status": platform_draft["status"],
+            "writeback_status": platform_draft["writeback_status"],
+            "writeback_message": platform_draft["writeback_message"],
+        }
+        _add_event(
+            message_id=message_id,
+            event_type="reply_draft_saved",
+            actor_id=current_user.get("id"),
+            content="AI 已将回复写入客服平台草稿区，等待审核或发送",
+            metadata={
+                "draft_id": platform_draft["id"],
+                "writeback_status": platform_draft["writeback_status"],
+                "external_target": platform_draft["external_target"],
+            },
+        )
+        if final_item["risk_level"] == "low":
+            action_started_ms = now_ms()
+            action_result = execute_platform_draft_action(
+                draft_id=platform_draft["id"],
+                current_user=current_user,
+                trigger_source="customer_service_message_loop",
+            )
+            platform_draft = action_result["draft"]
+            _record_loop_step(
+                steps=steps,
+                run_id=run_id,
+                order=6,
+                name="submit_external_writeback",
+                status_value=(
+                    "succeeded"
+                    if action_result["execution"]["status"] == "succeeded"
+                    else "blocked"
+                    if action_result["execution"]["status"] == "waiting_executor"
+                    else "failed"
+                ),
+                input_text=message_id,
+                output_text={
+                    "execution_id": action_result["execution"]["id"],
+                    "execution_status": action_result["execution"]["status"],
+                    "executor_type": action_result["execution"]["executor_type"],
+                    "writeback_status": platform_draft["writeback_status"],
+                },
+                duration_ms=elapsed_ms(action_started_ms),
+                metadata={
+                    "draft_id": platform_draft["id"],
+                    "execution_id": action_result["execution"]["id"],
+                },
+            )
+            final_item["metadata"] = {
+                **(final_item.get("metadata") or {}),
+                "platform_draft_id": platform_draft["id"],
+                "platform_draft_status": platform_draft["status"],
+                "writeback_status": platform_draft["writeback_status"],
+                "writeback_message": platform_draft["writeback_message"],
+                "latest_execution_id": action_result["execution"]["id"],
+                "latest_execution_status": action_result["execution"]["status"],
+            }
+            _merge_message_metadata(
+                message_id=message_id,
+                metadata={
+                    "writeback_status": platform_draft["writeback_status"],
+                    "writeback_message": platform_draft["writeback_message"],
+                    "latest_execution_id": action_result["execution"]["id"],
+                    "latest_execution_status": action_result["execution"]["status"],
+                },
+            )
+            _add_event(
+                message_id=message_id,
+                event_type="external_writeback_submitted",
+                actor_id=current_user.get("id"),
+                content=action_result["message"],
+                metadata={
+                    "draft_id": platform_draft["id"],
+                    "execution_id": action_result["execution"]["id"],
+                    "execution_status": action_result["execution"]["status"],
+                    "writeback_status": platform_draft["writeback_status"],
+                },
+            )
         finish_run(
             run_id,
             status_value="succeeded",
@@ -467,6 +604,8 @@ def process_customer_message(*, message_id: str, current_user: dict) -> dict[str
                 "final_status": decision["status"],
                 "step_count": len(steps),
                 "approval_id": approval_result.get("approval_id") if approval_result else None,
+                "platform_draft_id": platform_draft["id"],
+                "writeback_status": platform_draft["writeback_status"],
             },
         )
     except Exception as error:
@@ -505,6 +644,7 @@ def process_customer_message(*, message_id: str, current_user: dict) -> dict[str
             "status": final_item["status"],
             "run_id": run_id,
             "approval_id": final_item.get("approval_id"),
+            "platform_draft_id": final_item.get("metadata", {}).get("platform_draft_id"),
         },
     )
     return {
@@ -664,6 +804,12 @@ def _ensure_customer_service_user(current_user: dict) -> None:
             detail=f"{label}无权使用客服自动化闭环。",
         )
 
+    if not is_ai_app_allowed(current_user, "customer-service-message-loop"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="客服消息自动化闭环已被管理员禁用。",
+        )
+
 
 def _ensure_message_visible(current_user: dict, item: dict[str, Any]) -> None:
     if current_user.get("role") == "admin":
@@ -756,6 +902,12 @@ def _erp_summary_from_result(erp_result: dict[str, Any]) -> str:
         return summarize_erp_items(resource, items)
 
     return str(erp_result.get("message") or "")
+
+
+def _customer_reply_draft_title(item: dict[str, Any]) -> str:
+    order_no = item.get("order_no") or item.get("tracking_no") or "未关联订单"
+    intent = item.get("intent") or "客服回复"
+    return f"客服回复草稿 / {intent} / {order_no}"
 
 
 def _finish_message_processing(
@@ -883,6 +1035,18 @@ def _mark_failed(*, message_id: str, current_user: dict, run_id: str | None, err
         actor_id=current_user.get("id"),
         content="AI 处理失败",
         metadata={"error": str(error)[:500], "run_id": run_id},
+    )
+
+
+def _merge_message_metadata(*, message_id: str, metadata: dict[str, Any]) -> None:
+    execute(
+        """
+        UPDATE customer_service_messages
+        SET metadata = metadata || %s::jsonb,
+            updated_at = now()
+        WHERE id = %s;
+        """,
+        (dumps_json(sanitize_metadata(metadata)), message_id),
     )
 
 
