@@ -169,8 +169,8 @@ SKILL_DEFINITIONS: tuple[SkillDefinition, ...] = (
         skill_doc_path="app/skills/finance_excel_settlement/SKILL.md",
         verification_scripts=("scripts/verify_finance_excel_transform.py",),
         input_schema=(
-            {"name": "file", "type": "file", "required": True, "accept": [".xlsx", ".xls"], "max_bytes": 8 * 1024 * 1024},
-            {"name": "instruction", "type": "textarea", "required": False, "max_length": 2000},
+            {"name": "file", "type": "file", "required": False, "accept": [".xlsx", ".xls"], "max_bytes": 8 * 1024 * 1024},
+            {"name": "instruction", "type": "textarea", "required": False, "max_length": 2000, "description": "可用口语化要求说明要从哪些财务 ERP 表生成新工作簿。"},
             {"name": "erp_resources", "type": "multi_select", "required": False, "max_items": 5},
         ),
         output_schema=(

@@ -1357,7 +1357,7 @@ function App() {
     {
       id: "welcome",
       role: "assistant",
-      content: "你好，有什么可以帮你的？（当前知识截止2024.6.18，未接入联网搜索）",
+      content: "你好，有什么可以帮你的？",
     },
   ]);
   const [isPublicLLMLoading, setIsPublicLLMLoading] = useState(false);
@@ -1580,7 +1580,7 @@ function App() {
   const [financeReportSummary, setFinanceReportSummary] = useState("");
   const [financeExcelFile, setFinanceExcelFile] = useState<File | null>(null);
   const [financeExcelInstruction, setFinanceExcelInstruction] = useState(
-    "请整理财务表格，生成数值汇总，标记需要人工复核的异常。",
+    "根据本月销售发票和收付款单生成收款核对表，按客户/店铺汇总金额并标记未收款、金额不一致等异常。",
   );
   const [financeExcelErpResources, setFinanceExcelErpResources] = useState<string[]>([]);
   const [isTransformingFinanceExcel, setIsTransformingFinanceExcel] = useState(false);
@@ -1770,6 +1770,8 @@ function App() {
     try {
       setIsLoginErrorOpen(false);
       const result = await login(username, password);
+      closeLoginModal();
+      setIsSessionExpiredOpen(false);
       localStorage.setItem("access_token", result.access_token);
       localStorage.setItem("username", result.username || username);
       localStorage.setItem("display_name", result.display_name || "");
@@ -1864,9 +1866,8 @@ function App() {
         setCustomerMessageDetail(null);
         setCustomerProcessResult(null);
       }
-
-      setIsLoginModalOpen(false);
     } catch (error) {
+      setPassword("");
       const rawMessage = error instanceof Error ? error.message : "登录失败";
       const isInvalidCredentials = rawMessage.includes("用户名或密码错误");
       const text = isInvalidCredentials ? "账号密码错误" : rawMessage;
@@ -1877,6 +1878,11 @@ function App() {
         message.error(text);
       }
     }
+  }
+
+  function closeLoginModal() {
+    setIsLoginModalOpen(false);
+    setPassword("");
   }
 
   function clearAuthenticatedState(options: { publicHome?: boolean } = {}) {
@@ -1891,6 +1897,8 @@ function App() {
     setUsername("");
     setDisplayName("");
     setUserEmail("");
+    setPassword("");
+    setIsLoginModalOpen(false);
     setRole("employee");
     setPosition(null);
     setAllowedAiAppIds(null);
@@ -3803,14 +3811,15 @@ function App() {
       return;
     }
 
-    if (!financeExcelFile) {
-      setStatusMessage("请选择 Excel 文件");
-      message.warning("请选择 Excel 文件");
+    if (!financeExcelFile && financeExcelErpResources.length === 0 && !financeExcelInstruction.trim()) {
+      const text = "请上传 Excel、选择财务 ERP 表，或输入要生成的新表要求";
+      setStatusMessage(text);
+      message.warning(text);
       return;
     }
 
     setIsTransformingFinanceExcel(true);
-    setStatusMessage("正在生成财务 Excel");
+    setStatusMessage(financeExcelFile ? "正在生成财务 Excel" : "正在根据财务 ERP 数据生成 Excel");
 
     try {
       const result = await transformFinanceExcel(
@@ -4507,7 +4516,7 @@ function App() {
             password={password}
             setUsername={setUsername}
             setPassword={setPassword}
-            onCancel={() => setIsLoginModalOpen(false)}
+            onCancel={closeLoginModal}
             onLogin={handleLogin}
           />
           <LoginErrorModal
@@ -4541,7 +4550,7 @@ function App() {
       <ProConfigProvider hashed={false}>
         <AntApp>
           <ProLayout
-            title="Company RAG Agent"
+            title="企业内部后台管理系统"
             logo={<SafetyCertificateOutlined />}
             route={route}
             location={{ pathname: currentPath }}
@@ -5054,7 +5063,7 @@ function App() {
               password={password}
               setUsername={setUsername}
               setPassword={setPassword}
-              onCancel={() => setIsLoginModalOpen(false)}
+              onCancel={closeLoginModal}
               onLogin={handleLogin}
             />
             <LoginErrorModal
@@ -5268,7 +5277,7 @@ function LoginModal(props: {
 }) {
   return (
     <Modal
-      title="登录 Company RAG Agent"
+      title="登录企业内部后台"
       open={props.open}
       okText="登录"
       cancelText="取消"
@@ -5276,12 +5285,13 @@ function LoginModal(props: {
       onOk={props.onLogin}
       onCancel={props.onCancel}
     >
-      <Form layout="vertical" className="loginModalForm">
+      <Form layout="vertical" className="loginModalForm" autoComplete="off">
         <Form.Item label="用户名">
           <Input
             value={props.username}
             onChange={(event) => props.setUsername(event.target.value)}
             onPressEnter={props.onLogin}
+            autoComplete="off"
           />
         </Form.Item>
         <Form.Item label="密码">
@@ -5289,6 +5299,7 @@ function LoginModal(props: {
             value={props.password}
             onChange={(event) => props.setPassword(event.target.value)}
             onPressEnter={props.onLogin}
+            autoComplete="new-password"
           />
         </Form.Item>
       </Form>
@@ -7429,9 +7440,12 @@ function FinanceExcelUploadDetail({
         },
       ]
     : [];
+  const canGenerateFinanceExcel = Boolean(financeExcelFile)
+    || financeExcelErpResources.length > 0
+    || financeExcelInstruction.trim().length > 0;
 
   return (
-    <ProCard title="财务 Excel 生成" subTitle="上传 Excel 后，可选择权限内 ERP 财务表辅助生成新工作簿" bordered>
+    <ProCard title="财务 Excel 生成" subTitle="可上传 Excel，也可直接用口语化要求或 ERP 财务表生成新工作簿" bordered>
       <div className="financeUploadControls focused">
         <Upload.Dragger
           className="financeUploadDragger"
@@ -7448,8 +7462,8 @@ function FinanceExcelUploadDetail({
           <p className="uploadIcon">
             <CloudUploadOutlined />
           </p>
-          <p className="uploadTitle">选择或上传 Excel</p>
-          <p className="uploadHint">支持 .xlsx / .xls，生成后自动下载新文件</p>
+          <p className="uploadTitle">选择或上传 Excel（可选）</p>
+          <p className="uploadHint">不上传时，AI 会根据下方要求和财务 ERP 表生成新文件</p>
         </Upload.Dragger>
         <div className="financeUploadActionPane focused">
           <Select
@@ -7465,7 +7479,7 @@ function FinanceExcelUploadDetail({
           <Input.TextArea
             className="financeUploadInstruction focused"
             value={financeExcelInstruction}
-            placeholder="输入财务整理要求，例如：用销售发票和收付款单核对上传表里的订单金额，按店铺汇总并标记异常。"
+            placeholder="直接描述要生成的新表，例如：把本月销售发票和收付款单合成收款核对表，按客户汇总并标记未收款。"
             autoSize={false}
             rows={6}
             onChange={(event) => setFinanceExcelInstruction(event.target.value)}
@@ -7475,10 +7489,10 @@ function FinanceExcelUploadDetail({
               type="primary"
               icon={<CloudUploadOutlined />}
               loading={isTransformingFinanceExcel}
-              disabled={!financeExcelFile || isTransformingFinanceExcel}
+              disabled={!canGenerateFinanceExcel || isTransformingFinanceExcel}
               onClick={onTransformFinanceExcel}
             >
-              生成并下载 Excel
+              AI 生成并下载 Excel
             </Button>
           </div>
         </div>

@@ -2940,13 +2940,15 @@ export async function deletePlatformActionExecutor(token: string, executorId: st
 
 export async function transformFinanceExcel(
   token: string,
-  file: File,
+  file: File | null,
   instruction: string,
   erpResources: string[] = [],
 ) {
   const formData = new FormData();
 
-  formData.append("file", file);
+  if (file) {
+    formData.append("file", file);
+  }
   formData.append("instruction", instruction.trim());
   formData.append("erp_resources", JSON.stringify(erpResources));
 

@@ -16,10 +16,10 @@ def execute(
     execution_context: dict[str, Any],
 ) -> SkillExecutionResult:
     content = payload.get("content")
-    if not isinstance(content, bytes):
+    if content is not None and not isinstance(content, bytes):
         raise ValueError("财务 Excel Skill 需要传入文件 bytes。")
     result = transform_finance_excel(
-        source_filename=str(payload.get("source_filename") or "finance.xlsx"),
+        source_filename=str(payload.get("source_filename") or "finance_erp_generated.xlsx"),
         content=content,
         instruction=str(payload.get("instruction") or ""),
         erp_context=payload.get("erp_context") if isinstance(payload.get("erp_context"), list) else [],

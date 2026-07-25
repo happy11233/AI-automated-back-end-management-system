@@ -730,7 +730,7 @@ def export_finance_salary_file(
 
 @router.post("/finance/excel-transform")
 async def transform_finance_excel_file(
-    file: UploadFile = File(...),
+    file: UploadFile | None = File(default=None),
     instruction: str = Form(default=""),
     erp_resources: str = Form(default="[]"),
     current_user: dict = Depends(get_current_user),
@@ -747,23 +747,43 @@ async def transform_finance_excel_file(
             detail="财务 Excel 生成已被管理员禁用。",
         )
 
-    content = await file.read()
-    if not content:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="请上传非空 Excel 文件。",
-        )
+    source_filename = file.filename if file and file.filename else "finance_erp_generated.xlsx"
+    content: bytes | None = None
+    source_mode = "erp_context"
+    if file is not None:
+        content = await file.read()
+        if not content:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="请上传非空 Excel 文件，或不上传文件直接选择/说明要使用的财务 ERP 表。",
+            )
 
-    if len(content) > MAX_EXCEL_BYTES:
-        raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail="Excel 文件不能超过 8MB。",
-        )
+        if len(content) > MAX_EXCEL_BYTES:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail="Excel 文件不能超过 8MB。",
+            )
+        source_mode = "uploaded_excel"
 
-    selected_erp_resources = _parse_finance_excel_erp_resources(
+    explicit_erp_resources = _parse_finance_excel_erp_resources(
         raw_value=erp_resources,
         current_user=current_user,
     )
+    inferred_erp_resources = (
+        []
+        if explicit_erp_resources
+        else _infer_finance_excel_erp_resources_from_instruction(
+            instruction=instruction,
+            current_user=current_user,
+        )
+    )
+    selected_erp_resources = explicit_erp_resources or inferred_erp_resources
+    if content is None and not selected_erp_resources:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="请上传 Excel 文件，或选择财务 ERP 表，或在要求中说明要使用工资、销售发票、收付款、总账、采购发票等哪类财务数据。",
+        )
+
     run_id = start_run(
         run_type="finance_excel_transform",
         app_id="finance-excel-transform",
@@ -775,12 +795,15 @@ async def transform_finance_excel_file(
         flow_reference=resolve_flow_execution_reference(
             flow_key="automation:finance:excel-file-transform",
             current_user=current_user,
-            execution_source="manual_file_upload",
+            execution_source="manual_file_upload" if content is not None else "natural_language_erp_generate",
         ),
         input_text=instruction,
         metadata={
-            "source_filename": file.filename or "finance.xlsx",
-            "source_bytes": len(content),
+            "source_filename": source_filename,
+            "source_mode": source_mode,
+            "source_bytes": len(content or b""),
+            "explicit_erp_resources": explicit_erp_resources,
+            "inferred_erp_resources": inferred_erp_resources,
             "selected_erp_resources": selected_erp_resources,
         },
     )
@@ -818,7 +841,7 @@ async def transform_finance_excel_file(
         skill_result = execute_skill(
             skill_id="finance_excel_settlement",
             payload={
-                "source_filename": file.filename or "finance.xlsx",
+                "source_filename": source_filename,
                 "content": content,
                 "instruction": instruction,
                 "erp_context": erp_context,
@@ -875,8 +898,11 @@ async def transform_finance_excel_file(
             error_message=error,
             duration_ms=elapsed_ms(started_ms),
             metadata={
-                "source_filename": file.filename or "finance.xlsx",
-                "source_bytes": len(content),
+                "source_filename": source_filename,
+                "source_mode": source_mode,
+                "source_bytes": len(content or b""),
+                "explicit_erp_resources": explicit_erp_resources,
+                "inferred_erp_resources": inferred_erp_resources,
                 "selected_erp_resources": selected_erp_resources,
             },
         )
@@ -971,6 +997,73 @@ def _parse_finance_excel_erp_resources(
         )
 
     return selected
+
+
+def _infer_finance_excel_erp_resources_from_instruction(
+    *,
+    instruction: str,
+    current_user: dict,
+) -> list[str]:
+    text = " ".join((instruction or "").strip().split())
+    if not text:
+        return []
+
+    normalized = text.lower()
+    finance_scopes = list(erp_scopes_for_position("finance"))
+    matched: list[str] = []
+
+    for resource in finance_scopes:
+        definition = ERP_RESOURCE_CATALOG.get(resource)
+        if not definition:
+            continue
+
+        candidates = [
+            resource,
+            str(definition.get("label") or ""),
+            str(definition.get("description") or ""),
+            *[str(item) for item in definition.get("keywords", [])],
+            *[str(item) for item in definition.get("provider_refs", {}).values() if item],
+        ]
+        if any(candidate and candidate.lower() in normalized for candidate in candidates):
+            matched.append(resource)
+
+    if any(keyword in normalized for keyword in ["利润", "利润表", "成本", "费用", "盈亏", "profit", "margin"]):
+        _append_resource_if_allowed(matched, "GL Entry")
+        _append_resource_if_allowed(matched, "Sales Invoice")
+        _append_resource_if_allowed(matched, "Purchase Invoice")
+
+    if any(keyword in normalized for keyword in ["对账", "核对", "结算", "回款", "到账", "未收", "应收", "payment", "settlement"]):
+        _append_resource_if_allowed(matched, "Sales Invoice")
+        _append_resource_if_allowed(matched, "Payment Entry")
+
+    if any(keyword in normalized for keyword in ["工资", "薪资", "薪酬", "员工工资", "payroll", "salary"]):
+        _append_resource_if_allowed(matched, "Salary Slip")
+
+    if any(keyword in normalized for keyword in ["总账", "分录", "凭证", "gl"]):
+        _append_resource_if_allowed(matched, "GL Entry")
+
+    if any(keyword in normalized for keyword in ["采购", "供应商", "应付", "purchase"]):
+        _append_resource_if_allowed(matched, "Purchase Invoice")
+
+    if any(keyword in normalized for keyword in ["发票", "开票", "invoice", "应收"]):
+        _append_resource_if_allowed(matched, "Sales Invoice")
+
+    allowed: list[str] = []
+    finance_scope_set = set(finance_scopes)
+    for resource in matched:
+        if resource not in finance_scope_set or resource in allowed:
+            continue
+        ensure_erp_resource_allowed(current_user, resource)
+        allowed.append(resource)
+        if len(allowed) >= MAX_FINANCE_EXCEL_ERP_RESOURCES:
+            break
+
+    return allowed
+
+
+def _append_resource_if_allowed(items: list[str], resource: str) -> None:
+    if resource in ERP_RESOURCE_CATALOG and resource not in items:
+        items.append(resource)
 
 
 def _query_finance_excel_erp_context(resources: list[str]) -> list[dict[str, Any]]:

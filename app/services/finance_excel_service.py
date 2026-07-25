@@ -31,36 +31,49 @@ class FinanceExcelTransformResult:
 def transform_finance_excel(
     *,
     source_filename: str,
-    content: bytes,
+    content: bytes | None,
     instruction: str,
     erp_context: list[dict[str, Any]] | None = None,
 ) -> FinanceExcelTransformResult:
-    suffix = Path(source_filename or "").suffix.lower()
-    if suffix not in ALLOWED_EXCEL_EXTENSIONS:
-        raise ValueError("只支持上传 .xlsx 或 .xls 文件。")
+    normalized_erp_context = erp_context or []
+    has_uploaded_content = content is not None and len(content) > 0
+    normalized_source_filename = source_filename or (
+        "finance_uploaded.xlsx" if has_uploaded_content else "finance_erp_generated.xlsx"
+    )
+    source_mode = "uploaded_excel" if has_uploaded_content else "erp_context"
 
-    if len(content) > MAX_EXCEL_BYTES:
-        raise ValueError("Excel 文件不能超过 8MB。")
+    if has_uploaded_content:
+        suffix = Path(normalized_source_filename or "").suffix.lower()
+        if suffix not in ALLOWED_EXCEL_EXTENSIONS:
+            raise ValueError("只支持上传 .xlsx 或 .xls 文件。")
 
-    sheets = _read_excel_sheets(content, suffix)
-    if not sheets:
-        raise ValueError("Excel 文件里没有可读取的 sheet。")
+        if len(content) > MAX_EXCEL_BYTES:
+            raise ValueError("Excel 文件不能超过 8MB。")
+
+        sheets = _read_excel_sheets(content, suffix)
+        if not sheets:
+            raise ValueError("Excel 文件里没有可读取的 sheet。")
+        sheet_summaries = _build_sheet_summaries(sheets)
+    else:
+        sheets = {}
+        sheet_summaries = _build_erp_context_sheet_summaries(normalized_erp_context)
+
+    if not sheets and not normalized_erp_context:
+        raise ValueError("请上传 Excel 文件，或选择/说明要使用的财务 ERP 表。")
 
     normalized_instruction = (
         instruction.strip()
         or "请按财务复核要求整理表格，生成数值汇总，并指出需要人工复核的异常。"
     )
-    sheet_summaries = _build_sheet_summaries(sheets)
-    normalized_erp_context = erp_context or []
     ai_suggestion = _build_ai_suggestion(
         instruction=normalized_instruction,
-        source_filename=source_filename,
+        source_filename=normalized_source_filename,
         sheets=sheets,
         sheet_summaries=sheet_summaries,
         erp_context=normalized_erp_context,
     )
     workbook = _build_output_workbook(
-        source_filename=source_filename,
+        source_filename=normalized_source_filename,
         instruction=normalized_instruction,
         sheets=sheets,
         sheet_summaries=sheet_summaries,
@@ -72,16 +85,18 @@ def transform_finance_excel(
     workbook.save(output)
     output_content = output.getvalue()
 
-    safe_stem = _safe_filename(Path(source_filename).stem or "finance_excel")
+    safe_stem = _safe_filename(Path(normalized_source_filename).stem or "finance_excel")
     output_filename = f"{safe_stem}_ai_finance_result.xlsx"
 
     return FinanceExcelTransformResult(
         filename=output_filename,
         content=output_content,
         metadata={
-            "source_filename": source_filename,
+            "source_filename": normalized_source_filename,
+            "source_mode": source_mode,
             "output_filename": output_filename,
-            "sheet_count": len(sheets),
+            "sheet_count": len(sheet_summaries),
+            "uploaded_sheet_count": len(sheets),
             "total_rows": sum(summary["row_count"] for summary in sheet_summaries),
             "total_columns": sum(summary["column_count"] for summary in sheet_summaries),
             "erp_resource_count": len(normalized_erp_context),
@@ -158,6 +173,24 @@ def _build_sheet_summaries(sheets: dict[str, pd.DataFrame]) -> list[dict[str, An
     return summaries
 
 
+def _build_erp_context_sheet_summaries(erp_context: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    sheets: dict[str, pd.DataFrame] = {}
+
+    for item in erp_context:
+        items = item.get("items")
+        if not isinstance(items, list) or not items:
+            continue
+
+        rows = [_flatten_record(row) for row in items if isinstance(row, dict)]
+        if not rows:
+            continue
+
+        sheet_name = f"ERP_{item.get('label') or item.get('resource') or 'resource'}"
+        sheets[sheet_name[:31] or "ERP"] = pd.DataFrame(rows).fillna("")
+
+    return _build_sheet_summaries(sheets)
+
+
 def _build_ai_suggestion(
     *,
     instruction: str,
@@ -220,19 +253,20 @@ def _build_ai_prompt(
 
 源文件：{source_filename}
 财务处理要求：{instruction}
+数据模式：{"上传 Excel + ERP 辅助" if sheets else "未上传 Excel，基于财务权限内 ERP 表生成新工作簿"}
 
 表格概览：
 {sheet_summaries}
 
 样例数据：
-{chr(10).join(samples)}
+{chr(10).join(samples) if samples else "本次未上传 Excel，样例数据请参考下方 ERP 表样例。"}
 
 财务权限内 ERP 表：
 {erp_summaries or "本次未选择 ERP 表"}
 
 请输出：
 1. 本次新 Excel 应如何使用
-2. 上传 Excel 与已选 ERP 表可以如何合并或核对
+2. 上传 Excel 与已选 ERP 表，或多张 ERP 表之间，可以如何合并或核对
 3. 关键汇总指标应该重点看哪些列
 4. 可能的异常和复核点
 5. 如果要继续生成工资/利润/费用分析表，下一步需要补充哪些字段
@@ -264,6 +298,7 @@ def _build_output_workbook(
     used_titles = set(workbook.sheetnames)
     if erp_context:
         _write_erp_summary_sheet(workbook, erp_context)
+        _write_erp_combined_sheet(workbook, erp_context)
         used_titles = set(workbook.sheetnames)
         for item in erp_context:
             output_sheet = workbook.create_sheet(
@@ -342,6 +377,51 @@ def _write_erp_summary_sheet(
     _style_sheet(sheet)
     sheet.freeze_panes = "A2"
     _auto_width(sheet, max_width=60)
+
+
+def _write_erp_combined_sheet(
+    workbook: Workbook,
+    erp_context: list[dict[str, Any]],
+) -> None:
+    rows: list[dict[str, Any]] = []
+    field_names: list[str] = []
+
+    for item in erp_context:
+        items = item.get("items")
+        if not isinstance(items, list):
+            continue
+
+        for raw_row in items[:MAX_OUTPUT_ROWS_PER_SHEET]:
+            if not isinstance(raw_row, dict):
+                continue
+
+            flattened = _flatten_record(raw_row)
+            for key in flattened:
+                if key not in field_names:
+                    field_names.append(key)
+
+            rows.append(
+                {
+                    "ERP资源": str(item.get("resource") or ""),
+                    "资源名称": str(item.get("label") or item.get("resource") or ""),
+                    "查询状态": "成功" if item.get("ok") else str(item.get("status") or "失败"),
+                    **flattened,
+                }
+            )
+
+    sheet = workbook.create_sheet("ERP组合明细")
+    headers = ["ERP资源", "资源名称", "查询状态", *field_names]
+    sheet.append(headers)
+
+    if not rows:
+        sheet.append(["-", "-", "未返回可合并的 ERP 明细数据"])
+    else:
+        for row in rows[:MAX_OUTPUT_ROWS_PER_SHEET]:
+            sheet.append([_clean_excel_value(row.get(header, "")) for header in headers])
+
+    _style_sheet(sheet)
+    sheet.freeze_panes = "A2"
+    _auto_width(sheet, max_width=48)
 
 
 def _write_erp_resource_sheet(sheet, item: dict[str, Any]) -> None:
