@@ -149,6 +149,17 @@ AUTOMATION_TASKS: dict[str, dict[str, AutomationTaskSpec]] = {
                 "输出：工资明细 Excel、自动化摘要、意图识别结果、总额、人数和复核建议。"
             ),
         },
+        "salary_wechat_send": {
+            "label": "工资表微信发送准备",
+            "placeholder": "例如：生成这个月员工工资表，准备通过个人微信发给张三。",
+            "instruction": (
+                "识别工资表微信发送需求，按期间查询 ERP 工资单，生成 Excel，并创建个人微信待人工发送任务。"
+                "第一版不会自动点击微信发送按钮，必须由财务确认联系人和敏感文件后手动发送。"
+            ),
+            "output_format": (
+                "输出：执行计划、工资 Excel、接收人、待人工发送状态、确认项、执行器状态和审计记录。"
+            ),
+        },
         "excel_transform": {
             "label": "Excel 生成",
             "placeholder": "请到财务 Excel 生成页面选择或上传 Excel，并可选择销售发票、收付款单等财务 ERP 表辅助生成。",

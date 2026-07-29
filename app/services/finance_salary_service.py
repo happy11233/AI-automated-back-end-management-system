@@ -49,7 +49,7 @@ def recognize_salary_export_intent(message: str, today: date | None = None) -> S
     matched_keywords: list[str] = []
 
     keyword_groups = {
-        "salary": ["工资", "薪资", "工资表", "工资单", "薪酬", "salary", "payroll"],
+        "salary": ["工资", "薪资", "工资表", "工资单", "薪水", "薪酬", "salary", "payroll"],
         "export": ["发给我", "导出", "生成", "下载", "excel", "xlsx", "表", "明细", "清单"],
         "all_staff": ["所有员工", "全部员工", "全体员工", "员工"],
     }

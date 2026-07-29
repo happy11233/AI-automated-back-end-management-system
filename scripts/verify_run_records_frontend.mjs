@@ -52,8 +52,13 @@ try {
     note: "real browser, real frontend, real API login; run records are admin-only; no mock/stub/fake",
   }, null, 2));
 } finally {
-  await browser.close();
+  await Promise.race([
+    browser.close(),
+    new Promise((resolve) => setTimeout(resolve, 3000)),
+  ]);
 }
+
+process.exit(0);
 
 async function runAdminRunRecordCase() {
   const context = await browser.newContext({ viewport: { width: 1440, height: 960 } });
@@ -112,10 +117,22 @@ async function runAdminRunRecordCase() {
       throw new Error("admin_run_records_desktop: no visible detail button");
     }
     await detailResponse;
-    await page.getByRole("tab", { name: "基础信息" }).waitFor({
+    await page.getByRole("tab", { name: "业务视图" }).waitFor({
       state: "visible",
       timeout: 15000,
     });
+    for (const text of ["执行结果", "业务动作", "操作人/岗位", "执行时间线", "产物证据", "ERP / 业务引用", "审批和安全"]) {
+      await page.getByText(text, { exact: false }).first().waitFor({
+        state: "visible",
+        timeout: 15000,
+      });
+    }
+    const summaryTab = page.getByRole("tab", { name: "基础信息" });
+    await summaryTab.waitFor({
+      state: "visible",
+      timeout: 15000,
+    });
+    await summaryTab.click();
     for (const text of ["流程 Key", "流程版本", "发布指针", "执行来源"]) {
       await page.getByText(text, { exact: false }).first().waitFor({
         state: "visible",
@@ -129,6 +146,11 @@ async function runAdminRunRecordCase() {
     });
     await page.getByRole("tab", { name: /执行步骤/ }).click();
     await page.getByText("Provider", { exact: false }).first().waitFor({
+      state: "visible",
+      timeout: 15000,
+    });
+    await page.getByRole("tab", { name: "技术详情" }).click();
+    await page.getByText("运行 metadata", { exact: false }).first().waitFor({
       state: "visible",
       timeout: 15000,
     });
@@ -192,7 +214,9 @@ async function verifyApiForbidden(path) {
 }
 
 async function loginAtPath(page, account, path) {
-  await page.goto(FRONTEND_URL, { waitUntil: "networkidle" });
+  const token = await loginByApi(account);
+  const payload = decodeJwtPayload(token);
+  await page.goto(FRONTEND_URL, { waitUntil: "domcontentloaded" });
   await page.evaluate(() => {
     localStorage.removeItem("access_token");
     localStorage.removeItem("username");
@@ -200,21 +224,24 @@ async function loginAtPath(page, account, path) {
     localStorage.removeItem("position");
     localStorage.removeItem("allowed_ai_app_ids");
   });
-  await page.goto(`${FRONTEND_URL}${path}`, { waitUntil: "networkidle" });
-  await page.getByRole("button", { name: /登录|未登录/ }).first().click();
-  const modal = page.locator(".ant-modal").filter({ hasText: "登录 Company RAG Agent" }).first();
-  await modal.waitFor({ state: "visible", timeout: 10000 });
-  await modal.locator("input").nth(0).fill(account.username);
-  await modal.locator("input").nth(1).fill(account.password);
-  const loginResponse = page.waitForResponse(
-    (response) => response.url().includes("/api/auth/login") && response.status() === 200,
-    { timeout: 30000 },
+  await page.evaluate(
+    ({ accessToken, username, role, position }) => {
+      localStorage.setItem("access_token", accessToken);
+      localStorage.setItem("username", username);
+      localStorage.setItem("role", role);
+      if (position) {
+        localStorage.setItem("position", position);
+      }
+      localStorage.setItem("allowed_ai_app_ids", "[]");
+    },
+    {
+      accessToken: token,
+      username: account.username,
+      role: typeof payload.role === "string" ? payload.role : "employee",
+      position: typeof payload.position === "string" ? payload.position : "",
+    },
   );
-  await page.locator(".ant-modal-footer .ant-btn-primary").click();
-  await loginResponse;
-  await page.waitForFunction(() => Boolean(window.localStorage.getItem("access_token")), null, {
-    timeout: 10000,
-  });
+  await page.goto(`${FRONTEND_URL}${path}`, { waitUntil: "networkidle" });
 }
 
 async function loginByApi(account) {
@@ -232,6 +259,16 @@ async function loginByApi(account) {
     throw new Error(`login failed for ${account.username}: ${response.status} ${await response.text()}`);
   }
   return (await response.json()).access_token;
+}
+
+function decodeJwtPayload(token) {
+  try {
+    const payload = token.split(".")[1] || "";
+    const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
+    return JSON.parse(Buffer.from(normalized, "base64").toString("utf8"));
+  } catch {
+    return {};
+  }
 }
 
 function mainContent(page) {

@@ -74,9 +74,11 @@ import {
 } from "@ant-design/pro-components";
 import "./styles.css";
 import {
-  login,
-  checkPlatformActionExecutorHealth,
-  completeFeedback,
+	  login,
+	  checkPlatformActionExecutorHealth,
+	  checkMcpToolHealth,
+	  completeFeedback,
+  confirmEnterpriseWechatFileSend,
   createThread,
   createFeedback,
   createPlatformActionExecutor,
@@ -92,7 +94,8 @@ import {
   getMonitoringCenter,
   getMySettings,
   getAiWorkflowDetail,
-  getConnectorDetail,
+	  getConnectorDetail,
+  getEnterpriseWechatManagement,
   getAutomationFlowDetail,
   getAutomationFlowVersion,
   approveAutomationFlowVersion,
@@ -143,8 +146,10 @@ import {
   listUsers,
   getThreadMessages,
   getRunRecordDetail,
-  listConnectors,
-  listAutomationFlows,
+	  listConnectors,
+  listEnterpriseWechatContacts,
+	  listMcpTools,
+	  listAutomationFlows,
   listAutomationFlowVersionEvidence,
   listAutomationFlowVersions,
   listAiWorkflows,
@@ -159,7 +164,12 @@ import {
   submitAutomationFlowVersionReview,
   updateUserAiAppPermission,
   updateAutomationFlowVersion,
-  updatePlatformActionExecutor,
+	  updatePlatformActionExecutor,
+  syncEnterpriseWechatContacts,
+  testEnterpriseWechatSend,
+	  updateMcpTool,
+  updateEnterpriseWechatSettings,
+  upsertEnterpriseWechatGroup,
   updateDocumentAccess,
   updateMyPassword,
   updateMyProfile,
@@ -179,9 +189,15 @@ import {
   type BusinessActionLoopItem,
   type BusinessActionLoopResponse,
   type ConnectorConfigField,
-  type ConnectorDetailResponse,
-  type ConnectorItem,
-  type ConnectorsResponse,
+	  type ConnectorDetailResponse,
+	  type ConnectorItem,
+	  type ConnectorsResponse,
+  type EnterpriseWechatContactItem,
+  type EnterpriseWechatContactsResponse,
+  type EnterpriseWechatManagementResponse,
+  type McpToolItem,
+	  type McpToolsResponse,
+  type BusinessProgressPayload,
   type CustomerServiceMessageCreatePayload,
   type CustomerServiceMessageDetailResponse,
   type CustomerServiceMessageItem,
@@ -195,6 +211,7 @@ import {
   type AutomationTaskItem,
   type GeneratedFileFilters,
   type GeneratedFileItem,
+  type EnterpriseWechatFileSendConfirmPayload,
   type AutomationFlowVersionCreatePayload,
   type AutomationFlowVerificationEvidence,
   type AutomationFlowVerificationEvidenceListResponse,
@@ -258,7 +275,13 @@ const { Paragraph, Text, Title } = Typography;
 const { TextArea } = Input;
 
 type Role = "admin" | "employee";
-type ChatRoute = "refund_workflow" | "order_agent" | "knowledge_rag" | "finance_salary_export";
+type ChatRoute =
+  | "refund_workflow"
+  | "order_agent"
+  | "knowledge_rag"
+  | "finance_compound_report_generation"
+  | "finance_salary_export"
+  | "enterprise_wechat_file_send";
 type FinanceAutomationTool = "report_analysis" | "salary_export" | "excel_upload" | "reconciliation";
 type View =
   | "dashboard"
@@ -286,6 +309,7 @@ type View =
   | "ai_workflow_finance_reconciliation"
   | "automation_flows"
   | "connectors"
+  | "mcp_tools"
   | "platform_action_executors"
   | "automation"
   | "automation_operations"
@@ -363,6 +387,45 @@ type ChatMessage = {
   erpReferences?: ErpReference[];
   attachments?: ChatAttachment[];
   platformDraft?: PlatformDraftItem | null;
+  approvalResult?: Record<string, unknown> | null;
+  automation?: Record<string, unknown> | null;
+  businessProgress?: BusinessProgressPayload | null;
+};
+
+type EnterpriseWechatRecipientCandidate = {
+  id: string;
+  name: string;
+  objectType: string;
+  objectTypeLabel: string;
+  department: string;
+  phoneLast4: string;
+  avatarUrl: string;
+  avatarText: string;
+  raw: Record<string, unknown>;
+};
+
+type EnterpriseWechatManualRecipientType = "user" | "group" | "department";
+
+type EnterpriseWechatConfirmationCardData = {
+  title: string;
+  status: string;
+  statusLabel: string;
+  description: string;
+  recipientName: string;
+  recipientSearchMessage: string;
+  allowManualRecipient: boolean;
+  requiresRecipientSelection: boolean;
+  requiresSensitiveConfirmation: boolean;
+  workflowId: string;
+  sourceMessage: string;
+  artifact: {
+    artifactId: string;
+    filename: string;
+    downloadPath: string;
+    mimeType: string;
+  };
+  candidates: EnterpriseWechatRecipientCandidate[];
+  selectedRecipientId: string;
 };
 
 type PublicLLMChatMessage = PublicLLMMessage & {
@@ -954,6 +1017,7 @@ const navItems: NavItem[] = [
     { path: "/monitoring-center", id: "monitoring_center", name: "监控中心", icon: <SafetyCertificateOutlined />, roles: ["admin"] },
     { path: "/automation-flows", id: "automation_flows", name: "流程配置", icon: <AuditOutlined />, roles: ["admin"] },
     { path: "/connectors", id: "connectors", name: "连接器中心", icon: <ApiOutlined />, roles: ["admin"] },
+    { path: "/mcp-tools", id: "mcp_tools", name: "MCP 工具管理", icon: <ApiOutlined />, roles: ["admin"] },
     { path: "/platform-action-executors", id: "platform_action_executors", name: "外部执行器配置", icon: <ApiOutlined />, roles: ["admin"] },
     { path: "/audit", id: "audit", name: "审计日志", icon: <AuditOutlined />, roles: ["admin"] },
   ]),
@@ -1106,6 +1170,8 @@ const auditActionLabels: Record<string, string> = {
   "admin.automation_flow_version.submit_review": "管理员提交自动化流程版本审核",
   "admin.automation_flow_version.update": "管理员更新自动化流程版本",
   "admin.automation_flow_version.verification_evidence.record": "管理员记录自动化流程验证证据",
+  "admin.mcp_tool.health_check": "管理员检查 MCP 工具健康状态",
+  "admin.mcp_tool.update": "管理员更新 MCP 工具状态",
   "admin.rag_document.access_update": "管理员更新知识文档访问权限",
   "admin.rag_document.grant_create": "管理员新增知识文档授权",
   "admin.rag_document.grant_revoke": "管理员撤销知识文档授权",
@@ -1146,6 +1212,7 @@ const auditActionLabels: Record<string, string> = {
   "mcp.documents.sync": "MCP 文档同步",
   "mcp.ticket.create": "MCP 工单创建",
   "mcp.ticket.get": "MCP 工单查询",
+  "mcp_tool.invoke": "MCP 工具调用",
   "platform_action_executor.create": "管理员创建外部执行器",
   "platform_action_executor.delete": "管理员删除外部执行器",
   "platform_action_executor.health_check": "管理员检查外部执行器连接",
@@ -1174,6 +1241,7 @@ const auditResourceTypeLabels: Record<string, string> = {
   erp: "ERP 数据",
   feedback: "员工反馈",
   mcp: "MCP 工具",
+  mcp_tool: "MCP 工具",
   platform_action_executor: "外部执行器",
   platform_draft: "平台草稿",
   platform_execution: "平台执行任务",
@@ -1401,6 +1469,7 @@ function App() {
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [isSavingPassword, setIsSavingPassword] = useState(false);
   const [downloadingFileId, setDownloadingFileId] = useState("");
+  const [confirmingEnterpriseWechatKey, setConfirmingEnterpriseWechatKey] = useState("");
   const [runRecordFilters, setRunRecordFilters] = useState<RunRecordFilterState>({
     status: "all",
     runType: "",
@@ -1524,6 +1593,11 @@ function App() {
   const [isConnectorDetailOpen, setIsConnectorDetailOpen] = useState(false);
   const [isConnectorDetailLoading, setIsConnectorDetailLoading] = useState(false);
   const [isConnectorsLoading, setIsConnectorsLoading] = useState(false);
+  const [mcpTools, setMcpTools] = useState<McpToolItem[]>([]);
+  const [mcpToolSummary, setMcpToolSummary] = useState<McpToolsResponse["summary"] | null>(null);
+  const [isMcpToolsLoading, setIsMcpToolsLoading] = useState(false);
+  const [checkingMcpToolId, setCheckingMcpToolId] = useState("");
+  const [updatingMcpToolId, setUpdatingMcpToolId] = useState("");
   const [platformActionExecutors, setPlatformActionExecutors] = useState<PlatformActionExecutorItem[]>([]);
   const [platformActionExecutorSummary, setPlatformActionExecutorSummary] = useState<PlatformActionExecutorsResponse["summary"] | null>(null);
   const [platformActionExecutorActionOptions, setPlatformActionExecutorActionOptions] = useState<PlatformActionExecutorOption[]>([]);
@@ -1605,7 +1679,7 @@ function App() {
   const [isUploading, setIsUploading] = useState(false);
 
   const [threadSummary, setThreadSummary] = useState("");
-  const [threadStateText, setThreadStateText] = useState("");
+  const [threadState, setThreadState] = useState<Record<string, unknown> | null>(null);
 
   const pendingCount = canUseApprovalCenter(role, position)
     ? approvals.filter((item) => item.status === "pending").length
@@ -1707,6 +1781,10 @@ function App() {
     if (safeActiveView === "feedback_improvement" || safeActiveView === "feedback_center") {
       void refreshFeedback();
     }
+
+    if (safeActiveView === "mcp_tools") {
+      void refreshMcpTools();
+    }
   }, [safeActiveView]);
 
   const stats = useMemo(
@@ -1760,6 +1838,7 @@ function App() {
       void refreshAdminData(storedToken);
       void refreshUsers(storedToken);
       void refreshConnectors(storedToken);
+      void refreshMcpTools(storedToken);
       void refreshPlatformActionExecutors(storedToken);
       void refreshEvaluationCenter(storedToken);
       void refreshMonitoringCenter(storedToken);
@@ -1812,6 +1891,7 @@ function App() {
         await refreshAdminData(result.access_token);
         await refreshUsers(result.access_token);
         await refreshConnectors(result.access_token);
+        await refreshMcpTools(result.access_token);
         await refreshPlatformActionExecutors(result.access_token);
         await refreshEvaluationCenter(result.access_token);
       await refreshMonitoringCenter(result.access_token);
@@ -1992,7 +2072,7 @@ function App() {
     setSelectedErpResource("");
     setErpQueryResult(null);
     setThreadSummary("");
-    setThreadStateText("");
+    setThreadState(null);
     if (options.publicHome) {
       window.history.replaceState(null, "", "/");
       window.dispatchEvent(new PopStateEvent("popstate"));
@@ -2158,6 +2238,119 @@ function App() {
     }
   }
 
+  async function handleDownloadGeneratedArtifact(artifactId: string, filename?: string | null) {
+    const cleanArtifactId = artifactId.trim();
+    if (!token) {
+      setStatusMessage("请先登录");
+      message.warning("请先登录");
+      return false;
+    }
+
+    if (!cleanArtifactId) {
+      message.warning("没有找到可下载的文件");
+      return false;
+    }
+
+    setDownloadingFileId(cleanArtifactId);
+    try {
+      const result = await downloadGeneratedFile(token, cleanArtifactId);
+      const downloadName = result.filename && result.filename !== "generated_file"
+        ? result.filename
+        : filename || result.filename || "generated_file";
+      downloadBlob(result.blob, downloadName);
+      setStatusMessage(`已开始下载：${downloadName}`);
+      message.success("文件已开始下载");
+      return true;
+    } catch (error) {
+      if (isAuthExpiredError(error)) {
+        return false;
+      }
+      const text = error instanceof Error ? error.message : "文件下载失败";
+      setStatusMessage(text);
+      message.error(text);
+      return false;
+    } finally {
+      setDownloadingFileId("");
+    }
+  }
+
+  async function handleConfirmEnterpriseWechatSend(payload: EnterpriseWechatFileSendConfirmPayload) {
+    if (!token) {
+      setStatusMessage("请先登录");
+      message.warning("请先登录");
+      return;
+    }
+
+    const confirmKey = enterpriseWechatConfirmKey(
+      payload.artifact_id,
+      payload.recipient_candidate_id || payload.recipient_name,
+    );
+    setConfirmingEnterpriseWechatKey(confirmKey);
+    try {
+      const result = await confirmEnterpriseWechatFileSend(token, payload);
+      const nextThreadId = payload.thread_id || activeThreadId || result.run_id;
+      const nextAttachment: ChatAttachment = {
+        type: chatAttachmentTypeFromFilename(result.filename),
+        filename: result.filename,
+        metadata: {
+          artifact_id: result.artifact_id,
+          download_path: result.download_path || `/files/${result.artifact_id}/download`,
+        },
+      };
+      setMessages((current) =>
+        current.map((item) =>
+          item.id === payload.source_message_id || chatMessageContainsArtifact(item, result.artifact_id)
+            ? {
+                ...item,
+                threadId: nextThreadId,
+                content: result.answer,
+                createdAt: item.createdAt === "正在生成" ? "刚刚" : item.createdAt,
+                route: routeFromIntent("enterprise_wechat_file_send", null),
+                attachments: [nextAttachment],
+                approvalResult: {
+                  status: result.status,
+                  status_label: result.status_label,
+                },
+                automation: {
+                  type: "enterprise_wechat_file_send",
+                  workflow_id: payload.source_workflow_id || "enterprise_wechat_file_send",
+                  status: result.status,
+                  status_label: result.status_label,
+                  artifact_id: result.artifact_id,
+                  filename: result.filename,
+                  download_path: result.download_path || `/files/${result.artifact_id}/download`,
+                  wechat_send: result.execution,
+                },
+                businessProgress: null,
+              }
+            : item,
+        ),
+      );
+      setStatusMessage(result.status_label || "企业微信发送流程已处理");
+      if (result.status === "completed") {
+        message.success("企业微信文件已发送");
+      } else {
+        message.warning(result.answer || result.status_label || "企业微信发送还需要管理员处理");
+      }
+      void refreshChatThreads(token, { silent: true });
+      void refreshGeneratedFiles(token);
+      void refreshBusinessActionLoop(token);
+      void refreshRunRecords();
+      if (role === "admin") {
+        await refreshAdminData();
+      }
+    } catch (error) {
+      if (isAuthExpiredError(error)) {
+        return;
+      }
+      const text = error instanceof Error ? error.message : "企业微信发送确认失败";
+      setStatusMessage(text);
+      message.error(text);
+    } finally {
+      setConfirmingEnterpriseWechatKey("");
+    }
+  }
+
   function handleLogout() {
     clearAuthenticatedState();
     setStatusMessage("已退出登录");
@@ -2184,7 +2377,7 @@ function App() {
 
     try {
       const backendActionFilter = auditBackendActionFilter(auditActionFilter);
-      const [refundResult, auditResult, userResult, feedbackResult] = await Promise.all([
+      const [refundResult, auditResult, userResult, feedbackResult, mcpToolResult] = await Promise.all([
         listRefunds(activeToken),
         listAuditLogs(activeToken, {
           action: backendActionFilter,
@@ -2194,6 +2387,7 @@ function App() {
         }),
         listUsers(activeToken),
         listFeedback(activeToken, { status: feedbackFilters.status, limit: 80 }),
+        listMcpTools(activeToken),
       ]);
 
       setApprovals([]);
@@ -2202,6 +2396,8 @@ function App() {
       setUsers(userResult.items.map(mapUser));
       setFeedbackItems(feedbackResult.items);
       setFeedbackSummary(feedbackResult.summary);
+      setMcpTools(mcpToolResult.items);
+      setMcpToolSummary(mcpToolResult.summary);
       setStatusMessage("后台数据已刷新");
       message.success("后台数据已刷新");
     } catch (error) {
@@ -3298,6 +3494,78 @@ function App() {
     }
   }
 
+  async function refreshMcpTools(activeToken = token) {
+    if (!activeToken || readRoleFromToken(activeToken) !== "admin") {
+      return;
+    }
+
+    setIsMcpToolsLoading(true);
+    try {
+      const result = await listMcpTools(activeToken);
+      setMcpTools(result.items);
+      setMcpToolSummary(result.summary);
+      setStatusMessage("MCP 工具目录已刷新");
+    } catch (error) {
+      if (isAuthExpiredError(error)) {
+        return;
+      }
+      const text = error instanceof Error ? error.message : "MCP 工具目录加载失败";
+      setStatusMessage(text);
+      message.error(text);
+    } finally {
+      setIsMcpToolsLoading(false);
+    }
+  }
+
+  async function toggleMcpTool(item: McpToolItem, enabled: boolean) {
+    if (!token) {
+      return;
+    }
+    setUpdatingMcpToolId(item.id);
+    try {
+      const result = await updateMcpTool(token, item.id, {
+        enabled,
+        admin_note: item.admin_note || "",
+      });
+      setMcpTools((current) => current.map((tool) => tool.id === item.id ? result.item : tool));
+      setStatusMessage(enabled ? "MCP 工具已启用" : "MCP 工具已暂停");
+      message.success(enabled ? "MCP 工具已启用" : "MCP 工具已暂停");
+      void refreshAuditLogs();
+    } catch (error) {
+      if (isAuthExpiredError(error)) {
+        return;
+      }
+      const text = error instanceof Error ? error.message : "MCP 工具状态更新失败";
+      setStatusMessage(text);
+      message.error(text);
+    } finally {
+      setUpdatingMcpToolId("");
+    }
+  }
+
+  async function checkMcpTool(item: McpToolItem) {
+    if (!token) {
+      return;
+    }
+    setCheckingMcpToolId(item.id);
+    try {
+      const result = await checkMcpToolHealth(token, item.id);
+      setMcpTools((current) => current.map((tool) => tool.id === item.id ? result.item : tool));
+      setStatusMessage("MCP 工具健康检查完成");
+      message.success("MCP 工具健康检查完成");
+      void refreshAuditLogs();
+    } catch (error) {
+      if (isAuthExpiredError(error)) {
+        return;
+      }
+      const text = error instanceof Error ? error.message : "MCP 工具健康检查失败";
+      setStatusMessage(text);
+      message.error(text);
+    } finally {
+      setCheckingMcpToolId("");
+    }
+  }
+
   async function refreshPlatformActionExecutors(activeToken = token) {
     if (!activeToken || readRoleFromToken(activeToken) !== "admin") {
       return;
@@ -4057,8 +4325,8 @@ function App() {
         } else {
           setActiveThreadId("");
           setMessages([]);
-          setThreadSummary("");
-          setThreadStateText("");
+        setThreadSummary("");
+        setThreadState(null);
         }
       }
 
@@ -4093,7 +4361,7 @@ function App() {
       setActiveThreadId("");
       setMessages([]);
       setThreadSummary("");
-      setThreadStateText("");
+      setThreadState(null);
       navigateToPath("/chat", { replace: options.replacePath });
       return;
     }
@@ -4103,7 +4371,7 @@ function App() {
       setActiveThreadId(threadId);
       setMessages(result.messages.map(mapThreadMessage));
       setThreadSummary(String(result.summary.summary || ""));
-      setThreadStateText(JSON.stringify(result.state, null, 2));
+      setThreadState(recordFromUnknown(result.state));
       navigateToPath(`/chat/${encodeURIComponent(threadId)}`, { replace: options.replacePath });
       setStatusMessage("会话已加载");
       if (!options.silent) {
@@ -4135,7 +4403,7 @@ function App() {
       setActiveThreadId(result.item.id);
       setMessages([]);
       setThreadSummary("");
-      setThreadStateText("");
+      setThreadState(null);
       setChatThreads((current) => [result.item, ...current.filter((item) => item.id !== result.item.id)]);
       navigateToPath(`/chat/${encodeURIComponent(result.item.id)}`);
       setStatusMessage("已创建新会话");
@@ -4254,6 +4522,22 @@ function App() {
             ),
           );
         },
+        onBusinessProgress: (payload) => {
+          const progress = normalizeBusinessProgress(payload);
+          if (progress?.label) {
+            setStatusMessage(progress.label);
+          }
+          setMessages((current) =>
+            current.map((item) =>
+              item.id === assistantMessageId
+                ? {
+                    ...item,
+                    businessProgress: progress,
+                  }
+                : item,
+            ),
+          );
+        },
         onNode: (payload) => {
           if (payload.node) {
             setStatusMessage(`正在执行节点：${payload.node}`);
@@ -4297,6 +4581,9 @@ function App() {
                     erpReferences: payload.erp_references || [],
                     attachments: payload.attachments || [],
                     platformDraft: payload.platform_draft || null,
+                    approvalResult: payload.approval_result || null,
+                    automation: payload.automation || null,
+                    businessProgress: null,
                   }
                 : item,
             ),
@@ -4326,6 +4613,7 @@ function App() {
                 ...item,
                 content: "生成失败，请稍后重试。",
                 createdAt: "刚刚",
+                businessProgress: null,
               }
             : item,
         ),
@@ -4833,6 +5121,18 @@ function App() {
                     openDetail={openConnectorDetail}
                   />
                 )}
+                {safeActiveView === "mcp_tools" && role === "admin" && (
+                  <McpToolsPanel
+                    tools={mcpTools}
+                    summary={mcpToolSummary}
+                    loading={isMcpToolsLoading}
+                    checkingId={checkingMcpToolId}
+                    updatingId={updatingMcpToolId}
+                    refresh={() => refreshMcpTools()}
+                    toggle={toggleMcpTool}
+                    checkHealth={checkMcpTool}
+                  />
+                )}
                 {safeActiveView === "platform_action_executors" && role === "admin" && (
                   <PlatformActionExecutorsPanel
                     executors={platformActionExecutors}
@@ -4962,6 +5262,10 @@ function App() {
                     isCreatingThread={isCreatingThread}
                     isRenamingThread={isRenamingThread}
                     position={position}
+                    confirmingEnterpriseWechatKey={confirmingEnterpriseWechatKey}
+                    downloadingArtifactId={downloadingFileId}
+                    confirmEnterpriseWechatSend={handleConfirmEnterpriseWechatSend}
+                    downloadGeneratedArtifact={handleDownloadGeneratedArtifact}
                   />
                 )}
                 {safeActiveView === "user_settings" && (
@@ -5049,7 +5353,7 @@ function App() {
                     openThread={(threadId) => openChatThread(threadId)}
                     messages={messages}
                     summary={threadSummary}
-                    stateText={threadStateText}
+                    state={threadState}
                     loading={isThreadListLoading}
                     role={role}
                     retentionDays={threadRetentionDays}
@@ -5082,6 +5386,7 @@ function App() {
               open={isErpRecordDetailOpen}
               loading={isErpRecordDetailLoading}
               detail={erpRecordDetail}
+              role={role}
               onClose={() => setIsErpRecordDetailOpen(false)}
             />
             <RunRecordDetailModal
@@ -5128,6 +5433,8 @@ function App() {
               open={isConnectorDetailOpen}
               loading={isConnectorDetailLoading}
               detail={connectorDetail}
+              token={token}
+              refreshConnectors={() => refreshConnectors()}
               onClose={() => setIsConnectorDetailOpen(false)}
             />
           </ProLayout>
@@ -5675,6 +5982,10 @@ function ChatPanel(props: {
   isCreatingThread: boolean;
   isRenamingThread: boolean;
   position: Position | null;
+  confirmingEnterpriseWechatKey: string;
+  downloadingArtifactId: string;
+  confirmEnterpriseWechatSend: (payload: EnterpriseWechatFileSendConfirmPayload) => Promise<void>;
+  downloadGeneratedArtifact: (artifactId: string, filename?: string | null) => Promise<boolean>;
 }) {
   const title = props.activeThread
     ? threadDisplayTitle(props.activeThread, "employee")
@@ -5699,7 +6010,13 @@ function ChatPanel(props: {
   return (
     <ProCard bordered className="chatWorkspace" bodyStyle={{ padding: 0, height: "100%" }}>
       <div className="chatMessagesPane">
-        <MessageList messages={props.messages} />
+        <MessageList
+          messages={props.messages}
+          confirmingEnterpriseWechatKey={props.confirmingEnterpriseWechatKey}
+          downloadingArtifactId={props.downloadingArtifactId}
+          onConfirmEnterpriseWechatSend={props.confirmEnterpriseWechatSend}
+          onDownloadGeneratedArtifact={props.downloadGeneratedArtifact}
+        />
       </div>
 
       <div className="chatComposerWrap">
@@ -8210,16 +8527,18 @@ function ErpPanel({
                       />
                     </Form.Item>
                   </Col>
-                  <Col xs={24}>
-                    <Form.Item label="高级过滤（JSON，可选）">
-                      <TextArea
-                        value={filtersText}
-                        rows={4}
-                        placeholder='例如 {"status": "Open"}，一般只需要填写上面的关键字'
-                        onChange={(event) => setFiltersText(event.target.value)}
-                      />
-                    </Form.Item>
-                  </Col>
+                  {role === "admin" ? (
+                    <Col xs={24}>
+                      <Form.Item label="高级过滤（JSON，可选）">
+                        <TextArea
+                          value={filtersText}
+                          rows={4}
+                          placeholder='例如 {"status": "Open"}，一般只需要填写上面的关键字'
+                          onChange={(event) => setFiltersText(event.target.value)}
+                        />
+                      </Form.Item>
+                    </Col>
+                  ) : null}
                   <Col xs={24} md={8}>
                     <Form.Item label="返回数量">
                       <InputNumber
@@ -8246,7 +8565,7 @@ function ErpPanel({
       </ProCard>
       <ProCard title="连接结果" bordered>
         {result ? (
-          <ErpQueryResultView result={result} columns={resultColumns} />
+          <ErpQueryResultView result={result} columns={resultColumns} role={role} />
         ) : (
           <Empty description="还没有连接查询结果" />
         )}
@@ -8379,17 +8698,17 @@ function ErpPanel({
         dataSource={resources}
         locale={{ emptyText: <Empty description="暂无 ERP 资源，请刷新或联系管理员分配岗位" /> }}
         columns={[
-          { title: "资源", dataIndex: "resource", width: 170 },
+          ...(role === "admin" ? [{ title: "资源", dataIndex: "resource", width: 170 }] : []),
           { title: "名称", dataIndex: "label", width: 140 },
           { title: "说明", dataIndex: "description" },
-          {
+          ...(role === "admin" ? [{
             title: "当前 Provider 对象",
             width: 180,
-            render: (_, item) => {
+            render: (_: unknown, item: ErpResourceItem) => {
               const provider = status?.provider || "erpnext";
               return item.provider_refs[provider] || "-";
             },
-          },
+          }] : []),
         ]}
       />
     </ProCard>
@@ -8409,9 +8728,11 @@ function ErpPanel({
 function ErpQueryResultView({
   result,
   columns,
+  role,
 }: {
   result: ErpQueryResponse;
   columns: ReturnType<typeof buildErpResultColumns>;
+  role: Role;
 }) {
   const statusTone = result.ok ? "green" : result.configured ? "gold" : "red";
   const businessMessage = result.ok
@@ -8481,16 +8802,18 @@ function ErpQueryResultView({
         />
       )}
 
-      <Collapse
-        ghost
-        items={[
-          {
-            key: "debug",
-            label: "查看原始返回数据",
-            children: <pre className="statePre">{JSON.stringify(result, null, 2)}</pre>,
-          },
-        ]}
-      />
+      {role === "admin" ? (
+        <Collapse
+          ghost
+          items={[
+            {
+              key: "debug",
+              label: "管理员技术详情",
+              children: <pre className="statePre">{JSON.stringify(sanitizeTechnicalValue(result), null, 2)}</pre>,
+            },
+          ]}
+        />
+      ) : null}
     </Space>
   );
 }
@@ -10582,6 +10905,358 @@ function RunRecordsPanel({
   );
 }
 
+type RunRecordMcpToolCall = {
+  key: string;
+  toolId: string;
+  label: string;
+  serverName: string;
+  toolName: string;
+  riskLevel: string;
+  status: string;
+  stepStatus: string;
+  message: string;
+  durationMs: number | null;
+  backendPermissionChecked: boolean;
+  permissionGate: string;
+  requiresApproval: boolean;
+  source: string;
+};
+
+type RunRecordBusinessTimelineItem = {
+  key: string;
+  title: string;
+  description: string;
+  status: string;
+  time: string;
+  duration: string;
+  provider: string;
+  resource: string;
+};
+
+type RunRecordEvidenceItem = {
+  key: string;
+  title: string;
+  description: string;
+  tag?: string;
+  mono?: string;
+};
+
+function mcpToolCallsFromRunRecord(detail: RunRecordDetailResponse): RunRecordMcpToolCall[] {
+  const calls: RunRecordMcpToolCall[] = [];
+  const seen = new Set<string>();
+
+  detail.steps
+    .filter((step) => step.resource_type === "mcp_tool")
+    .forEach((step) => {
+      const trace = recordFromUnknown(step.metadata);
+      const call = normalizeMcpToolCall(trace, step);
+      if (!seen.has(call.key)) {
+        calls.push(call);
+        seen.add(call.key);
+      }
+    });
+
+  const runMetadata = recordFromUnknown(detail.run.metadata);
+  const wechatSend = recordFromUnknown(runMetadata.wechat_send);
+  const fallbackCalls = Array.isArray(wechatSend.mcp_tool_calls) ? wechatSend.mcp_tool_calls : [];
+  fallbackCalls.forEach((item, index) => {
+    const call = normalizeMcpToolCall(recordFromUnknown(item), null, index);
+    if (!seen.has(call.key)) {
+      calls.push(call);
+      seen.add(call.key);
+    }
+  });
+
+  return calls;
+}
+
+function runRecordBusinessTimeline(detail: RunRecordDetailResponse): RunRecordBusinessTimelineItem[] {
+  const steps = [...detail.steps].sort((left, right) => left.step_order - right.step_order);
+  if (!steps.length) {
+    return [
+      {
+        key: detail.run.id,
+        title: runRecordBusinessActionLabel(detail.run),
+        description: compactDisplayText(detail.run.error_message || detail.run.output_preview || detail.run.input_preview || "本次运行没有记录拆分步骤。", 140),
+        status: detail.run.status,
+        time: formatTime(detail.run.finished_at || detail.run.started_at),
+        duration: formatDuration(detail.run.duration_ms),
+        provider: detail.run.execution_source || "-",
+        resource: runRecordResourceText(detail.run.resource_type, detail.run.resource_id),
+      },
+    ];
+  }
+
+  return steps.map((step) => ({
+    key: step.id,
+    title: runRecordStepBusinessLabel(step.step_name, step.resource_type),
+    description: compactDisplayText(
+      step.error_message || step.output_preview || step.input_preview || runRecordStepFallbackDescription(step),
+      150,
+    ),
+    status: step.status,
+    time: formatTime(step.finished_at || step.started_at),
+    duration: formatDuration(step.duration_ms),
+    provider: step.provider || "-",
+    resource: runRecordResourceText(step.resource_type, step.resource_id),
+  }));
+}
+
+function runRecordBusinessActionLabel(run: RunRecordItem) {
+  const byAppId: Record<string, string> = {
+    finance_compound_report_generation: "生成财务经营报表",
+    finance_salary_export: "导出工资表",
+    finance_salary_wechat_send: "发送工资表文件",
+    operations_listing_launch: "生成运营 Listing",
+    customer_service_reply_draft: "生成客服回复草稿",
+    finance_excel_settlement: "处理财务结算表",
+    finance_reconciliation: "执行财务对账",
+  };
+
+  return byAppId[run.app_id] || run.app_name || "执行业务动作";
+}
+
+function runRecordStepBusinessLabel(stepName: string, resourceType: string | null) {
+  const normalized = stepName.toLowerCase();
+  const labels: Record<string, string> = {
+    finance_compound_intent_recognition: "识别财务资料需求",
+    finance_compound_permission_check: "校验财务数据权限",
+    finance_compound_merge_workbook: "汇总经营数据并生成报表",
+    finance_compound_save_files: "保存生成文件",
+    finance_compound_email_delivery: "处理邮件发送",
+    finance_salary_export: "生成工资表",
+    finance_salary_query: "查询工资单数据",
+    finance_salary_save_file: "保存工资表文件",
+    finance_salary_wechat_confirmation: "等待企业微信发送确认",
+    operations_listing_launch: "生成运营 Listing 内容",
+    customer_service_reply_draft: "生成客服回复草稿",
+    permission_check: "校验岗位和资源权限",
+    approval_check: "检查审批要求",
+    audit_log: "写入审计记录",
+  };
+
+  if (labels[normalized]) {
+    return labels[normalized];
+  }
+  if (normalized.includes("permission")) {
+    return "校验岗位和资源权限";
+  }
+  if (normalized.includes("approval") || normalized.includes("confirm")) {
+    return "等待审批或人工确认";
+  }
+  if (normalized.includes("erp") || resourceType === "erp") {
+    return "查询 ERP 业务数据";
+  }
+  if (normalized.includes("mcp") || resourceType === "mcp_tool") {
+    return "调用自动化工具";
+  }
+  if (normalized.includes("file") || normalized.includes("artifact")) {
+    return "生成或保存文件";
+  }
+
+  return stepName.replace(/_/g, " ");
+}
+
+function runRecordStepFallbackDescription(step: RunRecordDetailResponse["steps"][number]) {
+  if (step.status === "failed" && step.error_message) {
+    return step.error_message;
+  }
+  if (step.status === "blocked") {
+    return "系统已根据岗位、资源或审批规则阻断本步骤。";
+  }
+  if (step.resource_type || step.resource_id) {
+    return `处理对象：${runRecordResourceText(step.resource_type, step.resource_id)}`;
+  }
+  return "本步骤已记录到运行日志。";
+}
+
+function runRecordResourceText(resourceType: string | null, resourceId: string | null) {
+  const type = resourceType || "业务资源";
+  const id = resourceId || "-";
+  return `${type} / ${id}`;
+}
+
+function runRecordArtifactEvidence(detail: RunRecordDetailResponse): RunRecordEvidenceItem[] {
+  return detail.artifacts.map((artifact) => ({
+    key: artifact.id,
+    title: artifact.name || artifact.artifact_type || "生成产物",
+    description: [
+      artifact.mime_type ? `格式：${artifact.mime_type}` : "",
+      artifact.size_bytes ? `大小：${formatBytes(artifact.size_bytes)}` : "",
+      artifact.created_at ? `生成时间：${formatTime(artifact.created_at)}` : "",
+    ].filter(Boolean).join(" / ") || "本次运行生成的业务文件或结果引用。",
+    tag: artifactTypeBusinessLabel(artifact.artifact_type),
+    mono: artifact.external_ref || undefined,
+  }));
+}
+
+function artifactTypeBusinessLabel(value: string) {
+  const labels: Record<string, string> = {
+    excel: "Excel 文件",
+    xlsx: "Excel 文件",
+    file: "生成文件",
+    generated_file: "生成文件",
+    platform_draft: "业务草稿",
+    erp_reference: "ERP 引用",
+  };
+  return labels[value] || value || "产物";
+}
+
+function runRecordErpReferenceEvidence(detail: RunRecordDetailResponse): RunRecordEvidenceItem[] {
+  const metadata = recordFromUnknown(detail.run.metadata);
+  const sources = [
+    metadata.erp_references,
+    metadata.erpReferences,
+    metadata.erp_resources,
+    metadata.erpResources,
+    metadata.resource_references,
+  ];
+  const seen = new Set<string>();
+  const references: RunRecordEvidenceItem[] = [];
+
+  sources.flatMap(recordsFromUnknown).forEach((record, index) => {
+    const resource = textFromUnknown(record.resource_label || record.resource || record.doctype || record.resource_type || "ERP 资源");
+    const recordId = textFromUnknown(record.record_id || record.name || record.id || record.resource_id || "");
+    const title = textFromUnknown(record.title || record.name || recordId || resource);
+    const key = `${resource}:${recordId || index}`;
+    if (seen.has(key)) {
+      return;
+    }
+    seen.add(key);
+    references.push({
+      key,
+      title,
+      description: recordId ? `${resource} / ${recordId}` : resource,
+      tag: "ERP 数据",
+      mono: recordId || undefined,
+    });
+  });
+
+  detail.steps
+    .filter((step) => step.resource_type && step.resource_type.toLowerCase().includes("erp"))
+    .forEach((step) => {
+      const key = `${step.resource_type}:${step.resource_id || step.id}`;
+      if (seen.has(key)) {
+        return;
+      }
+      seen.add(key);
+      references.push({
+        key,
+        title: runRecordStepBusinessLabel(step.step_name, step.resource_type),
+        description: runRecordResourceText(step.resource_type, step.resource_id),
+        tag: "ERP 查询",
+        mono: step.resource_id || undefined,
+      });
+    });
+
+  return references.slice(0, 8);
+}
+
+function runRecordApprovalEvidence(detail: RunRecordDetailResponse): RunRecordEvidenceItem[] {
+  const metadata = recordFromUnknown(detail.run.metadata);
+  const approval = firstRecord(
+    metadata.approval_result,
+    metadata.approval,
+    metadata.approval_request,
+    metadata.confirmation_card,
+  );
+  const approvalId = textFromUnknown(
+    metadata.approval_id
+      || approval?.approval_id
+      || approval?.id
+      || approval?.request_id
+      || "",
+  );
+  const approvalStatus = textFromUnknown(
+    metadata.approval_status
+      || approval?.status
+      || approval?.status_label
+      || "",
+  );
+  const approvalSummary = textFromUnknown(
+    metadata.approval_summary
+      || approval?.summary_cn
+      || approval?.message
+      || approval?.description
+      || "",
+  );
+
+  if (approvalId || approvalStatus || approvalSummary) {
+    return [
+      {
+        key: approvalId || "approval",
+        title: approvalStatus ? labelForBadge(approvalStatus) : "等待审批",
+        description: approvalSummary || "该业务动作已进入审批或确认流程。",
+        tag: "审批",
+        mono: approvalId ? shortTaskId(approvalId) : undefined,
+      },
+    ];
+  }
+
+  if (detail.run.status === "blocked") {
+    return [
+      {
+        key: "blocked",
+        title: "权限或审批规则已拦截",
+        description: detail.run.error_message || detail.run.output_preview || "系统已根据后台规则阻断本次执行。",
+        tag: "拦截",
+      },
+    ];
+  }
+
+  return [
+    {
+      key: "no-approval",
+      title: "无需人工审批",
+      description: detail.run.status === "failed"
+        ? (detail.run.error_message || "本次运行失败，但未记录人工审批要求。")
+        : "本次运行未记录额外人工审批要求。",
+      tag: "审批",
+    },
+  ];
+}
+
+function recordsFromUnknown(value: unknown): Record<string, unknown>[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .filter((item): item is Record<string, unknown> => typeof item === "object" && item !== null && !Array.isArray(item));
+}
+
+function normalizeMcpToolCall(
+  trace: Record<string, unknown>,
+  step: RunRecordDetailResponse["steps"][number] | null,
+  fallbackIndex = 0,
+): RunRecordMcpToolCall {
+  const toolId = textFromUnknown(trace.tool_id || step?.resource_id || "mcp_tool");
+  const status = textFromUnknown(trace.status || step?.status || "unknown");
+  return {
+    key: step?.id || `${toolId}-${fallbackIndex}`,
+    toolId,
+    label: textFromUnknown(trace.label || toolId),
+    serverName: textFromUnknown(trace.server_name || "-"),
+    toolName: textFromUnknown(trace.tool_name || "-"),
+    riskLevel: textFromUnknown(trace.risk_level || "medium"),
+    status,
+    stepStatus: step?.status || mcpTraceStepStatus(status),
+    message: textFromUnknown(trace.message || step?.output_preview || step?.error_message || "-"),
+    durationMs: typeof trace.duration_ms === "number" ? trace.duration_ms : step?.duration_ms ?? null,
+    backendPermissionChecked: trace.backend_permission_checked === true,
+    permissionGate: textFromUnknown(trace.permission_gate || "Skill Executor / backend policy"),
+    requiresApproval: trace.requires_approval === true,
+    source: textFromUnknown(trace.source || "-"),
+  };
+}
+
+function mcpTraceStepStatus(value: string) {
+  const status = value.toLowerCase();
+  if (["failed", "error", "unhealthy", "invalid_config"].includes(status)) return "failed";
+  if (["waiting_executor", "waiting_callback", "not_configured", "stub_ready"].includes(status)) return "blocked";
+  return "succeeded";
+}
+
 function RunRecordDetailModal({
   open,
   loading,
@@ -10593,6 +11268,12 @@ function RunRecordDetailModal({
   detail: RunRecordDetailResponse | null;
   onClose: () => void;
 }) {
+  const mcpToolCalls = detail ? mcpToolCallsFromRunRecord(detail) : [];
+  const timeline = detail ? runRecordBusinessTimeline(detail) : [];
+  const artifactEvidence = detail ? runRecordArtifactEvidence(detail) : [];
+  const erpEvidence = detail ? runRecordErpReferenceEvidence(detail) : [];
+  const approvalEvidence = detail ? runRecordApprovalEvidence(detail) : [];
+
   return (
     <Modal
       open={open}
@@ -10611,6 +11292,83 @@ function RunRecordDetailModal({
         <Tabs
           className="runRecordDetailTabs"
           items={[
+            {
+              key: "business",
+              label: "业务视图",
+              children: (
+                <Space direction="vertical" size={14} className="pageStack">
+                  <div className="runRecordBusinessSummaryGrid">
+                    <div className="runRecordBusinessSummaryItem">
+                      <Text type="secondary">执行结果</Text>
+                      <Space size={6} wrap>
+                        <StatusTag value={detail.run.status} />
+                        <Text strong>{runStatusLabel(detail.run.status)}</Text>
+                      </Space>
+                    </div>
+                    <div className="runRecordBusinessSummaryItem">
+                      <Text type="secondary">业务动作</Text>
+                      <Text strong>{runRecordBusinessActionLabel(detail.run)}</Text>
+                      <Text type="secondary">{detail.run.app_name}</Text>
+                    </div>
+                    <div className="runRecordBusinessSummaryItem">
+                      <Text type="secondary">操作人/岗位</Text>
+                      <Text strong>{detail.run.username || "-"}</Text>
+                      <Text type="secondary">
+                        {isPosition(detail.run.position) ? positionLabel(detail.run.position) : "管理员"}
+                      </Text>
+                    </div>
+                    <div className="runRecordBusinessSummaryItem">
+                      <Text type="secondary">耗时</Text>
+                      <Title level={4}>{formatDuration(detail.run.duration_ms)}</Title>
+                      <Text type="secondary">{formatTime(detail.run.started_at)}</Text>
+                    </div>
+                  </div>
+
+                  <Card size="small" title="执行时间线" className="runRecordBusinessSectionCard">
+                    <div className="runRecordBusinessTimeline">
+                      {timeline.map((item) => (
+                        <div className="runRecordBusinessTimelineItem" key={item.key}>
+                          <span className={`runRecordBusinessTimelineDot ${item.status}`} />
+                          <div className="runRecordBusinessTimelineBody">
+                            <div className="runRecordBusinessTimelineHeader">
+                              <Space size={8} wrap>
+                                <Text strong>{item.title}</Text>
+                                <StatusTag value={item.status} />
+                              </Space>
+                              <Text type="secondary">{item.time}</Text>
+                            </div>
+                            <Paragraph className="runRecordBusinessTimelineDescription">{item.description}</Paragraph>
+                            <Space size={[6, 6]} wrap>
+                              <Tag>{item.duration}</Tag>
+                              <Tag>{item.provider}</Tag>
+                              <Tag>{item.resource}</Tag>
+                            </Space>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </Card>
+
+                  <Row gutter={[12, 12]}>
+                    <Col xs={24} lg={8}>
+                      <Card size="small" title="产物证据" className="runRecordBusinessSectionCard">
+                        <RunRecordEvidenceList items={artifactEvidence} emptyText="本次运行没有生成文件或业务产物" />
+                      </Card>
+                    </Col>
+                    <Col xs={24} lg={8}>
+                      <Card size="small" title="ERP / 业务引用" className="runRecordBusinessSectionCard">
+                        <RunRecordEvidenceList items={erpEvidence} emptyText="本次运行没有记录 ERP 引用" />
+                      </Card>
+                    </Col>
+                    <Col xs={24} lg={8}>
+                      <Card size="small" title="审批和安全" className="runRecordBusinessSectionCard">
+                        <RunRecordEvidenceList items={approvalEvidence} emptyText="本次运行没有审批记录" />
+                      </Card>
+                    </Col>
+                  </Row>
+                </Space>
+              ),
+            },
             {
               key: "summary",
               label: "基础信息",
@@ -10661,6 +11419,88 @@ function RunRecordDetailModal({
                     </Card>
                   </Col>
                 </Row>
+              ),
+            },
+            {
+              key: "mcp",
+              label: `MCP 调用 ${mcpToolCalls.length}`,
+              children: mcpToolCalls.length ? (
+                <Table<RunRecordMcpToolCall>
+                  rowKey="key"
+                  dataSource={mcpToolCalls}
+                  pagination={false}
+                  scroll={{ x: 980 }}
+                  columns={[
+                    {
+                      title: "工具",
+                      dataIndex: "label",
+                      width: 250,
+                      render: (_, record) => (
+                        <Space direction="vertical" size={2} className="runRecordCellStack">
+                          <Text strong className="runRecordText">{record.label}</Text>
+                          <Text type="secondary" className="runRecordMono">{record.toolId}</Text>
+                        </Space>
+                      ),
+                    },
+                    {
+                      title: "Server / Tool",
+                      width: 190,
+                      render: (_, record) => (
+                        <Space direction="vertical" size={2}>
+                          <Text className="runRecordMono">{record.serverName}</Text>
+                          <Text className="runRecordMono">{record.toolName}</Text>
+                        </Space>
+                      ),
+                    },
+                    {
+                      title: "风险",
+                      dataIndex: "riskLevel",
+                      width: 110,
+                      render: (value) => <RiskTag value={String(value)} />,
+                    },
+                    {
+                      title: "状态",
+                      dataIndex: "stepStatus",
+                      width: 130,
+                      render: (_, record) => (
+                        <Space direction="vertical" size={2}>
+                          <StatusTag value={record.stepStatus} />
+                          <Text type="secondary">{record.status}</Text>
+                        </Space>
+                      ),
+                    },
+                    {
+                      title: "权限闸门",
+                      width: 190,
+                      render: (_, record) => (
+                        <Space direction="vertical" size={2}>
+                          <Tag color={record.backendPermissionChecked ? "green" : "gold"}>
+                            {record.backendPermissionChecked ? "后端已校验" : "需确认"}
+                          </Tag>
+                          {record.requiresApproval ? <Tag color="gold">审批/确认</Tag> : <Tag>无需审批</Tag>}
+                        </Space>
+                      ),
+                    },
+                    {
+                      title: "说明",
+                      dataIndex: "message",
+                      render: (value, record) => (
+                        <Space direction="vertical" size={2}>
+                          <Text className="runRecordPreview">{String(value || "-")}</Text>
+                          <Text type="secondary">来源：{record.source}</Text>
+                        </Space>
+                      ),
+                    },
+                    {
+                      title: "耗时",
+                      dataIndex: "durationMs",
+                      width: 90,
+                      render: (value) => formatDuration(value),
+                    },
+                  ]}
+                />
+              ) : (
+                <Empty description="本次运行暂无 MCP 工具调用" />
               ),
             },
             {
@@ -10741,12 +11581,85 @@ function RunRecordDetailModal({
                 />
               ),
             },
+            {
+              key: "tech",
+              label: "技术详情",
+              children: (
+                <Collapse
+                  className="runRecordTechCollapse"
+                  items={[
+                    {
+                      key: "run",
+                      label: "运行 metadata",
+                      children: (
+                        <pre className="statePre">{JSON.stringify(sanitizeTechnicalValue(detail.run.metadata), null, 2)}</pre>
+                      ),
+                    },
+                    {
+                      key: "steps",
+                      label: "步骤 metadata",
+                      children: (
+                        <pre className="statePre">
+                          {JSON.stringify(sanitizeTechnicalValue(detail.steps.map((step) => ({
+                            id: step.id,
+                            step_name: step.step_name,
+                            status: step.status,
+                            metadata: step.metadata,
+                          }))), null, 2)}
+                        </pre>
+                      ),
+                    },
+                    {
+                      key: "artifacts",
+                      label: "产物 metadata",
+                      children: (
+                        <pre className="statePre">
+                          {JSON.stringify(sanitizeTechnicalValue(detail.artifacts.map((artifact) => ({
+                            id: artifact.id,
+                            artifact_type: artifact.artifact_type,
+                            name: artifact.name,
+                            metadata: artifact.metadata,
+                          }))), null, 2)}
+                        </pre>
+                      ),
+                    },
+                  ]}
+                />
+              ),
+            },
           ]}
         />
       ) : (
         <Empty description="请选择一条运行记录" />
       )}
     </Modal>
+  );
+}
+
+function RunRecordEvidenceList({
+  items,
+  emptyText,
+}: {
+  items: RunRecordEvidenceItem[];
+  emptyText: string;
+}) {
+  if (!items.length) {
+    return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={emptyText} />;
+  }
+
+  return (
+    <div className="runRecordEvidenceList">
+      {items.map((item) => (
+        <div className="runRecordEvidenceItem" key={item.key}>
+          <div className="runRecordEvidenceHeader">
+            <Text strong className="runRecordText">{item.title}</Text>
+            {item.tag ? <Tag>{item.tag}</Tag> : null}
+          </div>
+          <Text type="secondary" className="runRecordPreview">{item.description}</Text>
+          {item.mono ? <Text className="runRecordMono">{item.mono}</Text> : null}
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -15125,6 +16038,213 @@ function ConnectorsPanel({
   );
 }
 
+function McpToolsPanel({
+  tools,
+  summary,
+  loading,
+  checkingId,
+  updatingId,
+  refresh,
+  toggle,
+  checkHealth,
+}: {
+  tools: McpToolItem[];
+  summary: McpToolsResponse["summary"] | null;
+  loading: boolean;
+  checkingId: string;
+  updatingId: string;
+  refresh: () => void;
+  toggle: (item: McpToolItem, enabled: boolean) => void;
+  checkHealth: (item: McpToolItem) => void;
+}) {
+  return (
+    <Space direction="vertical" size={16} className="pageStack">
+      <Row gutter={[12, 12]} className="connectorMetricRow">
+        <Col xs={12} lg={6}>
+          <Card size="small" className="connectorMetricCard">
+            <Text type="secondary">MCP 工具</Text>
+            <Title level={3}>{summary?.total ?? tools.length}</Title>
+          </Card>
+        </Col>
+        <Col xs={12} lg={6}>
+          <Card size="small" className="connectorMetricCard">
+            <Text type="secondary">已启用</Text>
+            <Title level={3}>{summary?.enabled ?? tools.filter((item) => item.enabled).length}</Title>
+          </Card>
+        </Col>
+        <Col xs={12} lg={6}>
+          <Card size="small" className="connectorMetricCard">
+            <Text type="secondary">高风险</Text>
+            <Title level={3}>{summary?.high_risk ?? tools.filter((item) => item.risk_level === "high").length}</Title>
+          </Card>
+        </Col>
+        <Col xs={12} lg={6}>
+          <Card size="small" className="connectorMetricCard">
+            <Text type="secondary">MCP Server</Text>
+            <Title level={3}>{summary?.servers ?? new Set(tools.map((item) => item.server_name)).size}</Title>
+          </Card>
+        </Col>
+      </Row>
+
+      <ProCard
+        title="MCP 工具管理"
+        subTitle="MCP 只作为工具层；高风险工具必须经过 Skill Executor、权限、审批和审计后才能执行"
+        bordered
+        extra={
+          <Button size="small" icon={<ReloadOutlined />} onClick={refresh} loading={loading}>
+            刷新
+          </Button>
+        }
+      >
+        <Table<McpToolItem>
+          rowKey="id"
+          loading={loading}
+          dataSource={tools}
+          scroll={{ x: 1280 }}
+          pagination={{ pageSize: 8, hideOnSinglePage: true }}
+          locale={{ emptyText: <Empty description="暂无 MCP 工具" /> }}
+          columns={[
+            {
+              title: "工具",
+              dataIndex: "label",
+              width: 260,
+              render: (_, record) => (
+                <Space direction="vertical" size={2} className="runRecordCellStack">
+                  <Text strong className="runRecordText">{record.label}</Text>
+                  <Text type="secondary" className="runRecordMono">{record.tool_id}</Text>
+                </Space>
+              ),
+            },
+            {
+              title: "Server / Tool",
+              width: 230,
+              render: (_, record) => (
+                <Space direction="vertical" size={2} className="runRecordCellStack">
+                  <Text className="runRecordMono">{record.server_name}</Text>
+                  <Text className="runRecordMono">{record.tool_name}</Text>
+                </Space>
+              ),
+            },
+            {
+              title: "类别",
+              dataIndex: "category",
+              width: 120,
+              render: (value) => <Tag color="blue">{String(value)}</Tag>,
+            },
+            {
+              title: "风险",
+              dataIndex: "risk_level",
+              width: 105,
+              render: (value) => <RiskTag value={String(value)} />,
+            },
+            {
+              title: "允许岗位",
+              dataIndex: "position_scope_labels",
+              width: 210,
+              render: (value: string[]) => (
+                <Space size={[4, 4]} wrap>
+                  {(value || []).map((item) => <Tag color="purple" key={item}>{item}</Tag>)}
+                </Space>
+              ),
+            },
+            {
+              title: "模式",
+              dataIndex: "execution_mode",
+              width: 160,
+              render: (value, record) => (
+                <Space direction="vertical" size={2}>
+                  <Text className="runRecordMono">{String(value)}</Text>
+                  {record.requires_approval ? <Tag color="gold">需要审批/确认</Tag> : <Tag>无需审批</Tag>}
+                </Space>
+              ),
+            },
+            {
+              title: "启用",
+              dataIndex: "enabled",
+              width: 110,
+              render: (_, record) => (
+                <Switch
+                  size="small"
+                  checked={record.enabled}
+                  loading={updatingId === record.id}
+                  onChange={(checked) => toggle(record, checked)}
+                />
+              ),
+            },
+            {
+              title: "健康",
+              dataIndex: "health_status",
+              width: 150,
+              render: (_, record) => (
+                <Space direction="vertical" size={2}>
+                  <ConnectorStatusTag status={record.health_status} />
+                  <Text type="secondary">{formatTime(record.last_checked_at)}</Text>
+                </Space>
+              ),
+            },
+            {
+              title: "操作",
+              dataIndex: "id",
+              fixed: "right",
+              width: 120,
+              render: (_, record) => (
+                <Button size="small" onClick={() => checkHealth(record)} loading={checkingId === record.id}>
+                  检查
+                </Button>
+              ),
+            },
+          ]}
+          expandable={{
+            expandedRowRender: (record) => (
+              <Space direction="vertical" size={12} className="pageStack">
+                <Paragraph>{record.description}</Paragraph>
+                <Space size={[6, 6]} wrap>
+                  <StatusTag value={record.status} />
+                  <RiskTag value={record.risk_level} />
+                  <Tag color="blue">{record.execution_mode}</Tag>
+                  {record.supports_real_health_check ? <Tag color="green">支持健康检查</Tag> : <Tag>无健康检查</Tag>}
+                </Space>
+                <Row gutter={[12, 12]}>
+                  <Col xs={24} lg={12}>
+                    <div className="connectorRuleList">
+                      <Text strong>安全规则</Text>
+                      {record.safety_rules.map((item) => (
+                        <div className="connectorRuleItem" key={item}>{item}</div>
+                      ))}
+                    </div>
+                  </Col>
+                  <Col xs={24} lg={12}>
+                    <div className="connectorRuleList">
+                      <Text strong>业务示例</Text>
+                      <div className="connectorRuleItem">{record.example}</div>
+                      <Text type="secondary">{record.health_message}</Text>
+                    </div>
+                  </Col>
+                </Row>
+                <Tabs
+                  size="small"
+                  items={[
+                    {
+                      key: "input",
+                      label: `输入 ${record.input_schema.length}`,
+                      children: <SchemaTable items={record.input_schema} />,
+                    },
+                    {
+                      key: "output",
+                      label: `输出 ${record.output_schema.length}`,
+                      children: <SchemaTable items={record.output_schema} />,
+                    },
+                  ]}
+                />
+              </Space>
+            ),
+          }}
+        />
+      </ProCard>
+    </Space>
+  );
+}
+
 function PlatformActionExecutorsPanel({
   executors,
   summary,
@@ -15380,14 +16500,188 @@ function ConnectorDetailModal({
   open,
   loading,
   detail,
+  token,
+  refreshConnectors,
   onClose,
 }: {
   open: boolean;
   loading: boolean;
   detail: ConnectorDetailResponse | null;
+  token: string;
+  refreshConnectors: () => void;
   onClose: () => void;
 }) {
   const connector = detail?.item || null;
+  const isWechatConnector = connector?.id === "wechat_work";
+  const [wechatManagement, setWechatManagement] = useState<EnterpriseWechatManagementResponse | null>(null);
+  const [wechatForm, setWechatForm] = useState({
+    corpId: "",
+    agentId: "",
+    secret: "",
+    clearSecret: false,
+    realSendEnabled: false,
+    timeoutSeconds: 12,
+  });
+  const [wechatContactQuery, setWechatContactQuery] = useState("");
+  const [wechatContactType, setWechatContactType] = useState("all");
+  const [wechatGroupName, setWechatGroupName] = useState("");
+  const [wechatGroupChatId, setWechatGroupChatId] = useState("");
+  const [wechatSelectedContactId, setWechatSelectedContactId] = useState("");
+  const [isWechatManagementLoading, setIsWechatManagementLoading] = useState(false);
+  const [isWechatSaving, setIsWechatSaving] = useState(false);
+  const [isWechatSyncing, setIsWechatSyncing] = useState(false);
+  const [isWechatGroupSaving, setIsWechatGroupSaving] = useState(false);
+  const [isWechatTesting, setIsWechatTesting] = useState(false);
+
+  useEffect(() => {
+    if (!open || !isWechatConnector || !token) {
+      return;
+    }
+    void loadWechatManagement();
+  }, [open, isWechatConnector, token]);
+
+  async function loadWechatManagement() {
+    if (!token) {
+      return;
+    }
+    setIsWechatManagementLoading(true);
+    try {
+      const result = await getEnterpriseWechatManagement(token);
+      setWechatManagement(result);
+      setWechatForm((current) => ({
+        ...current,
+        secret: "",
+        clearSecret: false,
+        realSendEnabled: result.settings.real_send_enabled,
+        timeoutSeconds: result.settings.timeout_seconds || 12,
+      }));
+      setWechatSelectedContactId((current) => current || result.contacts.items[0]?.id || "");
+    } catch (error) {
+      const text = error instanceof Error ? error.message : "企业微信管理信息加载失败";
+      message.error(text);
+    } finally {
+      setIsWechatManagementLoading(false);
+    }
+  }
+
+  async function saveWechatSettings() {
+    if (!token) {
+      return;
+    }
+    setIsWechatSaving(true);
+    try {
+      const result = await updateEnterpriseWechatSettings(token, {
+        corp_id: wechatForm.corpId.trim() || null,
+        agent_id: wechatForm.agentId.trim() || null,
+        secret: wechatForm.secret.trim() || null,
+        clear_secret: wechatForm.clearSecret,
+        real_send_enabled: wechatForm.realSendEnabled,
+        timeout_seconds: wechatForm.timeoutSeconds,
+      });
+      setWechatManagement((current) => current ? { ...current, settings: result.settings } : current);
+      setWechatForm((current) => ({ ...current, corpId: "", agentId: "", secret: "", clearSecret: false }));
+      refreshConnectors();
+      message.success("企业微信配置已保存");
+      void loadWechatManagement();
+    } catch (error) {
+      const text = error instanceof Error ? error.message : "企业微信配置保存失败";
+      message.error(text);
+    } finally {
+      setIsWechatSaving(false);
+    }
+  }
+
+  async function syncWechatContacts() {
+    if (!token) {
+      return;
+    }
+    setIsWechatSyncing(true);
+    try {
+      const result = await syncEnterpriseWechatContacts(token);
+      message.success(String(result.message || "企业微信通讯录同步完成"));
+      await loadWechatManagement();
+      refreshConnectors();
+    } catch (error) {
+      const text = error instanceof Error ? error.message : "企业微信通讯录同步失败";
+      message.error(text);
+    } finally {
+      setIsWechatSyncing(false);
+    }
+  }
+
+  async function searchWechatContacts(nextQuery = wechatContactQuery, nextType = wechatContactType) {
+    if (!token) {
+      return;
+    }
+    setIsWechatManagementLoading(true);
+    try {
+      const result = await listEnterpriseWechatContacts(token, {
+        query: nextQuery.trim(),
+        object_type: nextType,
+      });
+      setWechatManagement((current) => current ? {
+        ...current,
+        contacts: result,
+      } : current);
+      setWechatSelectedContactId((current) => {
+        if (current && result.items.some((item) => item.id === current)) {
+          return current;
+        }
+        return result.items[0]?.id || "";
+      });
+    } catch (error) {
+      const text = error instanceof Error ? error.message : "企业微信通讯录搜索失败";
+      message.error(text);
+    } finally {
+      setIsWechatManagementLoading(false);
+    }
+  }
+
+  async function saveWechatGroup() {
+    if (!token) {
+      return;
+    }
+    if (!wechatGroupName.trim() || !wechatGroupChatId.trim()) {
+      message.warning("请填写群聊名称和 chat_id");
+      return;
+    }
+    setIsWechatGroupSaving(true);
+    try {
+      await upsertEnterpriseWechatGroup(token, {
+        name: wechatGroupName.trim(),
+        chat_id: wechatGroupChatId.trim(),
+      });
+      setWechatGroupName("");
+      setWechatGroupChatId("");
+      message.success("群聊已保存");
+      await searchWechatContacts("", "all");
+      refreshConnectors();
+    } catch (error) {
+      const text = error instanceof Error ? error.message : "群聊保存失败";
+      message.error(text);
+    } finally {
+      setIsWechatGroupSaving(false);
+    }
+  }
+
+  async function runWechatTestSend() {
+    if (!token || !wechatSelectedContactId) {
+      message.warning("请先选择一个接收对象");
+      return;
+    }
+    setIsWechatTesting(true);
+    try {
+      const result = await testEnterpriseWechatSend(token, { recipient_id: wechatSelectedContactId });
+      message.success(String(result.message || "企业微信测试发送流程已完成"));
+      await loadWechatManagement();
+      refreshConnectors();
+    } catch (error) {
+      const text = error instanceof Error ? error.message : "企业微信测试发送失败";
+      message.error(text);
+    } finally {
+      setIsWechatTesting(false);
+    }
+  }
 
   return (
     <Modal
@@ -15515,6 +16809,38 @@ function ConnectorDetailModal({
                 />
               ),
             },
+            ...(isWechatConnector ? [{
+              key: "wechat_work_management",
+              label: "企业微信管理",
+              children: (
+                <EnterpriseWechatManagementPanel
+                  management={wechatManagement}
+                  loading={isWechatManagementLoading}
+                  form={wechatForm}
+                  setForm={setWechatForm}
+                  contactQuery={wechatContactQuery}
+                  setContactQuery={setWechatContactQuery}
+                  contactType={wechatContactType}
+                  setContactType={setWechatContactType}
+                  selectedContactId={wechatSelectedContactId}
+                  setSelectedContactId={setWechatSelectedContactId}
+                  groupName={wechatGroupName}
+                  setGroupName={setWechatGroupName}
+                  groupChatId={wechatGroupChatId}
+                  setGroupChatId={setWechatGroupChatId}
+                  saving={isWechatSaving}
+                  syncing={isWechatSyncing}
+                  groupSaving={isWechatGroupSaving}
+                  testing={isWechatTesting}
+                  refresh={loadWechatManagement}
+                  saveSettings={saveWechatSettings}
+                  syncContacts={syncWechatContacts}
+                  searchContacts={searchWechatContacts}
+                  saveGroup={saveWechatGroup}
+                  testSend={runWechatTestSend}
+                />
+              ),
+            }] : []),
           ]}
         />
       ) : (
@@ -15522,6 +16848,379 @@ function ConnectorDetailModal({
       )}
     </Modal>
   );
+}
+
+type EnterpriseWechatFormState = {
+  corpId: string;
+  agentId: string;
+  secret: string;
+  clearSecret: boolean;
+  realSendEnabled: boolean;
+  timeoutSeconds: number;
+};
+
+function EnterpriseWechatManagementPanel({
+  management,
+  loading,
+  form,
+  setForm,
+  contactQuery,
+  setContactQuery,
+  contactType,
+  setContactType,
+  selectedContactId,
+  setSelectedContactId,
+  groupName,
+  setGroupName,
+  groupChatId,
+  setGroupChatId,
+  saving,
+  syncing,
+  groupSaving,
+  testing,
+  refresh,
+  saveSettings,
+  syncContacts,
+  searchContacts,
+  saveGroup,
+  testSend,
+}: {
+  management: EnterpriseWechatManagementResponse | null;
+  loading: boolean;
+  form: EnterpriseWechatFormState;
+  setForm: React.Dispatch<React.SetStateAction<EnterpriseWechatFormState>>;
+  contactQuery: string;
+  setContactQuery: (value: string) => void;
+  contactType: string;
+  setContactType: (value: string) => void;
+  selectedContactId: string;
+  setSelectedContactId: (value: string) => void;
+  groupName: string;
+  setGroupName: (value: string) => void;
+  groupChatId: string;
+  setGroupChatId: (value: string) => void;
+  saving: boolean;
+  syncing: boolean;
+  groupSaving: boolean;
+  testing: boolean;
+  refresh: () => Promise<void>;
+  saveSettings: () => Promise<void>;
+  syncContacts: () => Promise<void>;
+  searchContacts: (query?: string, objectType?: string) => Promise<void>;
+  saveGroup: () => Promise<void>;
+  testSend: () => Promise<void>;
+}) {
+  const settings = management?.settings || null;
+  const contacts = management?.contacts || null;
+  const diagnostics = management?.diagnostics || null;
+  const fieldPreview = (name: string) => settings?.config_fields.find((item) => item.name === name)?.value_preview || "未配置";
+  const missingFields = settings?.missing_fields || [];
+  const contactColumns: TableColumnsType<EnterpriseWechatContactItem> = [
+    {
+      title: "接收对象",
+      dataIndex: "name",
+      width: 220,
+      render: (_, record) => (
+        <Space size={8}>
+          <Avatar size={28} src={record.avatar_url || undefined}>
+            {record.avatar_text || record.name.slice(0, 1)}
+          </Avatar>
+          <Space direction="vertical" size={0} className="connectorCellStack">
+            <Text strong className="connectorText">{record.name}</Text>
+            <Text type="secondary" className="connectorMono">{record.wechat_userid || record.chat_id || record.department_id || "-"}</Text>
+          </Space>
+        </Space>
+      ),
+    },
+    {
+      title: "类型",
+      dataIndex: "object_type_label",
+      width: 96,
+      render: (value) => <Tag>{String(value || "成员")}</Tag>,
+    },
+    {
+      title: "部门",
+      dataIndex: "department",
+      width: 160,
+      render: (value) => <Text>{value || "-"}</Text>,
+    },
+    {
+      title: "手机号后四位",
+      dataIndex: "phone_last4",
+      width: 120,
+      render: (value) => <Text className="connectorMono">{value || "-"}</Text>,
+    },
+    {
+      title: "来源",
+      dataIndex: "source",
+      render: (value) => <Text type="secondary">{String(value || "-")}</Text>,
+    },
+  ];
+
+  return (
+    <Space direction="vertical" size={14} className="pageStack enterpriseWechatManager">
+      <Row gutter={[12, 12]}>
+        <Col xs={12} lg={6}>
+          <div className="enterpriseWechatMetric">
+            <Text type="secondary">配置状态</Text>
+            <Text strong>{settings?.configured ? "已配置" : "未配置"}</Text>
+          </div>
+        </Col>
+        <Col xs={12} lg={6}>
+          <div className="enterpriseWechatMetric">
+            <Text type="secondary">真实发送</Text>
+            <Text strong>{settings?.real_send_enabled ? "已启用" : "未启用"}</Text>
+          </div>
+        </Col>
+        <Col xs={12} lg={6}>
+          <div className="enterpriseWechatMetric">
+            <Text type="secondary">缓存对象</Text>
+            <Text strong>{contacts?.summary.total ?? 0}</Text>
+          </div>
+        </Col>
+        <Col xs={12} lg={6}>
+          <div className="enterpriseWechatMetric">
+            <Text type="secondary">最近同步</Text>
+            <Text strong>{formatTime(settings?.last_sync_at || "")}</Text>
+          </div>
+        </Col>
+      </Row>
+
+      <div className="enterpriseWechatSection">
+        <div className="enterpriseWechatSectionHeader">
+          <Space direction="vertical" size={2}>
+            <Text strong>配置引导</Text>
+            <Text type="secondary">先把企业微信参数和可见范围配好，再在聊天里做真实发送演示。</Text>
+          </Space>
+          <Space size={6} wrap>
+            {missingFields.length ? (
+              missingFields.map((field) => <Tag key={field} color="gold">{enterpriseWechatMissingFieldLabel(field)}</Tag>)
+            ) : (
+              <Tag color="green">配置完整</Tag>
+            )}
+          </Space>
+        </div>
+        <Row gutter={[12, 12]}>
+          <Col xs={24} lg={12}>
+            <div className="enterpriseWechatGuidePanel">
+              <Text strong>配置步骤</Text>
+              <div className="enterpriseWechatStepList">
+                {(settings?.setup_steps || []).map((step) => (
+                  <div key={`${step.key}-${step.status}`} className="enterpriseWechatStep">
+                    <Space size={6}>
+                      <StatusTag value={step.status} />
+                      <Text strong>{step.label}</Text>
+                    </Space>
+                    <Text type="secondary">{step.description}</Text>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </Col>
+          <Col xs={24} lg={12}>
+            <div className="enterpriseWechatGuidePanel">
+              <Text strong>演示清单</Text>
+              <div className="enterpriseWechatStepList">
+                {(settings?.demo_checklist || []).map((step) => (
+                  <div key={`${step.key}-${step.status}`} className="enterpriseWechatStep">
+                    <Space size={6}>
+                      <StatusTag value={step.status} />
+                      <Text strong>{step.label}</Text>
+                    </Space>
+                    <Text type="secondary">{step.description}</Text>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </Col>
+        </Row>
+      </div>
+
+      <div className="enterpriseWechatSection">
+        <div className="enterpriseWechatSectionHeader">
+          <Space direction="vertical" size={2}>
+            <Text strong>后台配置</Text>
+            <Text type="secondary">Secret 保存后只展示脱敏内容；空输入会保留原配置。</Text>
+          </Space>
+          <Button size="small" icon={<ReloadOutlined />} loading={loading} onClick={() => void refresh()}>
+            刷新
+          </Button>
+        </div>
+        <div className="enterpriseWechatConfigGrid">
+          <div className="enterpriseWechatField">
+            <Text type="secondary">Corp ID</Text>
+            <Input
+              value={form.corpId}
+              placeholder={`当前：${fieldPreview("corp_id")}`}
+              onChange={(event) => setForm((current) => ({ ...current, corpId: event.target.value }))}
+            />
+          </div>
+          <div className="enterpriseWechatField">
+            <Text type="secondary">Agent ID</Text>
+            <Input
+              value={form.agentId}
+              placeholder={`当前：${fieldPreview("agent_id")}`}
+              onChange={(event) => setForm((current) => ({ ...current, agentId: event.target.value }))}
+            />
+          </div>
+          <div className="enterpriseWechatField">
+            <Text type="secondary">Secret</Text>
+            <Input.Password
+              value={form.secret}
+              placeholder={`当前：${fieldPreview("secret")}`}
+              onChange={(event) => setForm((current) => ({ ...current, secret: event.target.value, clearSecret: false }))}
+            />
+          </div>
+          <div className="enterpriseWechatField">
+            <Text type="secondary">超时秒数</Text>
+            <InputNumber
+              min={1}
+              max={120}
+              value={form.timeoutSeconds}
+              onChange={(value) => setForm((current) => ({ ...current, timeoutSeconds: Number(value || 12) }))}
+            />
+          </div>
+          <div className="enterpriseWechatSwitchRow">
+            <Switch
+              checked={form.realSendEnabled}
+              onChange={(checked) => setForm((current) => ({ ...current, realSendEnabled: checked }))}
+            />
+            <Text>{form.realSendEnabled ? "允许真实发送" : "仅生成文件，等待管理员配置"}</Text>
+          </div>
+          <div className="enterpriseWechatSwitchRow">
+            <Checkbox
+              checked={form.clearSecret}
+              onChange={(event) => setForm((current) => ({ ...current, clearSecret: event.target.checked, secret: "" }))}
+            >
+              清空 Secret
+            </Checkbox>
+          </div>
+          <div className="enterpriseWechatActionRow">
+            <Button type="primary" icon={<SaveOutlined />} loading={saving} onClick={() => void saveSettings()}>
+              保存配置
+            </Button>
+          </div>
+        </div>
+        <Paragraph className="connectorDetailPreview">{settings?.message || "正在读取企业微信配置状态。"}</Paragraph>
+      </div>
+
+      <Row gutter={[12, 12]}>
+        <Col xs={24} lg={12}>
+          <div className="enterpriseWechatSection">
+            <div className="enterpriseWechatSectionHeader">
+              <Space direction="vertical" size={2}>
+                <Text strong>通讯录同步</Text>
+                <Text type="secondary">
+                  成员 {contacts?.summary.users ?? 0}、部门 {contacts?.summary.departments ?? 0}、群聊 {contacts?.summary.groups ?? 0}
+                </Text>
+              </Space>
+              <Button icon={<TeamOutlined />} loading={syncing} onClick={() => void syncContacts()}>
+                一键同步
+              </Button>
+            </div>
+            <div className="enterpriseWechatStepList">
+              {(diagnostics?.steps || []).map((step) => (
+                <div key={`${step.label}-${step.status}`} className="enterpriseWechatStep">
+                  <Space size={6}>
+                    <StatusTag value={step.status} />
+                    <Text strong>{step.label}</Text>
+                  </Space>
+                  <Text type="secondary">{step.message}</Text>
+                </div>
+              ))}
+            </div>
+          </div>
+        </Col>
+        <Col xs={24} lg={12}>
+          <div className="enterpriseWechatSection">
+            <div className="enterpriseWechatSectionHeader">
+              <Space direction="vertical" size={2}>
+                <Text strong>手动录入群聊</Text>
+                <Text type="secondary">企业微信群聊第一版使用名称和 chat_id 手动维护。</Text>
+              </Space>
+            </div>
+            <div className="enterpriseWechatGroupGrid">
+              <Input
+                value={groupName}
+                placeholder="群聊名称"
+                onChange={(event) => setGroupName(event.target.value)}
+              />
+              <Input
+                value={groupChatId}
+                placeholder="chat_id"
+                onChange={(event) => setGroupChatId(event.target.value)}
+              />
+              <Button icon={<PlusOutlined />} loading={groupSaving} onClick={() => void saveGroup()}>
+                保存群聊
+              </Button>
+            </div>
+          </div>
+        </Col>
+      </Row>
+
+      <div className="enterpriseWechatSection">
+        <div className="enterpriseWechatSectionHeader">
+          <Space direction="vertical" size={2}>
+            <Text strong>通讯录候选</Text>
+            <Text type="secondary">搜索姓名、部门或群聊，重名时由管理员选择正确对象。</Text>
+          </Space>
+          <Button icon={<SendOutlined />} loading={testing} disabled={!selectedContactId} onClick={() => void testSend()}>
+            发送安全测试文件
+          </Button>
+        </div>
+        <div className="enterpriseWechatSearchRow">
+          <Input
+            value={contactQuery}
+            prefix={<SearchOutlined />}
+            placeholder="搜索姓名、部门、群聊"
+            onPressEnter={() => void searchContacts()}
+            onChange={(event) => setContactQuery(event.target.value)}
+          />
+          <Select
+            value={contactType}
+            options={[
+              { value: "all", label: "全部类型" },
+              { value: "user", label: "成员" },
+              { value: "department", label: "部门" },
+              { value: "group", label: "群聊" },
+            ]}
+            onChange={(value) => {
+              setContactType(value);
+              void searchContacts(contactQuery, value);
+            }}
+          />
+          <Button icon={<SearchOutlined />} loading={loading} onClick={() => void searchContacts()}>
+            搜索
+          </Button>
+        </div>
+        <Table<EnterpriseWechatContactItem>
+          rowKey="id"
+          size="small"
+          loading={loading}
+          dataSource={contacts?.items || []}
+          columns={contactColumns}
+          scroll={{ x: 760 }}
+          pagination={{ pageSize: 6, hideOnSinglePage: true }}
+          locale={{ emptyText: <Empty description="暂无企业微信候选，请先同步或手动录入群聊" /> }}
+          rowSelection={{
+            type: "radio",
+            selectedRowKeys: selectedContactId ? [selectedContactId] : [],
+            onChange: (keys) => setSelectedContactId(String(keys[0] || "")),
+          }}
+        />
+      </div>
+    </Space>
+  );
+}
+
+function enterpriseWechatMissingFieldLabel(value: string) {
+  const labels: Record<string, string> = {
+    corp_id: "Corp ID",
+    agent_id: "Agent ID",
+    secret: "Secret",
+    real_send_enabled: "真实发送",
+  };
+  return labels[value] || value;
 }
 
 function ConnectorConfigTable({ fields }: { fields: ConnectorConfigField[] }) {
@@ -15580,8 +17279,11 @@ function ConnectorStatusTag({ status }: { status: string }) {
     disabled: "default",
     unknown: "default",
     not_configured: "default",
+    invalid_config: "red",
     not_implemented: "gold",
     configured_pending: "blue",
+    configured: "green",
+    stub_ready: "blue",
   };
 
   return <Tag color={colorMap[status] || "default"}>{labelForConnectorStatus(status)}</Tag>;
@@ -15591,19 +17293,103 @@ function ErpRecordDetailModal({
   open,
   loading,
   detail,
+  role,
   onClose,
 }: {
   open: boolean;
   loading: boolean;
   detail: ErpRecordDetailResponse | null;
+  role: Role;
   onClose: () => void;
 }) {
   const item = detail?.item || null;
-  const rows = item ? Object.entries(item).filter(([, value]) => value !== null && value !== "") : [];
+  const rows = detail && item ? erpBusinessRows(detail.resource, item) : [];
+  const moneyCards = item && detail ? erpMoneySummaryCards(detail.resource, item) : [];
   const rawDetail = detail ? {
     ...detail,
     item: item || null,
   } : null;
+  const tabItems = detail ? [
+    {
+      key: "summary",
+      label: "业务概览",
+      children: (
+        <Space direction="vertical" size={12} className="pageStack">
+          {moneyCards.length ? (
+            <div className="erpAmountCardGrid">
+              {moneyCards.map((card) => (
+                <div className="erpAmountCard" key={card.label}>
+                  <Text type="secondary">{card.label}</Text>
+                  <Title level={4}>{card.value}</Title>
+                  {card.description ? <Text type="secondary">{card.description}</Text> : null}
+                </div>
+              ))}
+            </div>
+          ) : null}
+          <div className="erpRecordDetailGrid">
+            <ErpRecordDetailItem
+              label="查询状态"
+              value={<Tag color={detail.ok ? "green" : "gold"}>{detail.ok ? "已找到" : "未找到"}</Tag>}
+            />
+            <ErpRecordDetailItem label="数据来源" value={detail.provider_label} />
+            <ErpRecordDetailItem label="业务对象" value={detail.resource_label} />
+            <ErpRecordDetailItem label="记录编号" value={detail.record_id} mono />
+          </div>
+          <Card title="查询说明" size="small" className="erpRecordDetailSectionCard">
+            <Paragraph className="erpRecordDetailMessage">{detail.message}</Paragraph>
+          </Card>
+        </Space>
+      ),
+    },
+    {
+      key: "fields",
+      label: `业务字段 ${rows.length}`,
+      children: rows.length ? (
+        <Table
+          rowKey="field"
+          size="small"
+          pagination={{ pageSize: 12, hideOnSinglePage: true }}
+          dataSource={rows}
+          columns={[
+            {
+              title: "分组",
+              dataIndex: "group",
+              width: 110,
+              render: (value) => <Tag>{String(value || "业务信息")}</Tag>,
+            },
+            {
+              title: "字段",
+              dataIndex: "label",
+              width: 180,
+              render: (value) => <Text className="erpRecordText">{String(value)}</Text>,
+            },
+            {
+              title: "内容",
+              dataIndex: "value",
+              render: (value, record) => (
+                <Text className={record.mono ? "erpRecordMono" : "erpRecordText"}>
+                  {String(value)}
+                </Text>
+              ),
+            },
+          ]}
+        />
+      ) : (
+        <Empty description="暂无业务字段" />
+      ),
+    },
+    ...(role === "admin" && rawDetail ? [
+      {
+        key: "tech",
+        label: "技术详情",
+        children: (
+          <Card title="管理员技术详情" size="small" className="erpRecordDetailSectionCard">
+            <pre className="erpRecordRawPre">{JSON.stringify(sanitizeTechnicalValue(rawDetail), null, 2)}</pre>
+          </Card>
+        ),
+      },
+    ] : []),
+  ] : [];
 
   return (
     <Modal
@@ -15622,70 +17408,7 @@ function ErpRecordDetailModal({
       ) : detail ? (
         <Tabs
           className="erpRecordDetailTabs"
-          items={[
-            {
-              key: "summary",
-              label: "基础信息",
-              children: (
-                <Space direction="vertical" size={12} className="pageStack">
-                  <div className="erpRecordDetailGrid">
-                    <ErpRecordDetailItem
-                      label="状态"
-                      value={<Tag color={detail.ok ? "green" : "gold"}>{detail.ok ? "已找到" : "未找到"}</Tag>}
-                    />
-                    <ErpRecordDetailItem label="Provider" value={detail.provider_label} />
-                    <ErpRecordDetailItem label="资源" value={detail.resource_label} />
-                    <ErpRecordDetailItem label="外部对象" value={detail.provider_resource} mono />
-                    <ErpRecordDetailItem label="记录 ID" value={detail.record_id} mono />
-                    <ErpRecordDetailItem label="资源 Key" value={detail.resource} mono />
-                  </div>
-                  <Card title="查询说明" size="small" className="erpRecordDetailSectionCard">
-                    <Paragraph className="erpRecordDetailMessage">{detail.message}</Paragraph>
-                  </Card>
-                </Space>
-              ),
-            },
-            {
-              key: "fields",
-              label: `业务字段 ${rows.length}`,
-              children: rows.length ? (
-                <Table
-                  rowKey="field"
-                  size="small"
-                  pagination={{ pageSize: 10, hideOnSinglePage: true }}
-                  scroll={{ x: 680 }}
-                  dataSource={rows.map(([field, value]) => ({
-                    field,
-                    value: textFromUnknown(value),
-                  }))}
-                  columns={[
-                    {
-                      title: "字段",
-                      dataIndex: "field",
-                      width: 190,
-                      render: (value) => <Text className="erpRecordMono">{String(value)}</Text>,
-                    },
-                    {
-                      title: "值",
-                      dataIndex: "value",
-                      render: (value) => <Text className="erpRecordText">{String(value)}</Text>,
-                    },
-                  ]}
-                />
-              ) : (
-                <Empty description="暂无详情字段" />
-              ),
-            },
-            {
-              key: "raw",
-              label: "原始数据",
-              children: (
-                <Card title="原始返回数据" size="small" className="erpRecordDetailSectionCard">
-                  <pre className="erpRecordRawPre">{JSON.stringify(rawDetail, null, 2)}</pre>
-                </Card>
-              ),
-            },
-          ]}
+          items={tabItems}
         />
       ) : (
         <Empty description="暂无 ERP 记录详情" />
@@ -15711,6 +17434,309 @@ function ErpRecordDetailItem({
   );
 }
 
+type ErpBusinessField = {
+  key: string;
+  label: string;
+  group: string;
+  mono?: boolean;
+  money?: boolean;
+  important?: boolean;
+};
+
+type ErpBusinessRow = {
+  field: string;
+  label: string;
+  group: string;
+  value: string;
+  mono?: boolean;
+};
+
+type ErpAmountSummaryCard = {
+  label: string;
+  value: string;
+  description?: string;
+};
+
+const ERP_BUSINESS_FIELDS: Record<string, ErpBusinessField[]> = {
+  Item: [
+    { key: "name", label: "商品编号", group: "基础信息", mono: true },
+    { key: "item_code", label: "SKU", group: "基础信息", mono: true },
+    { key: "item_name", label: "商品名称", group: "基础信息" },
+    { key: "item_group", label: "商品分组", group: "基础信息" },
+    { key: "stock_uom", label: "库存单位", group: "库存信息" },
+    { key: "disabled", label: "是否停用", group: "状态信息" },
+    { key: "description", label: "商品描述", group: "业务说明" },
+  ],
+  "Item Price": [
+    { key: "name", label: "价格记录", group: "基础信息", mono: true },
+    { key: "item_code", label: "SKU", group: "基础信息", mono: true },
+    { key: "price_list", label: "价格表", group: "价格信息" },
+    { key: "price_list_rate", label: "价格", group: "价格信息", money: true, important: true },
+    { key: "currency", label: "币种", group: "价格信息" },
+    { key: "valid_from", label: "生效日期", group: "状态信息" },
+    { key: "valid_upto", label: "失效日期", group: "状态信息" },
+  ],
+  Bin: [
+    { key: "name", label: "库存记录", group: "基础信息", mono: true },
+    { key: "item_code", label: "SKU", group: "基础信息", mono: true },
+    { key: "warehouse", label: "仓库", group: "库存信息" },
+    { key: "actual_qty", label: "实际库存", group: "库存信息", important: true },
+    { key: "projected_qty", label: "预计库存", group: "库存信息" },
+    { key: "reserved_qty", label: "已预留", group: "库存信息" },
+    { key: "ordered_qty", label: "已订购", group: "库存信息" },
+  ],
+  "Sales Order": [
+    { key: "name", label: "销售订单", group: "基础信息", mono: true },
+    { key: "customer", label: "客户", group: "客户信息" },
+    { key: "customer_name", label: "客户名称", group: "客户信息" },
+    { key: "transaction_date", label: "订单日期", group: "时间信息" },
+    { key: "delivery_date", label: "交付日期", group: "时间信息" },
+    { key: "grand_total", label: "订单金额", group: "金额信息", money: true, important: true },
+    { key: "status", label: "订单状态", group: "状态信息" },
+  ],
+  "Sales Invoice summary": [
+    { key: "name", label: "销售发票", group: "基础信息", mono: true },
+    { key: "customer", label: "客户", group: "客户信息" },
+    { key: "customer_name", label: "客户名称", group: "客户信息" },
+    { key: "posting_date", label: "过账日期", group: "时间信息" },
+    { key: "grand_total", label: "发票总额", group: "金额信息", money: true, important: true },
+    { key: "outstanding_amount", label: "未结金额", group: "金额信息", money: true, important: true },
+    { key: "status", label: "发票状态", group: "状态信息" },
+  ],
+  Customer: [
+    { key: "name", label: "客户编号", group: "基础信息", mono: true },
+    { key: "customer_name", label: "客户名称", group: "基础信息" },
+    { key: "customer_type", label: "客户类型", group: "基础信息" },
+    { key: "customer_group", label: "客户分组", group: "基础信息" },
+    { key: "territory", label: "地区", group: "业务信息" },
+    { key: "email_id", label: "邮箱", group: "联系信息" },
+    { key: "mobile_no", label: "手机号", group: "联系信息" },
+  ],
+  "Delivery Note": [
+    { key: "name", label: "发货单", group: "基础信息", mono: true },
+    { key: "customer", label: "客户", group: "客户信息" },
+    { key: "customer_name", label: "客户名称", group: "客户信息" },
+    { key: "posting_date", label: "发货日期", group: "时间信息" },
+    { key: "grand_total", label: "发货金额", group: "金额信息", money: true, important: true },
+    { key: "status", label: "发货状态", group: "状态信息" },
+    { key: "tracking_no", label: "物流单号", group: "物流信息", mono: true },
+  ],
+  Issue: [
+    { key: "name", label: "工单编号", group: "基础信息", mono: true },
+    { key: "subject", label: "问题标题", group: "问题信息" },
+    { key: "customer", label: "客户", group: "客户信息" },
+    { key: "status", label: "处理状态", group: "状态信息" },
+    { key: "priority", label: "优先级", group: "状态信息" },
+    { key: "issue_type", label: "问题类型", group: "问题信息" },
+    { key: "creation", label: "创建时间", group: "时间信息" },
+  ],
+  "Return request": [
+    { key: "name", label: "退货请求", group: "基础信息", mono: true },
+    { key: "customer", label: "客户", group: "客户信息" },
+    { key: "sales_order", label: "关联订单", group: "业务信息", mono: true },
+    { key: "item_code", label: "SKU", group: "业务信息", mono: true },
+    { key: "qty", label: "数量", group: "业务信息" },
+    { key: "status", label: "处理状态", group: "状态信息" },
+    { key: "reason", label: "原因", group: "问题信息" },
+  ],
+  "GL Entry": [
+    { key: "name", label: "总账记录", group: "基础信息", mono: true },
+    { key: "posting_date", label: "过账日期", group: "时间信息" },
+    { key: "account", label: "科目", group: "账务信息" },
+    { key: "voucher_type", label: "凭证类型", group: "账务信息" },
+    { key: "voucher_no", label: "凭证编号", group: "账务信息", mono: true },
+    { key: "debit", label: "借方金额", group: "金额信息", money: true, important: true },
+    { key: "credit", label: "贷方金额", group: "金额信息", money: true, important: true },
+  ],
+  "Payment Entry": [
+    { key: "name", label: "收付款单", group: "基础信息", mono: true },
+    { key: "payment_type", label: "收付款类型", group: "业务信息" },
+    { key: "party_type", label: "对象类型", group: "业务信息" },
+    { key: "party", label: "往来对象", group: "业务信息" },
+    { key: "posting_date", label: "过账日期", group: "时间信息" },
+    { key: "paid_amount", label: "支付金额", group: "金额信息", money: true, important: true },
+    { key: "status", label: "处理状态", group: "状态信息" },
+  ],
+  "Salary Slip": [
+    { key: "name", label: "工资单", group: "基础信息", mono: true },
+    { key: "employee", label: "员工编号", group: "员工信息", mono: true },
+    { key: "employee_name", label: "员工姓名", group: "员工信息" },
+    { key: "start_date", label: "开始日期", group: "期间信息" },
+    { key: "end_date", label: "结束日期", group: "期间信息" },
+    { key: "gross_pay", label: "应发工资", group: "金额信息", money: true, important: true },
+    { key: "net_pay", label: "实发工资", group: "金额信息", money: true, important: true },
+    { key: "status", label: "工资单状态", group: "状态信息" },
+  ],
+  "Sales Invoice": [
+    { key: "name", label: "销售发票", group: "基础信息", mono: true },
+    { key: "customer", label: "客户", group: "客户信息" },
+    { key: "customer_name", label: "客户名称", group: "客户信息" },
+    { key: "posting_date", label: "过账日期", group: "时间信息" },
+    { key: "grand_total", label: "发票总额", group: "金额信息", money: true, important: true },
+    { key: "outstanding_amount", label: "未结金额", group: "金额信息", money: true, important: true },
+    { key: "status", label: "发票状态", group: "状态信息" },
+  ],
+  "Purchase Invoice": [
+    { key: "name", label: "采购发票", group: "基础信息", mono: true },
+    { key: "supplier", label: "供应商", group: "供应商信息" },
+    { key: "supplier_name", label: "供应商名称", group: "供应商信息" },
+    { key: "posting_date", label: "过账日期", group: "时间信息" },
+    { key: "grand_total", label: "发票总额", group: "金额信息", money: true, important: true },
+    { key: "outstanding_amount", label: "未结金额", group: "金额信息", money: true, important: true },
+    { key: "status", label: "发票状态", group: "状态信息" },
+  ],
+};
+
+function erpBusinessRows(resource: string, item: Record<string, unknown>): ErpBusinessRow[] {
+  const definitions = ERP_BUSINESS_FIELDS[resource] || fallbackErpBusinessFields(item);
+  const seen = new Set<string>();
+  return definitions
+    .map((definition) => {
+      seen.add(definition.key);
+      return {
+        field: definition.key,
+        label: definition.label,
+        group: definition.group,
+        value: definition.money ? formatMoney(item[definition.key]) : businessValue(item[definition.key]),
+        mono: definition.mono,
+      };
+    })
+    .concat(
+      Object.entries(item)
+        .filter(([key, value]) => !seen.has(key) && value !== null && value !== "")
+        .slice(0, 12)
+        .map(([key, value]) => ({
+          field: key,
+          label: humanizeFieldName(key),
+          group: "其他信息",
+          value: businessValue(value),
+          mono: false,
+        })),
+    );
+}
+
+function fallbackErpBusinessFields(item: Record<string, unknown>): ErpBusinessField[] {
+  return Object.keys(item).slice(0, 16).map((key) => ({
+    key,
+    label: humanizeFieldName(key),
+    group: "业务信息",
+    money: isMoneyField(key),
+    important: isMoneyField(key),
+    mono: key === "name" || key.endsWith("_id") || key.endsWith("_no"),
+  }));
+}
+
+function erpMoneySummaryCards(resource: string, item: Record<string, unknown>): ErpAmountSummaryCard[] {
+  const definitions = ERP_BUSINESS_FIELDS[resource] || fallbackErpBusinessFields(item);
+  return definitions
+    .filter((definition) => definition.money && definition.important)
+    .slice(0, 4)
+    .map((definition) => ({
+      label: definition.label,
+      value: formatMoney(item[definition.key]),
+      description: moneyCardDescription(definition.key),
+    }));
+}
+
+function moneyCardDescription(key: string) {
+  const descriptions: Record<string, string> = {
+    gross_pay: "工资单应发合计字段",
+    net_pay: "工资单实发字段",
+    grand_total: "单据总金额",
+    outstanding_amount: "当前未结金额",
+    paid_amount: "本次收付款金额",
+    debit: "总账借方金额",
+    credit: "总账贷方金额",
+    price_list_rate: "商品当前价格",
+  };
+  return descriptions[key] || "";
+}
+
+function businessValue(value: unknown) {
+  if (value === null || value === undefined || value === "") {
+    return "-";
+  }
+  if (typeof value === "boolean") {
+    return value ? "是" : "否";
+  }
+  return textFromUnknown(value) || "-";
+}
+
+function formatMoney(value: unknown) {
+  if (value === null || value === undefined || value === "") {
+    return "-";
+  }
+  const numeric = typeof value === "number" ? value : Number(String(value).replace(/,/g, ""));
+  if (!Number.isFinite(numeric)) {
+    return textFromUnknown(value) || "-";
+  }
+  return numeric.toLocaleString("zh-CN", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
+function isMoneyField(key: string) {
+  return [
+    "gross_pay",
+    "net_pay",
+    "grand_total",
+    "outstanding_amount",
+    "paid_amount",
+    "debit",
+    "credit",
+    "base_grand_total",
+    "rounded_total",
+    "price_list_rate",
+  ].includes(key);
+}
+
+function humanizeFieldName(key: string) {
+  const labels: Record<string, string> = {
+    name: "编号",
+    status: "状态",
+    posting_date: "过账日期",
+    transaction_date: "业务日期",
+    customer: "客户",
+    supplier: "供应商",
+    item_code: "SKU",
+    employee: "员工编号",
+    employee_name: "员工姓名",
+  };
+  return labels[key] || key.replace(/_/g, " ");
+}
+
+const SENSITIVE_TECHNICAL_KEYS = [
+  "authorization",
+  "token",
+  "cookie",
+  "password",
+  "secret",
+  "api_key",
+  "access_key",
+  "refresh_token",
+  "database_url",
+];
+
+function sanitizeTechnicalValue(value: unknown, key = ""): unknown {
+  const loweredKey = key.toLowerCase();
+  if (SENSITIVE_TECHNICAL_KEYS.some((item) => loweredKey.includes(item))) {
+    return "***";
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => sanitizeTechnicalValue(item));
+  }
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([childKey, childValue]) => [
+        childKey,
+        sanitizeTechnicalValue(childValue, childKey),
+      ]),
+    );
+  }
+  return value;
+}
+
 function ThreadsPanel({
   threads,
   activeThreadId,
@@ -15720,7 +17746,7 @@ function ThreadsPanel({
   openThread,
   messages,
   summary,
-  stateText,
+  state,
   loading,
   role,
   retentionDays,
@@ -15733,7 +17759,7 @@ function ThreadsPanel({
   openThread: (threadId: string) => void;
   messages: ChatMessage[];
   summary: string;
-  stateText: string;
+  state: Record<string, unknown> | null;
   loading: boolean;
   role: Role;
   retentionDays: number;
@@ -15809,10 +17835,12 @@ function ThreadsPanel({
               </Card>
             ) : null}
 
-            {stateText ? (
-              <Card size="small" title="业务状态" className="contextCard">
-                <pre className="statePre">{stateText}</pre>
-              </Card>
+            {state ? (
+              <ThreadBusinessStateCard
+                state={state}
+                messages={messages}
+                role={role}
+              />
             ) : null}
           </Space>
         </ProCard>
@@ -15821,7 +17849,200 @@ function ThreadsPanel({
   );
 }
 
-function MessageList({ messages }: { messages: ChatMessage[] }) {
+function ThreadBusinessStateCard({
+  state,
+  messages,
+  role,
+}: {
+  state: Record<string, unknown>;
+  messages: ChatMessage[];
+  role: Role;
+}) {
+  const latestAssistant = [...messages].reverse().find((item) => item.role === "assistant") || null;
+  const currentIntent = textFromUnknown(state.current_intent || "");
+  const rawRiskLevel = textFromUnknown(state.risk_level || "");
+  const riskLevel = ["unprocessed", "low", "medium", "high"].includes(rawRiskLevel) ? rawRiskLevel : "";
+  const approvalId = textFromUnknown(state.approval_id || "");
+  const approvalResult = recordFromUnknown(latestAssistant?.approvalResult);
+  const approvalStatus = textFromUnknown(approvalResult.status || approvalResult.status_label || "");
+  const attachments = latestAssistant?.attachments || [];
+  const platformDraft = latestAssistant?.platformDraft || null;
+  const automation = recordFromUnknown(latestAssistant?.automation);
+  const nextAction = threadNextAction({
+    approvalId,
+    approvalStatus,
+    attachmentCount: attachments.length,
+    hasDraft: Boolean(platformDraft),
+    automation,
+  });
+  const hasBusinessState = Boolean(currentIntent || riskLevel || approvalId || approvalStatus || attachments.length || platformDraft || Object.keys(automation).length);
+
+  if (!hasBusinessState && role !== "admin") {
+    return null;
+  }
+
+  return (
+    <Card size="small" title="业务状态" className="contextCard">
+      <div className="threadBusinessStateGrid">
+        <div className="threadBusinessStateItem">
+          <Text type="secondary">识别意图</Text>
+          <Text strong>{intentBusinessLabel(currentIntent, latestAssistant?.route)}</Text>
+          {riskLevel ? <RiskTag value={riskLevel} /> : <Tag>普通</Tag>}
+        </div>
+        <div className="threadBusinessStateItem">
+          <Text type="secondary">审批状态</Text>
+          <Text strong>{approvalBusinessLabel({ approvalId, approvalStatus, automation })}</Text>
+          {approvalId ? <Text type="secondary">审批编号：{shortTaskId(approvalId)}</Text> : null}
+        </div>
+        <div className="threadBusinessStateItem">
+          <Text type="secondary">下一步操作</Text>
+          <Text strong>{nextAction.title}</Text>
+          <Text type="secondary">{nextAction.description}</Text>
+        </div>
+      </div>
+      {attachments.length ? (
+        <div className="threadBusinessAttachmentList">
+          {attachments.slice(0, 4).map((attachment) => (
+            <Tag color="blue" key={`${attachment.filename}-${attachment.size_bytes || ""}`}>
+              附件：{attachment.filename}
+            </Tag>
+          ))}
+        </div>
+      ) : null}
+      {role === "admin" ? (
+        <Collapse
+          className="threadBusinessTechCollapse"
+          size="small"
+          ghost
+          items={[
+            {
+              key: "admin-tech",
+              label: "管理员技术详情",
+              children: (
+                <pre className="statePre">
+                  {JSON.stringify(sanitizeTechnicalValue({
+                    state,
+                    latestAssistant: latestAssistant ? {
+                      route: latestAssistant.route,
+                      attachments: latestAssistant.attachments,
+                      platformDraft: latestAssistant.platformDraft,
+                      approvalResult: latestAssistant.approvalResult,
+                      automation: latestAssistant.automation,
+                    } : null,
+                  }), null, 2)}
+                </pre>
+              ),
+            },
+          ]}
+        />
+      ) : null}
+    </Card>
+  );
+}
+
+function threadNextAction({
+  approvalId,
+  approvalStatus,
+  attachmentCount,
+  hasDraft,
+  automation,
+}: {
+  approvalId: string;
+  approvalStatus: string;
+  attachmentCount: number;
+  hasDraft: boolean;
+  automation: Record<string, unknown>;
+}) {
+  const normalizedApproval = approvalStatus.toLowerCase();
+  if (attachmentCount > 0) {
+    return {
+      title: "下载或查看生成附件",
+      description: `本会话已生成 ${attachmentCount} 个附件，可在消息下方下载。`,
+    };
+  }
+  if (hasDraft) {
+    return {
+      title: "去草稿审核中心确认",
+      description: "AI 已生成业务草稿，下一步由对应岗位审核内容。",
+    };
+  }
+  if (approvalId || ["pending", "blocked", "waiting", "reviewing"].includes(normalizedApproval)) {
+    return {
+      title: "等待审批或人工确认",
+      description: "该动作需要管理员或负责人确认后继续。",
+    };
+  }
+  if (Object.keys(automation).length > 0) {
+    return {
+      title: "查看自动化执行结果",
+      description: "系统已生成自动化结果，可继续补充要求或查看相关业务中心。",
+    };
+  }
+  return {
+    title: "继续对话补充要求",
+    description: "可以继续告诉 AI 需要查询、生成或调整的业务内容。",
+  };
+}
+
+function approvalBusinessLabel({
+  approvalId,
+  approvalStatus,
+  automation,
+}: {
+  approvalId: string;
+  approvalStatus: string;
+  automation: Record<string, unknown>;
+}) {
+  const businessStatus = textFromUnknown(automation.business_status_label || automation.status_label || "");
+  if (approvalStatus) {
+    return labelForBadge(approvalStatus);
+  }
+  if (businessStatus) {
+    return businessStatus;
+  }
+  if (approvalId) {
+    return "等待审批";
+  }
+  return "无需审批";
+}
+
+function intentBusinessLabel(intent: string, route?: ChatRoute) {
+  const labels: Record<string, string> = {
+    finance_compound_report_generation: "财务资料生成",
+    finance_salary_export: "工资表导出",
+    finance_salary_wechat_send: "工资表发送确认",
+    enterprise_wechat_file_send: "企业微信文件发送",
+    operations_listing_draft: "运营 Listing 草稿",
+    customer_service_reply_draft: "客服回复草稿",
+    permission_denied: "权限拦截",
+    ask_clarification: "需要补充信息",
+    erp: "ERP 数据查询",
+    order: "订单查询",
+    policy: "知识库问答",
+    chitchat: "普通对话",
+  };
+  if (intent && labels[intent]) {
+    return labels[intent];
+  }
+  if (route) {
+    return labelForRoute(route);
+  }
+  return intent || "暂未识别业务动作";
+}
+
+function MessageList({
+  messages,
+  confirmingEnterpriseWechatKey = "",
+  downloadingArtifactId = "",
+  onConfirmEnterpriseWechatSend,
+  onDownloadGeneratedArtifact,
+}: {
+  messages: ChatMessage[];
+  confirmingEnterpriseWechatKey?: string;
+  downloadingArtifactId?: string;
+  onConfirmEnterpriseWechatSend?: (payload: EnterpriseWechatFileSendConfirmPayload) => Promise<void>;
+  onDownloadGeneratedArtifact?: (artifactId: string, filename?: string | null) => Promise<boolean>;
+}) {
   if (messages.length === 0) {
     return (
       <div className="chatEmptyState">
@@ -15832,57 +18053,506 @@ function MessageList({ messages }: { messages: ChatMessage[] }) {
 
   return (
     <div className="messageList">
-      {messages.map((item) => (
-        <div key={item.id} className={`messageRow ${item.role}`}>
-          <div className={`messageBubble ${item.role}`}>
-            <div className="messageHeader">
-              <Space size={8}>
-                <Tag color={roleColor(item.role)}>{roleLabelForMessage(item.role)}</Tag>
-                {item.route ? <Tag color={routeColor(item.route)}>{labelForRoute(item.route)}</Tag> : null}
-              </Space>
-              <Text type="secondary">{item.createdAt}</Text>
+      {messages.map((item) => {
+        const confirmationCard = enterpriseWechatConfirmationCardFromMessage(item);
+
+        return (
+          <div key={item.id} className={`messageRow ${item.role}`}>
+            <div className={`messageBubble ${item.role}`}>
+              <div className="messageHeader">
+                <Space size={8}>
+                  <Tag color={roleColor(item.role)}>{roleLabelForMessage(item.role)}</Tag>
+                  {item.route ? <Tag color={routeColor(item.route)}>{labelForRoute(item.route)}</Tag> : null}
+                </Space>
+                <Text type="secondary">{item.createdAt}</Text>
+              </div>
+              {item.businessProgress ? (
+                <div className="messageBusinessProgress">
+                  <span className="messageBusinessProgressDot" />
+                  <span>{item.businessProgress.label}</span>
+                  {item.businessProgress.detail ? <Text type="secondary">{item.businessProgress.detail}</Text> : null}
+                </div>
+              ) : null}
+              {item.content || !item.businessProgress ? (
+                <Paragraph className="messageContent">{item.content || "正在生成..."}</Paragraph>
+              ) : null}
+              {item.erpReferences?.length ? (
+                <Space size={[6, 6]} wrap className="erpReferenceList">
+                  {item.erpReferences.map((reference) => (
+                    <Tag color="geekblue" key={`${reference.resource}-${reference.record_id}`}>
+                      引用：{reference.resource_label} / {reference.record_id}
+                    </Tag>
+                  ))}
+                </Space>
+              ) : null}
+              {item.attachments?.length ? (
+                <Space direction="vertical" size={8} className="messageAttachmentList">
+                  {item.attachments.map((attachment) => {
+                    const artifactId = chatAttachmentArtifactId(attachment);
+                    const canDownloadArtifact = Boolean(artifactId && onDownloadGeneratedArtifact);
+                    const canDownloadBase64 = Boolean(attachment.content_base64);
+
+                    return (
+                      <div className="messageAttachmentItem" key={`${attachment.filename}-${attachment.size_bytes || artifactId || 0}`}>
+                        <Space size={8}>
+                          <TableOutlined />
+                          <Text strong>{attachment.filename}</Text>
+                          {attachment.size_bytes ? <Text type="secondary">{formatBytes(attachment.size_bytes)}</Text> : null}
+                        </Space>
+                        <Button
+                          size="small"
+                          type="primary"
+                          icon={<DownloadOutlined />}
+                          loading={Boolean(artifactId && downloadingArtifactId === artifactId)}
+                          disabled={!canDownloadArtifact && !canDownloadBase64}
+                          onClick={() => {
+                            if (artifactId && onDownloadGeneratedArtifact) {
+                              void onDownloadGeneratedArtifact(artifactId, attachment.filename);
+                              return;
+                            }
+                            downloadBase64Attachment(attachment);
+                          }}
+                        >
+                          下载文件
+                        </Button>
+                      </div>
+                    );
+                  })}
+                </Space>
+              ) : null}
+              {confirmationCard && onConfirmEnterpriseWechatSend ? (
+                <EnterpriseWechatSendConfirmationCard
+                  card={confirmationCard}
+                  chatMessage={item}
+                  confirmingKey={confirmingEnterpriseWechatKey}
+                  downloadingArtifactId={downloadingArtifactId}
+                  onConfirm={onConfirmEnterpriseWechatSend}
+                  onDownloadArtifact={onDownloadGeneratedArtifact}
+                />
+              ) : null}
+              {item.platformDraft ? (
+                <div className="messagePlatformDraft">
+                  <PlatformDraftSummary draft={item.platformDraft} />
+                </div>
+              ) : null}
             </div>
-            <Paragraph className="messageContent">{item.content || "正在生成..."}</Paragraph>
-            {item.erpReferences?.length ? (
-              <Space size={[6, 6]} wrap className="erpReferenceList">
-                {item.erpReferences.map((reference) => (
-                  <Tag color="geekblue" key={`${reference.resource}-${reference.record_id}`}>
-                    引用：{reference.resource_label} / {reference.record_id}
-                  </Tag>
-                ))}
-              </Space>
-            ) : null}
-            {item.attachments?.length ? (
-              <Space direction="vertical" size={8} className="messageAttachmentList">
-                {item.attachments.map((attachment) => (
-                  <div className="messageAttachmentItem" key={`${attachment.filename}-${attachment.size_bytes || 0}`}>
-                    <Space size={8}>
-                      <TableOutlined />
-                      <Text strong>{attachment.filename}</Text>
-                      {attachment.size_bytes ? <Text type="secondary">{formatBytes(attachment.size_bytes)}</Text> : null}
-                    </Space>
-                    <Button
-                      size="small"
-                      type="primary"
-                      disabled={!attachment.content_base64}
-                      onClick={() => downloadBase64Attachment(attachment)}
-                    >
-                      下载 Excel
-                    </Button>
-                  </div>
-                ))}
-              </Space>
-            ) : null}
-            {item.platformDraft ? (
-              <div className="messagePlatformDraft">
-                <PlatformDraftSummary draft={item.platformDraft} />
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function EnterpriseWechatSendConfirmationCard({
+  card,
+  chatMessage,
+  confirmingKey,
+  downloadingArtifactId,
+  onConfirm,
+  onDownloadArtifact,
+}: {
+  card: EnterpriseWechatConfirmationCardData;
+  chatMessage: ChatMessage;
+  confirmingKey: string;
+  downloadingArtifactId: string;
+  onConfirm: (payload: EnterpriseWechatFileSendConfirmPayload) => Promise<void>;
+  onDownloadArtifact?: (artifactId: string, filename?: string | null) => Promise<boolean>;
+}) {
+  const initialRecipientId = card.selectedRecipientId || (card.candidates.length === 1 ? card.candidates[0].id : "");
+  const [selectedRecipientId, setSelectedRecipientId] = useState(initialRecipientId);
+  const [previewConfirmed, setPreviewConfirmed] = useState(false);
+  const [sensitiveConfirmed, setSensitiveConfirmed] = useState(false);
+  const [isPreviewing, setIsPreviewing] = useState(false);
+  const shouldOpenManualByDefault = !initialRecipientId && card.allowManualRecipient && card.candidates.length === 0;
+  const [manualMode, setManualMode] = useState(shouldOpenManualByDefault);
+  const [manualType, setManualType] = useState<EnterpriseWechatManualRecipientType>("user");
+  const [manualValue, setManualValue] = useState("");
+  const [manualName, setManualName] = useState("");
+
+  useEffect(() => {
+    setSelectedRecipientId(initialRecipientId);
+    setPreviewConfirmed(false);
+    setSensitiveConfirmed(false);
+    setManualMode(shouldOpenManualByDefault);
+    setManualType("user");
+    setManualValue("");
+    setManualName("");
+  }, [card.artifact.artifactId, initialRecipientId, shouldOpenManualByDefault]);
+
+  const selectedCandidate = card.candidates.find((candidate) => candidate.id === selectedRecipientId) || null;
+  const normalizedManualValue = manualValue.trim();
+  const normalizedManualName = manualName.trim();
+  const manualRecipient: EnterpriseWechatRecipientCandidate | null = manualMode && normalizedManualValue
+    ? {
+        id: `manual:${manualType}:${normalizedManualValue}`,
+        name: normalizedManualName || normalizedManualValue,
+        objectType: manualType,
+        objectTypeLabel: enterpriseWechatObjectTypeLabel(manualType),
+        department: "",
+        phoneLast4: "",
+        avatarUrl: "",
+        avatarText: (normalizedManualName || normalizedManualValue).slice(0, 1) || "企",
+        raw: {
+          id: `manual:${manualType}:${normalizedManualValue}`,
+          object_type: manualType,
+          object_type_label: enterpriseWechatObjectTypeLabel(manualType),
+          name: normalizedManualName || normalizedManualValue,
+          wechat_userid: manualType === "user" ? normalizedManualValue : null,
+          chat_id: manualType === "group" ? normalizedManualValue : null,
+          department_id: manualType === "department" ? normalizedManualValue : null,
+          source: "manual_chat_input",
+        },
+      }
+    : null;
+  const selectedRecipient = manualMode ? manualRecipient : selectedCandidate;
+  const confirmKey = enterpriseWechatConfirmKey(
+    card.artifact.artifactId,
+    selectedRecipient?.id || selectedRecipientId || card.recipientName,
+  );
+  const isConfirming = confirmingKey === confirmKey;
+  const canConfirm = Boolean(
+    card.artifact.artifactId
+      && selectedRecipient
+      && previewConfirmed
+      && (!card.requiresSensitiveConfirmation || sensitiveConfirmed),
+  );
+
+  async function previewFile() {
+    if (!card.artifact.artifactId || !onDownloadArtifact) {
+      message.warning("没有找到可预览的文件");
+      return;
+    }
+
+    setIsPreviewing(true);
+    try {
+      const ok = await onDownloadArtifact(card.artifact.artifactId, card.artifact.filename);
+      if (ok) {
+        setPreviewConfirmed(true);
+      }
+    } finally {
+      setIsPreviewing(false);
+    }
+  }
+
+  function confirmSend() {
+    if (!selectedRecipient || !canConfirm) {
+      return;
+    }
+
+    void onConfirm({
+      artifact_id: card.artifact.artifactId,
+      filename: card.artifact.filename || null,
+      recipient_name: selectedRecipient.name || card.recipientName || normalizedManualValue,
+      recipient_candidate_id: selectedRecipient.id,
+      recipient: selectedRecipient.raw,
+      source_message: card.sourceMessage || null,
+      source_message_id: chatMessage.id,
+      source_workflow_id: card.workflowId || null,
+      thread_id: chatMessage.threadId || null,
+      recipient_confirmed: true,
+      sensitive_data_confirmed: previewConfirmed && (!card.requiresSensitiveConfirmation || sensitiveConfirmed),
+    });
+  }
+
+  return (
+    <div className="enterpriseWechatConfirmCard">
+      <div className="enterpriseWechatConfirmHeader">
+        <Space size={8} wrap>
+          <SafetyCertificateOutlined />
+          <Text strong>{card.title || "企业微信文件发送确认"}</Text>
+          {card.statusLabel ? <Tag color="gold">{card.statusLabel}</Tag> : null}
+        </Space>
+        <Tag color="blue">无正文，仅发送文件</Tag>
+      </div>
+
+      <div className="enterpriseWechatConfirmFile">
+        <Space size={8} className="enterpriseWechatConfirmFileName">
+          <TableOutlined />
+          <span>{card.artifact.filename || "已生成文件"}</span>
+        </Space>
+        <Button
+          size="small"
+          icon={<DownloadOutlined />}
+          loading={isPreviewing || downloadingArtifactId === card.artifact.artifactId}
+          disabled={!card.artifact.artifactId || !onDownloadArtifact}
+          onClick={() => void previewFile()}
+        >
+          下载预览
+        </Button>
+      </div>
+
+      <div className="enterpriseWechatRecipientBlock">
+        <div className="enterpriseWechatSectionTitle">
+          <TeamOutlined />
+          <span>选择企业微信接收对象</span>
+        </div>
+        {card.recipientSearchMessage ? (
+          <Text type="secondary" className="enterpriseWechatHint">{card.recipientSearchMessage}</Text>
+        ) : null}
+        {card.candidates.length ? (
+          <div className="enterpriseWechatCandidateList">
+            {card.candidates.map((candidate) => (
+              <button
+                key={candidate.id}
+                type="button"
+                className={`enterpriseWechatCandidate ${selectedRecipientId === candidate.id ? "selected" : ""}`}
+                onClick={() => {
+                  setSelectedRecipientId(candidate.id);
+                  setManualMode(false);
+                }}
+              >
+                <Avatar size={30} src={candidate.avatarUrl || undefined}>
+                  {candidate.avatarText}
+                </Avatar>
+                <span className="enterpriseWechatCandidateMain">
+                  <span className="enterpriseWechatCandidateNameRow">
+                    <Text strong>{candidate.name}</Text>
+                    <Tag>{candidate.objectTypeLabel}</Tag>
+                  </span>
+                  <span className="enterpriseWechatCandidateMeta">
+                    {enterpriseWechatCandidateMeta(candidate)}
+                  </span>
+                </span>
+              </button>
+            ))}
+          </div>
+        ) : (
+          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="未找到匹配的企业微信接收对象" />
+        )}
+        {card.allowManualRecipient ? (
+          <div className="enterpriseWechatManualRecipient">
+            <Button
+              size="small"
+              type={manualMode ? "primary" : "default"}
+              onClick={() => {
+                setManualMode((current) => !current);
+                setSelectedRecipientId("");
+              }}
+            >
+              手动输入 userid / chat_id
+            </Button>
+            {manualMode ? (
+              <div className="enterpriseWechatManualRecipientForm">
+                <Select<EnterpriseWechatManualRecipientType>
+                  size="small"
+                  value={manualType}
+                  onChange={setManualType}
+                  options={[
+                    { label: "成员 userid", value: "user" },
+                    { label: "群聊 chat_id", value: "group" },
+                    { label: "部门 department_id", value: "department" },
+                  ]}
+                />
+                <Input
+                  size="small"
+                  value={manualValue}
+                  placeholder={manualType === "user" ? "输入 userid" : manualType === "group" ? "输入 chat_id" : "输入 department_id"}
+                  onChange={(event) => setManualValue(event.target.value)}
+                />
+                <Input
+                  size="small"
+                  value={manualName}
+                  placeholder="显示名称，可不填"
+                  onChange={(event) => setManualName(event.target.value)}
+                />
               </div>
             ) : null}
           </div>
-        </div>
-      ))}
+        ) : null}
+      </div>
+
+      <Space direction="vertical" size={6} className="enterpriseWechatConfirmChecks">
+        <Checkbox checked={previewConfirmed} onChange={(event) => setPreviewConfirmed(event.target.checked)}>
+          我已预览文件内容，确认这个文件可以发送
+        </Checkbox>
+        {card.requiresSensitiveConfirmation ? (
+          <Checkbox checked={sensitiveConfirmed} onChange={(event) => setSensitiveConfirmed(event.target.checked)}>
+            我确认接收对象正确，并允许发送工资、财务或客户隐私文件
+          </Checkbox>
+        ) : null}
+      </Space>
+
+      <div className="enterpriseWechatConfirmFooter">
+        <Text type="secondary">确认后由后端发送，并写入运行记录和审计。</Text>
+        <Button
+          type="primary"
+          icon={<SendOutlined />}
+          loading={isConfirming}
+          disabled={!canConfirm}
+          onClick={confirmSend}
+        >
+          确认发送到企业微信
+        </Button>
+      </div>
     </div>
   );
+}
+
+function enterpriseWechatConfirmationCardFromMessage(messageItem: ChatMessage): EnterpriseWechatConfirmationCardData | null {
+  const automation = recordFromUnknown(messageItem.automation);
+  const approvalResult = recordFromUnknown(messageItem.approvalResult);
+  const automationWechatSend = recordFromUnknown(automation.wechat_send);
+  const approvalWechatSend = recordFromUnknown(approvalResult.wechat_send);
+  const rawCard = firstRecord(
+    automation.confirmation_card,
+    automationWechatSend.confirmation_card,
+    approvalResult.confirmation_card,
+    approvalWechatSend.confirmation_card,
+  );
+  if (!rawCard) {
+    return null;
+  }
+
+  const status = textFromUnknown(
+    rawCard.status || automationWechatSend.status || automation.status || approvalResult.status,
+  );
+  if (status && !enterpriseWechatNeedsConfirmation(status)) {
+    return null;
+  }
+
+  const artifact = recordFromUnknown(rawCard.artifact);
+  const artifactId = textFromUnknown(
+    artifact.artifact_id || automation.artifact_id || automationWechatSend.artifact_id,
+  );
+  if (!artifactId) {
+    return null;
+  }
+
+  const recipientSearch = recordFromUnknown(rawCard.recipient_search || automationWechatSend.recipient_search);
+  const selectedRecipient = enterpriseWechatRecipientCandidateFromUnknown(
+    rawCard.selected_recipient || automationWechatSend.recipient || automation.recipient,
+  );
+  const candidateItems = Array.isArray(recipientSearch.items) ? recipientSearch.items : [];
+  const candidates = candidateItems
+    .map(enterpriseWechatRecipientCandidateFromUnknown)
+    .filter((item): item is EnterpriseWechatRecipientCandidate => Boolean(item));
+  if (selectedRecipient && !candidates.some((item) => item.id === selectedRecipient.id)) {
+    candidates.unshift(selectedRecipient);
+  }
+
+  return {
+    title: textFromUnknown(rawCard.title) || "企业微信文件发送确认",
+    status,
+    statusLabel: textFromUnknown(rawCard.status_label || automationWechatSend.status_label || automation.status_label),
+    description: textFromUnknown(rawCard.description),
+    recipientName: textFromUnknown(
+      automation.recipient_name || automationWechatSend.recipient_name || recipientSearch.query || selectedRecipient?.name,
+    ),
+    recipientSearchMessage: textFromUnknown(recipientSearch.message || automationWechatSend.message || rawCard.description),
+    allowManualRecipient: rawCard.allow_manual_recipient !== false,
+    requiresRecipientSelection: Boolean(rawCard.requires_recipient_selection || recipientSearch.needs_selection),
+    requiresSensitiveConfirmation: rawCard.requires_sensitive_confirmation !== false,
+    workflowId: textFromUnknown(automation.workflow_id || "finance_salary_wechat_send"),
+    sourceMessage: textFromUnknown(
+      automation.source_message || recordFromUnknown(automationWechatSend.payload).source_message,
+    ),
+    artifact: {
+      artifactId,
+      filename: textFromUnknown(artifact.filename || automation.filename || automationWechatSend.artifact_filename) || "生成文件",
+      downloadPath: textFromUnknown(artifact.download_path || automation.download_path || automationWechatSend.download_path),
+      mimeType: textFromUnknown(artifact.mime_type),
+    },
+    candidates,
+    selectedRecipientId: selectedRecipient?.id || "",
+  };
+}
+
+function enterpriseWechatRecipientCandidateFromUnknown(value: unknown): EnterpriseWechatRecipientCandidate | null {
+  const record = recordFromUnknown(value);
+  const name = textFromUnknown(record.name);
+  if (!name) {
+    return null;
+  }
+
+  const objectType = textFromUnknown(record.object_type || "user") || "user";
+  const id = textFromUnknown(record.id || record.wechat_userid || record.chat_id || record.department_id || `${objectType}:${name}`);
+  return {
+    id,
+    name,
+    objectType,
+    objectTypeLabel: textFromUnknown(record.object_type_label) || enterpriseWechatObjectTypeLabel(objectType),
+    department: textFromUnknown(record.department),
+    phoneLast4: textFromUnknown(record.phone_last4),
+    avatarUrl: textFromUnknown(record.avatar_url),
+    avatarText: textFromUnknown(record.avatar_text || name.slice(0, 1) || "企"),
+    raw: record,
+  };
+}
+
+function enterpriseWechatCandidateMeta(candidate: EnterpriseWechatRecipientCandidate) {
+  const parts = [
+    candidate.department,
+    candidate.phoneLast4 ? `手机尾号 ${candidate.phoneLast4}` : "",
+  ].filter(Boolean);
+  return parts.length ? parts.join(" / ") : "企业微信通讯录";
+}
+
+function enterpriseWechatObjectTypeLabel(value: string) {
+  const normalized = value.trim();
+  if (normalized === "group") {
+    return "群聊";
+  }
+  if (normalized === "department") {
+    return "部门";
+  }
+  return "成员";
+}
+
+function enterpriseWechatNeedsConfirmation(status: string) {
+  return [
+    "waiting_confirmation",
+    "waiting_recipient_selection",
+    "waiting_wechat_confirmation",
+    "generated",
+  ].includes(status);
+}
+
+function enterpriseWechatConfirmKey(artifactId: string, recipientId: string | null | undefined) {
+  return `${artifactId || "artifact"}:${recipientId || "recipient"}`;
+}
+
+function firstRecord(...values: unknown[]) {
+  for (const value of values) {
+    const record = recordFromUnknown(value);
+    if (Object.keys(record).length > 0) {
+      return record;
+    }
+  }
+  return null;
+}
+
+function chatAttachmentArtifactId(attachment: ChatAttachment) {
+  return textFromUnknown(attachment.metadata?.artifact_id);
+}
+
+function chatAttachmentTypeFromFilename(filename: string): string {
+  const lowered = filename.toLowerCase();
+  if (lowered.endsWith(".doc") || lowered.endsWith(".docx")) {
+    return "word_file";
+  }
+  return "excel_file";
+}
+
+function chatMessageContainsArtifact(messageItem: ChatMessage, artifactId: string) {
+  if (!artifactId) {
+    return false;
+  }
+  if ((messageItem.attachments || []).some((attachment) => chatAttachmentArtifactId(attachment) === artifactId)) {
+    return true;
+  }
+
+  const automation = recordFromUnknown(messageItem.automation);
+  if (textFromUnknown(automation.artifact_id) === artifactId) {
+    return true;
+  }
+  const approvalResult = recordFromUnknown(messageItem.approvalResult);
+  const confirmationCard = firstRecord(
+    approvalResult.confirmation_card,
+    automation.confirmation_card,
+    recordFromUnknown(automation.wechat_send).confirmation_card,
+  );
+  const artifact = recordFromUnknown(confirmationCard?.artifact);
+  return textFromUnknown(artifact.artifact_id) === artifactId;
 }
 
 function StatusTag({ value }: { value: string }) {
@@ -16321,8 +18991,12 @@ function renderErpCell(value: unknown, field: string) {
     return formatAmount(value);
   }
 
+  if (Array.isArray(value)) {
+    return <Text className="erpResultSmallText">包含 {value.length} 条明细</Text>;
+  }
+
   if (typeof value === "object") {
-    return <Text className="erpResultSmallText">{JSON.stringify(value)}</Text>;
+    return <Text className="erpResultSmallText">包含明细信息</Text>;
   }
 
   return textFromUnknown(value);
@@ -17227,6 +19901,28 @@ function mapThreadMessage(item: ThreadMessageItem): ChatMessage {
     erpReferences: parseErpReferences(item.metadata.erp_references),
     attachments: parseChatAttachments(item.metadata.attachments),
     platformDraft: parsePlatformDraft(item.metadata.platform_draft),
+    approvalResult: recordFromUnknown(item.metadata.approval_result),
+    automation: recordFromUnknown(item.metadata.automation),
+  };
+}
+
+function normalizeBusinessProgress(value: unknown): BusinessProgressPayload | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  const item = value as Record<string, unknown>;
+  const label = typeof item.label === "string" ? item.label.trim() : "";
+  if (!label) {
+    return null;
+  }
+  return {
+    thread_id: typeof item.thread_id === "string" ? item.thread_id : undefined,
+    workflow_id: typeof item.workflow_id === "string" ? item.workflow_id : undefined,
+    step_key: typeof item.step_key === "string" ? item.step_key : undefined,
+    label,
+    status: typeof item.status === "string" ? item.status : "running",
+    detail: typeof item.detail === "string" ? item.detail : null,
+    data: item.data && typeof item.data === "object" ? (item.data as Record<string, unknown>) : {},
   };
 }
 
@@ -17550,10 +20246,6 @@ function runStatusLabel(value: string) {
 }
 
 function routeFromIntent(intent: string | null, riskLevel: string | null): ChatRoute | undefined {
-  if (intent === "refund" || riskLevel === "high") {
-    return "refund_workflow";
-  }
-
   if (intent === "order") {
     return "order_agent";
   }
@@ -17566,6 +20258,18 @@ function routeFromIntent(intent: string | null, riskLevel: string | null): ChatR
     return "finance_salary_export";
   }
 
+  if (intent === "finance_compound_report_generation") {
+    return "finance_compound_report_generation";
+  }
+
+  if (intent === "finance_salary_wechat_send" || intent === "enterprise_wechat_file_send") {
+    return "enterprise_wechat_file_send";
+  }
+
+  if (intent === "refund" || riskLevel === "high") {
+    return "refund_workflow";
+  }
+
   return undefined;
 }
 
@@ -17574,7 +20278,9 @@ function labelForRoute(route: ChatRoute) {
     refund_workflow: "高风险退款审批",
     order_agent: "订单工具查询",
     knowledge_rag: "知识库问答",
+    finance_compound_report_generation: "财务资料自动生成",
     finance_salary_export: "工资表自动导出",
+    enterprise_wechat_file_send: "企业微信文件发送",
   };
 
   return labels[route];
@@ -17585,7 +20291,9 @@ function routeColor(route: ChatRoute) {
     refund_workflow: "gold",
     order_agent: "blue",
     knowledge_rag: "green",
+    finance_compound_report_generation: "magenta",
     finance_salary_export: "purple",
+    enterprise_wechat_file_send: "cyan",
   };
 
   return colors[route];
@@ -18227,8 +20935,11 @@ function labelForConnectorStatus(value: string) {
     disabled: "已暂停",
     unknown: "未检查",
     not_configured: "未配置",
+    invalid_config: "配置异常",
     not_implemented: "待接入",
     configured_pending: "已配置待联调",
+    configured: "已配置",
+    stub_ready: "预留可用",
   };
 
   return labels[value] ?? value;

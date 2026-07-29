@@ -3,10 +3,12 @@ import asyncio
 import base64
 import json
 import logging
+from queue import Empty, Queue
+from threading import Thread
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from app.agents.low_risk_agent import run_low_risk_agent
 from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
@@ -26,6 +28,7 @@ from app.api.evaluation_center import router as evaluation_center_router
 from app.api.feedback import router as feedback_router
 from app.api.files import router as files_router
 from app.api.monitoring_center import router as monitoring_center_router
+from app.api.mcp_tools import router as mcp_tools_router
 from app.api.notifications import router as notifications_router
 from app.api.platform_action_executors import router as platform_action_executors_router
 from app.api.platform_drafts import router as platform_drafts_router
@@ -65,6 +68,12 @@ from app.services.context_service import (
     cleanup_expired_context,
     update_context_after_turn,
 )
+from app.services.agent_execution_service import (
+    PLAN_EXECUTE_WORKFLOW_ID,
+    build_finance_monthly_package_plan,
+    classify_agent_task,
+    execute_finance_monthly_package_wechat,
+)
 from app.services.chat_automation_dispatcher import run_chat_automation
 from app.services.automation_flow_version_service import resolve_flow_execution_reference
 from app.services.chat_react_decision_service import (
@@ -80,8 +89,13 @@ from app.services.email_service import (
     is_email_send_requested,
     send_email_with_attachments,
 )
+from app.services.enterprise_wechat_service import ensure_enterprise_wechat_schema
 from app.services.feedback_service import ensure_feedback_schema
-from app.services.generated_file_service import ensure_generated_file_schema, save_generated_file
+from app.services.generated_file_service import (
+    ensure_generated_file_schema,
+    get_latest_generated_file_for_thread,
+    save_generated_file,
+)
 from app.services.rag_authorization_service import (
     create_document_grant,
     normalize_document_access_inputs,
@@ -91,6 +105,21 @@ from app.services.platform_draft_service import ensure_platform_draft_schema
 from app.services.finance_salary_service import (
     export_salary_workbook_from_erp,
     recognize_salary_export_intent,
+)
+from app.services.finance_compound_intent_service import (
+    FINANCE_COMPOUND_INTENT,
+    finance_compound_requested_resources,
+    recognize_finance_compound_intent,
+    should_handle_finance_compound_generation,
+)
+from app.services.finance_salary_wechat_service import (
+    build_enterprise_wechat_file_confirmation_task,
+    build_salary_wechat_plan,
+    build_wechat_prepare_confirmation_task,
+    extract_wechat_recipient,
+    prepare_salary_wechat_dispatch,
+    recognize_salary_wechat_send_intent,
+    run_record_status_for_salary_wechat,
 )
 from app.services.logging_service import (
     create_chat_thread,
@@ -105,6 +134,7 @@ from app.services.mcp_service import (
     get_external_ticket,
     sync_document_system_to_rag,
 )
+from app.services.mcp_tool_registry_service import ensure_mcp_tool_registry_schema
 from app.services.notification_service import ensure_notification_schema
 from app.services.platform_action_executor_config_service import ensure_platform_action_executor_config_schema
 from app.services.run_record_service import (
@@ -120,6 +150,7 @@ from app.services.user_ai_app_permission_service import (
     ensure_user_ai_app_permission_schema,
     is_ai_app_allowed,
 )
+from app.skills.executor import execute_skill
 from app.skills.registry import skill_for_react_action
 from app.services.user_settings_service import ensure_user_settings_schema
 
@@ -144,10 +175,12 @@ async def lifespan(app: FastAPI):
     ensure_generated_file_schema()
     ensure_platform_draft_schema()
     ensure_platform_action_executor_config_schema()
+    ensure_mcp_tool_registry_schema()
     ensure_notification_schema()
     ensure_feedback_schema()
     ensure_chat_thread_schema()
     ensure_run_record_flow_reference_schema()
+    ensure_enterprise_wechat_schema()
     cleanup_expired_context()
     cleanup_task = asyncio.create_task(cleanup_expired_context_loop())
     try:
@@ -160,7 +193,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Company RAG Agent",
+    title="AI automated back-end management system",
     lifespan=lifespan,
 )
 app.add_middleware(
@@ -193,6 +226,7 @@ app.include_router(evaluation_center_router)
 app.include_router(feedback_router)
 app.include_router(files_router)
 app.include_router(monitoring_center_router)
+app.include_router(mcp_tools_router)
 app.include_router(notifications_router)
 app.include_router(platform_action_executors_router)
 app.include_router(platform_drafts_router)
@@ -211,6 +245,7 @@ MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 class ChatRequest(BaseModel):
     message: str
     thread_id: str | None = None
+    attachments: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class ChatResponse(BaseModel):
@@ -222,6 +257,7 @@ class ChatResponse(BaseModel):
     attachments: list[dict] = Field(default_factory=list)
     platform_draft: dict | None = None
     approval_result: dict | None = None
+    automation: dict | None = None
 
 
 class ChatStreamEvent(BaseModel):
@@ -291,6 +327,50 @@ class McpTicketCreateRequest(BaseModel):
 def format_sse(event: str, data: dict) -> str:
     payload = json.dumps(data, ensure_ascii=False, default=str)
     return f"event: {event}\ndata: {payload}\n\n"
+
+
+def format_business_progress_sse(
+    *,
+    thread_id: str,
+    step_key: str,
+    label: str,
+    workflow_id: str = "chat",
+    status_value: str = "running",
+    detail: str | None = None,
+    data: dict[str, Any] | None = None,
+) -> str:
+    payload = {
+        "thread_id": thread_id,
+        "workflow_id": workflow_id,
+        "step_key": step_key,
+        "label": label,
+        "status": status_value,
+        "detail": detail,
+        "data": data or {},
+    }
+    return format_sse("business_progress", payload)
+
+
+def business_error_message_for_user(error: Exception, current_user: dict) -> str:
+    detail = getattr(error, "detail", None)
+    raw_message = str(detail or error or "执行失败")
+    lowered = raw_message.lower()
+
+    if "erpnext" in lowered or "erp" in lowered or "502" in lowered or "salary slip" in lowered:
+        message = "ERPNext 暂时不可用，请稍后重试或联系管理员。"
+    elif "权限" in raw_message or "403" in raw_message or "forbidden" in lowered:
+        message = "当前账号没有执行这个操作的权限，请联系管理员开通。"
+    elif "联系人" in raw_message:
+        message = raw_message
+    elif "没有查到" in raw_message:
+        message = raw_message
+    else:
+        message = "这次自动化没有执行成功，请稍后重试或联系管理员。"
+
+    if current_user.get("role") == "admin":
+        message = f"{message} 技术线索：{raw_message[:180]}"
+
+    return message
 
 
 def resolve_chat_thread_id(
@@ -564,7 +644,7 @@ def _run_finance_salary_export_chat(
         duration_ms=elapsed_ms(step_started_ms),
         metadata=salary_result.metadata,
     )
-    save_generated_file(
+    artifact_id = save_generated_file(
         run_id=run_id,
         content=salary_result.content,
         artifact_type="excel_file",
@@ -573,6 +653,12 @@ def _run_finance_salary_export_chat(
         current_user=current_user,
         metadata=salary_result.metadata,
     )
+    if artifact_id:
+        attachment["metadata"] = {
+            **attachment["metadata"],
+            "artifact_id": artifact_id,
+            "download_path": f"/files/{artifact_id}/download",
+        }
     email_requested = is_email_send_requested(request.message)
     email_result = None
     email_metadata = {
@@ -641,6 +727,7 @@ def _run_finance_salary_export_chat(
             **email_metadata,
             "final_thread_id": thread_id,
             "attachment_count": 1,
+            "artifact_id": artifact_id,
         },
     )
     return {
@@ -654,6 +741,183 @@ def _run_finance_salary_export_chat(
             **salary_result.metadata,
             **email_metadata,
         },
+    }
+
+
+def _run_finance_compound_generation_chat(
+    *,
+    request: ChatRequest,
+    current_user: dict,
+    thread_id: str,
+    run_id: str,
+    started_ms: int,
+    intent,
+    react_decision,
+    stream: bool,
+) -> dict:
+    try:
+        skill_result = execute_skill(
+            skill_id=FINANCE_COMPOUND_INTENT,
+            payload={
+                "message": request.message,
+                "intent": intent,
+                "requested_erp_resources": finance_compound_requested_resources(intent),
+                "metadata": {
+                    "run_id": run_id,
+                    "thread_id": thread_id,
+                    "entrypoint": "chat_stream" if stream else "chat",
+                },
+            },
+            current_user=current_user,
+            source="chat_stream" if stream else "chat",
+            react_decision=chat_react_decision_dict(react_decision),
+        )
+    except HTTPException as error:
+        finish_run(
+            run_id,
+            status_value="failed",
+            error_message=str(error.detail),
+            duration_ms=elapsed_ms(started_ms),
+            metadata={
+                "intent": FINANCE_COMPOUND_INTENT,
+                "react_decision": chat_react_decision_dict(react_decision),
+            },
+        )
+        raise
+    except ValueError as error:
+        answer = str(error)
+        if answer.startswith("缺少【") and answer.endswith("是否继续生成？"):
+            finish_run(
+                run_id,
+                status_value="blocked",
+                output_text=answer,
+                duration_ms=elapsed_ms(started_ms),
+                metadata={
+                    "intent": "ask_clarification",
+                    "source_intent": FINANCE_COMPOUND_INTENT,
+                    "react_decision": chat_react_decision_dict(react_decision),
+                },
+            )
+            return {
+                "thread_id": thread_id,
+                "answer": answer,
+                "intent": "ask_clarification",
+                "risk_level": "medium",
+                "erp_references": [],
+                "attachments": [],
+                "approval_result": None,
+                "react_decision": chat_react_decision_dict(react_decision),
+            }
+        finish_run(
+            run_id,
+            status_value="failed",
+            error_message=error,
+            duration_ms=elapsed_ms(started_ms),
+            metadata={
+                "intent": FINANCE_COMPOUND_INTENT,
+                "react_decision": chat_react_decision_dict(react_decision),
+            },
+        )
+        raise
+    except Exception as error:
+        finish_run(
+            run_id,
+            status_value="failed",
+            error_message=error,
+            duration_ms=elapsed_ms(started_ms),
+            metadata={
+                "intent": FINANCE_COMPOUND_INTENT,
+                "react_decision": chat_react_decision_dict(react_decision),
+            },
+        )
+        raise
+
+    attachments = [_skill_attachment_to_chat_attachment(item) for item in skill_result.attachments]
+    approval_result: dict[str, Any] | None = None
+    automation = {
+        "type": "skill",
+        "skill_id": skill_result.skill_id,
+        "status": skill_result.status,
+        "generated_files": skill_result.metadata.get("generated_files"),
+    }
+    answer = skill_result.answer or ""
+    if intent.wechat_requested and attachments:
+        primary_attachment = attachments[0]
+        attachment_meta = primary_attachment.get("metadata") if isinstance(primary_attachment.get("metadata"), dict) else {}
+        artifact_id = str(attachment_meta.get("artifact_id") or "")
+        if artifact_id:
+            recipient_name = extract_wechat_recipient(request.message) or "待确认联系人"
+            wechat_execution = build_enterprise_wechat_file_confirmation_task(
+                artifact_id=artifact_id,
+                artifact_filename=str(primary_attachment.get("filename") or artifact_id),
+                recipient_name=recipient_name,
+                current_user=current_user,
+                source_message=request.message,
+                source_workflow_id="finance_monthly_package_wechat_send",
+                mime_type=str(primary_attachment.get("mime_type") or "application/octet-stream"),
+                requires_sensitive_confirmation=True,
+            )
+            approval_result = {
+                "status": wechat_execution.get("status"),
+                "status_label": wechat_execution.get("status_label"),
+                "requires_recipient_confirmation": True,
+                "requires_sensitive_data_confirmation": True,
+                "confirmation_card": wechat_execution.get("confirmation_card"),
+            }
+            automation = {
+                **automation,
+                "wechat_send": wechat_execution,
+                "confirmation_card": wechat_execution.get("confirmation_card"),
+                "artifact_id": artifact_id,
+                "filename": primary_attachment.get("filename"),
+                "download_path": attachment_meta.get("download_path"),
+            }
+            answer = (
+                f"{answer}\n\n"
+                "你要求通过企业微信发送，本次已准备发送确认卡。"
+                "请先下载预览并确认敏感数据，确认后由后端发送，不附带正文说明。"
+            ).strip()
+    finish_run(
+        run_id,
+        status_value="succeeded",
+        output_text=answer,
+        duration_ms=elapsed_ms(started_ms),
+        metadata={
+            **skill_result.metadata,
+            "final_thread_id": thread_id,
+            "attachment_count": len(attachments),
+            "react_decision": chat_react_decision_dict(react_decision),
+            "approval_result": approval_result,
+        },
+    )
+    return {
+        "thread_id": thread_id,
+        "answer": answer,
+        "intent": skill_result.metadata.get("intent") or FINANCE_COMPOUND_INTENT,
+        "risk_level": "high",
+        "erp_references": [],
+        "attachments": attachments,
+        "approval_result": approval_result,
+        "automation": automation,
+        "react_decision": chat_react_decision_dict(react_decision),
+    }
+
+
+def _skill_attachment_to_chat_attachment(item: dict) -> dict:
+    content = item.get("content")
+    content_base64 = item.get("content_base64")
+    if isinstance(content, bytes):
+        size_bytes = len(content)
+        content_base64 = base64.b64encode(content).decode("ascii")
+    else:
+        size_bytes = int(item.get("size_bytes") or 0)
+    return {
+        "type": item.get("type") or "excel_file",
+        "filename": item.get("filename"),
+        "mime_type": item.get("mime_type"),
+        "size_bytes": size_bytes,
+        "content_base64": content_base64,
+        "metadata": item.get("metadata") or {},
     }
 
 
@@ -874,6 +1138,599 @@ def direct_chat_result(
     return result
 
 
+def _looks_like_generated_file_wechat_send_request(message: str) -> bool:
+    text = " ".join((message or "").strip().split())
+    lowered = text.lower()
+    if not text:
+        return False
+
+    has_channel = any(keyword in lowered for keyword in ["企业微信", "企微", "微信", "wechat", "weixin"])
+    has_send = any(keyword in lowered for keyword in ["发送", "发给", "传给", "转发", "send"])
+    has_file_reference = any(
+        keyword in lowered
+        for keyword in [
+            "刚刚",
+            "刚才",
+            "上面",
+            "这个文件",
+            "当前文件",
+            "附件",
+            "已生成",
+            "生成好的",
+            "生成的文件",
+            "excel",
+            "xlsx",
+            "word",
+            "docx",
+            "文档",
+            "表格",
+        ]
+    )
+    return has_channel and has_send and has_file_reference
+
+
+def _references_existing_generated_file(message: str) -> bool:
+    lowered = (message or "").lower()
+    return any(
+        keyword in lowered
+        for keyword in ["刚刚", "刚才", "上面", "这个文件", "当前文件", "附件", "已生成", "生成好的", "生成的文件"]
+    )
+
+
+def _should_handle_generated_file_wechat_send(message: str, *, salary_wechat_requested: bool) -> bool:
+    if not _looks_like_generated_file_wechat_send_request(message):
+        return False
+    if salary_wechat_requested and not _references_existing_generated_file(message):
+        return False
+    return True
+
+
+def _generated_file_requires_sensitive_confirmation(storage_reference: dict[str, Any]) -> bool:
+    metadata = storage_reference.get("metadata") if isinstance(storage_reference.get("metadata"), dict) else {}
+    text = " ".join(
+        str(item or "")
+        for item in [
+            storage_reference.get("filename"),
+            storage_reference.get("artifact_type"),
+            storage_reference.get("app_id"),
+            storage_reference.get("app_name"),
+            storage_reference.get("run_type"),
+            metadata.get("erp_resource"),
+            metadata.get("provider_resource"),
+            metadata.get("field_scope"),
+            metadata.get("sensitivity_level"),
+            metadata.get("source"),
+        ]
+    ).lower()
+    sensitive_keywords = [
+        "salary",
+        "salary slip",
+        "工资",
+        "薪资",
+        "应发",
+        "实发",
+        "财务",
+        "finance",
+        "reconciliation",
+        "settlement",
+        "invoice",
+        "payment",
+        "客户",
+        "customer",
+        "buyer",
+        "phone",
+        "mobile",
+        "privacy",
+        "confidential",
+        "restricted",
+    ]
+    if any(keyword in text for keyword in sensitive_keywords):
+        return True
+    return any(
+        key in metadata
+        for key in [
+            "gross_pay_total",
+            "net_pay_total",
+            "employee_count",
+            "customer_id",
+            "buyer_email",
+            "phone",
+            "mobile",
+        ]
+    )
+
+
+def _generated_file_is_finance_sensitive(storage_reference: dict[str, Any]) -> bool:
+    metadata = storage_reference.get("metadata") if isinstance(storage_reference.get("metadata"), dict) else {}
+    text = " ".join(
+        str(item or "")
+        for item in [
+            storage_reference.get("filename"),
+            storage_reference.get("app_id"),
+            storage_reference.get("app_name"),
+            metadata.get("erp_resource"),
+            metadata.get("provider_resource"),
+        ]
+    ).lower()
+    return any(
+        keyword in text
+        for keyword in ["salary", "salary slip", "工资", "薪资", "财务", "finance", "settlement", "reconciliation"]
+    )
+
+
+def _artifact_type_from_filename(filename: str) -> str:
+    lowered = filename.lower()
+    if lowered.endswith((".doc", ".docx")):
+        return "word_file"
+    return "excel_file"
+
+
+def _attachment_from_generated_file_reference(storage_reference: dict[str, Any]) -> dict[str, Any]:
+    filename = str(storage_reference.get("filename") or "生成文件")
+    return {
+        "type": str(storage_reference.get("artifact_type") or _artifact_type_from_filename(filename)),
+        "filename": filename,
+        "mime_type": str(storage_reference.get("mime_type") or "application/octet-stream"),
+        "size_bytes": storage_reference.get("size_bytes") or 0,
+        "metadata": {
+            "artifact_id": storage_reference.get("id"),
+            "download_path": f"/files/{storage_reference.get('id')}/download",
+            "run_id": storage_reference.get("run_id"),
+            "app_id": storage_reference.get("app_id"),
+        },
+    }
+
+
+def _run_enterprise_wechat_generated_file_send_chat(
+    *,
+    request: ChatRequest,
+    current_user: dict,
+    thread_id: str,
+    run_id: str,
+    started_ms: int,
+    stream: bool,
+) -> dict:
+    recipient_name = extract_wechat_recipient(request.message) or ""
+    record_step(
+        run_id=run_id,
+        step_name="enterprise_wechat_generated_file_intent",
+        step_order=1,
+        status_value="succeeded",
+        provider="rules",
+        resource_type="thread",
+        resource_id=thread_id,
+        input_text=request.message,
+        output_text=recipient_name or "待填写接收对象",
+        duration_ms=elapsed_ms(started_ms),
+        metadata={
+            "intent": "enterprise_wechat_file_send",
+            "recipient_name": recipient_name,
+            "entrypoint": "chat_stream" if stream else "chat",
+        },
+    )
+
+    step_started_ms = now_ms()
+    storage_reference = get_latest_generated_file_for_thread(
+        thread_id=thread_id,
+        current_user=current_user,
+        allowed_types={"excel_file", "word_file", "docx_file", "report_file"},
+    )
+    if storage_reference is None:
+        answer = "当前会话没有找到可发送的 Excel/Word 文件，请先生成文件或上传文件。"
+        record_step(
+            run_id=run_id,
+            step_name="enterprise_wechat_generated_file_lookup",
+            step_order=2,
+            status_value="blocked",
+            provider="generated_file_service",
+            resource_type="thread",
+            resource_id=thread_id,
+            input_text=request.message,
+            output_text=answer,
+            duration_ms=elapsed_ms(step_started_ms),
+        )
+        finish_run(
+            run_id,
+            status_value="blocked",
+            output_text=answer,
+            duration_ms=elapsed_ms(started_ms),
+            metadata={
+                "intent": "enterprise_wechat_file_send",
+                "reason": "no_generated_file",
+            },
+        )
+        return {
+            "thread_id": thread_id,
+            "answer": answer,
+            "intent": "enterprise_wechat_file_send",
+            "risk_level": "medium",
+            "attachments": [],
+            "approval_result": None,
+            "automation": None,
+        }
+
+    sensitive_required = _generated_file_requires_sensitive_confirmation(storage_reference)
+    if (
+        sensitive_required
+        and _generated_file_is_finance_sensitive(storage_reference)
+        and current_user.get("role") != "admin"
+    ):
+        if current_user.get("position") != "finance":
+            finish_run(
+                run_id,
+                status_value="blocked",
+                output_text="只有财务岗位或管理员可以发送工资、财务文件到企业微信。",
+                duration_ms=elapsed_ms(started_ms),
+                metadata={
+                    "intent": "enterprise_wechat_file_send",
+                    "reason": "finance_sensitive_permission_denied",
+                    "artifact_id": storage_reference["id"],
+                },
+            )
+            raise HTTPException(
+                status_code=403,
+                detail="只有财务岗位或管理员可以发送工资、财务文件到企业微信。",
+            )
+        if not is_ai_app_allowed(current_user, "automation-salary_wechat_send"):
+            finish_run(
+                run_id,
+                status_value="blocked",
+                output_text="工资表微信发送应用已被管理员禁用。",
+                duration_ms=elapsed_ms(started_ms),
+                metadata={
+                    "intent": "enterprise_wechat_file_send",
+                    "reason": "salary_wechat_app_disabled",
+                    "artifact_id": storage_reference["id"],
+                },
+            )
+            raise HTTPException(
+                status_code=403,
+                detail="工资表微信发送应用已被管理员禁用。",
+            )
+
+    attachment = _attachment_from_generated_file_reference(storage_reference)
+    finance_sensitive = sensitive_required and _generated_file_is_finance_sensitive(storage_reference)
+    workflow_id = "finance_salary_wechat_send" if finance_sensitive else "enterprise_wechat_file_send"
+    wechat_execution = build_enterprise_wechat_file_confirmation_task(
+        artifact_id=str(storage_reference["id"]),
+        artifact_filename=str(storage_reference.get("filename") or attachment["filename"]),
+        recipient_name=recipient_name,
+        current_user=current_user,
+        source_message=request.message,
+        source_workflow_id=workflow_id,
+        mime_type=str(storage_reference.get("mime_type") or attachment["mime_type"]),
+        requires_sensitive_confirmation=sensitive_required,
+    )
+    status_value = str(wechat_execution.get("status") or "waiting_wechat_confirmation")
+    status_label = str(wechat_execution.get("status_label") or "等待确认")
+    record_step(
+        run_id=run_id,
+        step_name="enterprise_wechat_generated_file_confirmation_required",
+        step_order=2,
+        status_value=run_record_status_for_salary_wechat(status_value),
+        provider=str(wechat_execution.get("executor_type") or "confirmation_required"),
+        resource_type="enterprise_wechat",
+        resource_id=recipient_name or "manual_recipient",
+        input_text={
+            "artifact_id": storage_reference["id"],
+            "filename": storage_reference.get("filename"),
+            "recipient_name": recipient_name,
+        },
+        output_text=wechat_execution.get("message"),
+        duration_ms=elapsed_ms(step_started_ms),
+        metadata=wechat_execution,
+    )
+
+    filename = str(storage_reference.get("filename") or attachment["filename"])
+    if recipient_name:
+        answer = (
+            f"已找到当前会话最近生成的文件：{filename}。\n"
+            f"准备通过企业微信发送给“{recipient_name}”。\n"
+            "请在下方确认接收对象和文件预览；确认后由后端发送，不附带正文说明。"
+        )
+    else:
+        answer = (
+            f"已找到当前会话最近生成的文件：{filename}。\n"
+            "还没有识别到企业微信接收对象，请在下方选择候选对象，"
+            "或手动输入 userid / chat_id / department_id 后确认发送。"
+        )
+
+    finish_run(
+        run_id,
+        status_value=run_record_status_for_salary_wechat(status_value),
+        output_text=answer,
+        duration_ms=elapsed_ms(started_ms),
+        metadata={
+            "intent": "enterprise_wechat_file_send",
+            "risk_level": "high" if sensitive_required else "medium",
+            "business_status": status_value,
+            "business_status_label": status_label,
+            "artifact_id": storage_reference["id"],
+            "filename": filename,
+            "recipient_name": recipient_name,
+            "requires_sensitive_confirmation": sensitive_required,
+            "wechat_send": wechat_execution,
+        },
+    )
+    return {
+        "thread_id": thread_id,
+        "answer": answer,
+        "intent": "enterprise_wechat_file_send",
+        "risk_level": "high" if sensitive_required else "medium",
+        "attachments": [attachment],
+        "approval_result": {
+            "status": status_value,
+            "status_label": status_label,
+            "requires_recipient_confirmation": True,
+            "requires_sensitive_data_confirmation": sensitive_required,
+            "confirmation_card": wechat_execution.get("confirmation_card"),
+        },
+        "automation": {
+            "type": "enterprise_wechat_file_send",
+            "status": status_value,
+            "status_label": status_label,
+            "workflow_id": workflow_id,
+            "recipient_name": recipient_name,
+            "source_message": request.message,
+            "artifact_id": storage_reference["id"],
+            "filename": filename,
+            "download_path": f"/files/{storage_reference['id']}/download",
+            "wechat_send": wechat_execution,
+            "confirmation_card": wechat_execution.get("confirmation_card"),
+        },
+    }
+
+
+def _run_finance_salary_wechat_send_chat(
+    *,
+    request: ChatRequest,
+    current_user: dict,
+    thread_id: str,
+    run_id: str,
+    started_ms: int,
+    stream: bool,
+) -> dict:
+    intent = recognize_salary_wechat_send_intent(request.message)
+    plan = build_salary_wechat_plan(intent)
+    record_step(
+        run_id=run_id,
+        step_name="finance_salary_wechat_plan",
+        step_order=1,
+        status_value="succeeded" if not intent.missing_fields else "blocked",
+        provider="rules",
+        resource_type="automation",
+        resource_id="finance_salary_wechat_send",
+        input_text=request.message,
+        output_text=plan,
+        duration_ms=elapsed_ms(started_ms),
+        metadata={
+            "intent": intent.intent,
+            "confidence": intent.confidence,
+            "recipient_name": intent.recipient_name,
+            "missing_fields": intent.missing_fields,
+            "entrypoint": "chat_stream" if stream else "chat",
+        },
+    )
+
+    missing_text = "、".join(intent.missing_fields)
+    if missing_text:
+        answer = (
+            "我先整理好了工资表微信发送计划，但还不能执行。\n"
+            f"还需要补充：{missing_text}。\n"
+            f"计划目标：{plan['summary']}\n"
+            "请补充企业微信接收对象。文件生成完成后，我会在聊天窗口让你确认一次。"
+        )
+        business_status = "waiting_confirmation"
+        business_status_label = "等待确认"
+        finish_run(
+            run_id,
+            status_value="blocked",
+            output_text=answer,
+            duration_ms=elapsed_ms(started_ms),
+            metadata={
+                "intent": "finance_salary_wechat_send",
+                "risk_level": "high",
+                "requires_confirmation": True,
+                "missing_fields": intent.missing_fields,
+                "recipient_name": intent.recipient_name,
+                "business_status": business_status,
+                "business_status_label": business_status_label,
+                "execution_plan": plan,
+            },
+        )
+        return {
+            "thread_id": thread_id,
+            "answer": answer,
+            "intent": "finance_salary_wechat_send",
+            "risk_level": "high",
+            "attachments": [],
+            "approval_result": {
+                "status": business_status,
+                "status_label": business_status_label,
+                "requires_recipient_confirmation": True,
+                "requires_sensitive_data_confirmation": True,
+            },
+            "automation": {
+                "type": "finance_salary_wechat_send",
+                "status": business_status,
+                "status_label": business_status_label,
+                "workflow_id": "finance_salary_wechat_send",
+                "execution_plan": plan,
+                "recipient_name": intent.recipient_name,
+                "missing_fields": intent.missing_fields,
+                "source_message": request.message,
+            },
+        }
+
+    step_started_ms = now_ms()
+    try:
+        salary_result = export_salary_workbook_from_erp(
+            message=request.message,
+            current_user=current_user,
+            intent=intent.salary_intent,
+        )
+    except ValueError as error:
+        record_step(
+            run_id=run_id,
+            step_name="finance_salary_wechat_excel_export",
+            step_order=2,
+            status_value="failed",
+            provider="erp_provider",
+            resource_type="erp",
+            resource_id="Salary Slip",
+            input_text=request.message,
+            error_message=error,
+            duration_ms=elapsed_ms(step_started_ms),
+            metadata={
+                "period_label": intent.salary_intent.period_label,
+                "recipient_name": intent.recipient_name,
+            },
+        )
+        finish_run(
+            run_id,
+            status_value="failed",
+            error_message=error,
+            duration_ms=elapsed_ms(started_ms),
+        )
+        raise
+
+    attachment = {
+        "type": "excel_file",
+        "filename": salary_result.filename,
+        "mime_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "size_bytes": len(salary_result.content),
+        "metadata": salary_result.metadata,
+    }
+    artifact_id = save_generated_file(
+        run_id=run_id,
+        content=salary_result.content,
+        artifact_type="excel_file",
+        mime_type=attachment["mime_type"],
+        filename=salary_result.filename,
+        current_user=current_user,
+        metadata=salary_result.metadata,
+    )
+    if artifact_id:
+        attachment["metadata"] = {
+            **attachment["metadata"],
+            "artifact_id": artifact_id,
+            "download_path": f"/files/{artifact_id}/download",
+        }
+    record_step(
+        run_id=run_id,
+        step_name="finance_salary_wechat_excel_export",
+        step_order=2,
+        status_value="succeeded",
+        provider=salary_result.provider,
+        resource_type="erp",
+        resource_id="Salary Slip",
+        input_text=request.message,
+        output_text=salary_result.filename,
+        duration_ms=elapsed_ms(step_started_ms),
+        metadata={
+            **salary_result.metadata,
+            "artifact_id": artifact_id,
+        },
+    )
+
+    dispatch = prepare_salary_wechat_dispatch(
+        intent=intent,
+        salary_result=salary_result,
+        current_user=current_user,
+        source="chat_stream" if stream else "chat",
+    )
+    wechat_execution = build_wechat_prepare_confirmation_task(
+        dispatch=dispatch,
+        artifact_id=artifact_id,
+        artifact_filename=salary_result.filename,
+        current_user=current_user,
+    )
+    business_status = str(wechat_execution.get("status") or "waiting_wechat_confirmation")
+    business_status_label = str(wechat_execution.get("status_label") or "等待确认")
+    record_step(
+        run_id=run_id,
+        step_name="enterprise_wechat_confirmation_required",
+        step_order=3,
+        status_value=run_record_status_for_salary_wechat(business_status),
+        provider=str(wechat_execution.get("executor_type") or "confirmation_required"),
+        resource_type="enterprise_wechat",
+        resource_id=str(intent.recipient_name or ""),
+        input_text={
+            "recipient_name": intent.recipient_name,
+            "artifact_id": artifact_id,
+        },
+        output_text=wechat_execution.get("message"),
+        duration_ms=0,
+        metadata=wechat_execution,
+    )
+
+    if business_status == "waiting_recipient_selection":
+        answer = (
+            f"已生成 {salary_result.intent.period_label} 员工工资表 Excel，但企业微信接收对象还需要你选择。\n"
+            f"文件：{salary_result.filename}\n"
+            f"本次共 {len(salary_result.items)} 名员工，应发合计 "
+            f"{salary_result.metadata['gross_pay_total']:.2f}，实发合计 "
+            f"{salary_result.metadata['net_pay_total']:.2f}。\n"
+            "请在下方候选列表里点选正确的人、群聊或部门，再确认发送。"
+        )
+    else:
+        answer = (
+            f"已生成 {salary_result.intent.period_label} 员工工资表 Excel，并准备通过企业微信发送给“{intent.recipient_name}”。\n"
+            f"本次共 {len(salary_result.items)} 名员工，应发合计 "
+            f"{salary_result.metadata['gross_pay_total']:.2f}，实发合计 "
+            f"{salary_result.metadata['net_pay_total']:.2f}。\n"
+            f"文件：{salary_result.filename}\n"
+            "请在下方确认企业微信接收对象和敏感数据。确认后由后端发送文件，不附带正文说明。"
+        )
+    finish_run(
+        run_id,
+        status_value=run_record_status_for_salary_wechat(business_status),
+        output_text=answer,
+        duration_ms=elapsed_ms(started_ms),
+        metadata={
+            "intent": "finance_salary_wechat_send",
+            "risk_level": "high",
+            "requires_confirmation": True,
+            "missing_fields": intent.missing_fields,
+            "recipient_name": intent.recipient_name,
+            "business_status": business_status,
+            "business_status_label": business_status_label,
+            "artifact_id": artifact_id,
+            "execution_plan": plan,
+            "wechat_send": wechat_execution,
+        },
+    )
+    return {
+        "thread_id": thread_id,
+        "answer": answer,
+        "intent": "finance_salary_wechat_send",
+        "risk_level": "high",
+        "attachments": [attachment],
+        "approval_result": {
+            "status": business_status,
+            "status_label": business_status_label,
+            "requires_recipient_confirmation": True,
+            "requires_sensitive_data_confirmation": True,
+            "confirmation_card": wechat_execution.get("confirmation_card"),
+        },
+        "automation": {
+            "type": "finance_salary_wechat_send",
+            "status": business_status,
+            "status_label": business_status_label,
+            "workflow_id": "finance_salary_wechat_send",
+            "execution_plan": plan,
+            "recipient_name": intent.recipient_name,
+            "missing_fields": intent.missing_fields,
+            "source_message": request.message,
+            "artifact_id": artifact_id,
+            "filename": salary_result.filename,
+            "download_path": f"/files/{artifact_id}/download" if artifact_id else None,
+            "wechat_send": wechat_execution,
+            "confirmation_card": wechat_execution.get("confirmation_card"),
+        },
+    }
+
+
 def react_direct_result_for_decision(decision, current_user: dict, thread_id: str) -> dict | None:
     denial = permission_denial_for_decision(decision, current_user)
     if denial:
@@ -934,10 +1791,27 @@ def chat(request: ChatRequest,current_user: dict = Depends(get_current_user),):
     ensure_chat_app_enabled(current_user)
     ensure_chat_allowed_for_position(current_user, request.message)
     salary_export_intent = recognize_salary_export_intent(request.message)
+    finance_compound_intent = recognize_finance_compound_intent(request.message)
+    salary_wechat_intent = recognize_salary_wechat_send_intent(request.message)
+    salary_wechat_requested = (
+        salary_wechat_intent.salary_intent.intent == "finance_salary_export"
+        and "微信" in salary_wechat_intent.matched_keywords
+    )
+    if (
+        current_user.get("role") != "admin"
+        and current_user.get("position") == "finance"
+        and salary_wechat_requested
+        and not is_ai_app_allowed(current_user, "automation-salary_wechat_send")
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="工资表微信发送应用已被管理员禁用。",
+        )
     if (
         current_user.get("role") != "admin"
         and current_user.get("position") == "finance"
         and salary_export_intent.intent == "finance_salary_export"
+        and not salary_wechat_requested
         and not is_ai_app_allowed(current_user, "automation-salary_summary")
     ):
         raise HTTPException(
@@ -988,6 +1862,157 @@ def chat(request: ChatRequest,current_user: dict = Depends(get_current_user),):
         },
     )
 
+    agent_route = classify_agent_task(request.message, current_user)
+    if agent_route.requires_plan_execute and agent_route.workflow_id == PLAN_EXECUTE_WORKFLOW_ID:
+        record_step(
+            run_id=run_id,
+            step_name="agent.task_classifier",
+            step_order=1,
+            status_value="succeeded",
+            provider="rules",
+            resource_type="automation",
+            resource_id=agent_route.workflow_id,
+            input_text=request.message,
+            output_text=agent_route.intent,
+            duration_ms=elapsed_ms(started_ms),
+            metadata={
+                "mode": agent_route.mode,
+                "reason": agent_route.reason,
+                "confidence": agent_route.confidence,
+                "estimated_step_count": agent_route.estimated_step_count,
+            },
+        )
+        try:
+            result = execute_finance_monthly_package_wechat(
+                message=request.message,
+                current_user=current_user,
+                thread_id=thread_id,
+                parent_run_id=run_id,
+                source="chat",
+            )
+        except ValueError as error:
+            finish_run(
+                run_id,
+                status_value="failed",
+                error_message=error,
+                duration_ms=elapsed_ms(started_ms),
+                metadata={"intent": agent_route.intent, "mode": agent_route.mode},
+            )
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        except Exception as error:
+            finish_run(
+                run_id,
+                status_value="failed",
+                error_message=error,
+                duration_ms=elapsed_ms(started_ms),
+                metadata={"intent": agent_route.intent, "mode": agent_route.mode},
+            )
+            raise
+
+        save_chat_message(
+            thread_id=thread_id,
+            user_id=current_user["id"],
+            role="assistant",
+            content=result.get("answer", ""),
+            metadata={
+                "intent": result.get("intent"),
+                "risk_level": result.get("risk_level"),
+                "position": current_user.get("position"),
+                "attachments": [
+                    _attachment_without_content(item)
+                    for item in attachments_from_result(result)
+                ],
+                "approval_result": result.get("approval_result"),
+                "automation": result.get("automation"),
+            },
+        )
+        update_context_after_turn(
+            thread_id=thread_id,
+            user_id=current_user["id"],
+            user_message=request.message,
+            graph_result=result,
+        )
+        finish_run(
+            run_id,
+            status_value="succeeded",
+            output_text=result.get("answer", ""),
+            duration_ms=elapsed_ms(started_ms),
+            metadata={
+                "intent": result.get("intent"),
+                "risk_level": result.get("risk_level"),
+                "mode": agent_route.mode,
+                "child_run_id": (result.get("automation") or {}).get("run_id") if isinstance(result.get("automation"), dict) else None,
+            },
+        )
+        write_audit_log(
+            user_id=current_user["id"],
+            action="chat.agent_plan_execute",
+            resource_type="thread",
+            resource_id=thread_id,
+            metadata={
+                "intent": result.get("intent"),
+                "position": current_user.get("position"),
+                "workflow_id": agent_route.workflow_id,
+                "child_run_id": (result.get("automation") or {}).get("run_id") if isinstance(result.get("automation"), dict) else None,
+            },
+        )
+        return {
+            "thread_id": thread_id,
+            "answer": result.get("answer", ""),
+            "intent": result.get("intent"),
+            "risk_level": result.get("risk_level"),
+            "erp_references": [],
+            "attachments": attachments_from_result(result),
+            "approval_result": result.get("approval_result"),
+            "automation": result.get("automation"),
+        }
+
+    if _should_handle_generated_file_wechat_send(request.message, salary_wechat_requested=salary_wechat_requested):
+        result = _run_enterprise_wechat_generated_file_send_chat(
+            request=request,
+            current_user=current_user,
+            thread_id=thread_id,
+            run_id=run_id,
+            started_ms=started_ms,
+            stream=False,
+        )
+        _save_assistant_automation_message(
+            result=result,
+            current_user=current_user,
+        )
+        update_context_after_turn(
+            thread_id=result.get("thread_id", thread_id),
+            user_id=current_user["id"],
+            user_message=request.message,
+            graph_result=result,
+        )
+        write_audit_log(
+            user_id=current_user["id"],
+            action="chat.enterprise_wechat_file_send_prepare",
+            resource_type="thread",
+            resource_id=result.get("thread_id", thread_id),
+            metadata={
+                "intent": result.get("intent"),
+                "position": current_user.get("position"),
+                "artifact_id": (result.get("automation") or {}).get("artifact_id")
+                if isinstance(result.get("automation"), dict)
+                else None,
+                "recipient_name": (result.get("automation") or {}).get("recipient_name")
+                if isinstance(result.get("automation"), dict)
+                else None,
+            },
+        )
+        return {
+            "thread_id": result.get("thread_id", thread_id),
+            "answer": result.get("answer", ""),
+            "intent": result.get("intent"),
+            "risk_level": result.get("risk_level"),
+            "erp_references": [],
+            "attachments": attachments_from_result(result),
+            "approval_result": result.get("approval_result"),
+            "automation": result.get("automation"),
+        }
+
     react_decision = decide_chat_action(request.message, current_user)
     record_react_decision_step(run_id, react_decision, request.message, thread_id, started_ms)
     direct_result = react_direct_result_for_decision(react_decision, current_user, thread_id)
@@ -1033,6 +2058,72 @@ def chat(request: ChatRequest,current_user: dict = Depends(get_current_user),):
             },
         )
         return direct_result
+
+    if (
+        react_decision.action == FINANCE_COMPOUND_INTENT
+        and should_handle_finance_compound_generation(finance_compound_intent)
+    ):
+        try:
+            result = _run_finance_compound_generation_chat(
+                request=request,
+                current_user=current_user,
+                thread_id=thread_id,
+                run_id=run_id,
+                started_ms=started_ms,
+                intent=finance_compound_intent,
+                react_decision=react_decision,
+                stream=False,
+            )
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        assistant_metadata = {
+            "intent": result.get("intent"),
+            "risk_level": result.get("risk_level"),
+            "position": current_user.get("position"),
+            "attachments": [
+                _attachment_without_content(item)
+                for item in attachments_from_result(result)
+            ],
+            "approval_result": result.get("approval_result"),
+            "automation": result.get("automation"),
+            "react_decision": result.get("react_decision"),
+        }
+        save_chat_message(
+            thread_id=result.get("thread_id", thread_id),
+            user_id=current_user["id"],
+            role="assistant",
+            content=result.get("answer", ""),
+            metadata=assistant_metadata,
+        )
+        update_context_after_turn(
+            thread_id=result.get("thread_id", thread_id),
+            user_id=current_user["id"],
+            user_message=request.message,
+            graph_result=result,
+        )
+        write_audit_log(
+            user_id=current_user["id"],
+            action="chat.finance_compound_report_generation",
+            resource_type="thread",
+            resource_id=result.get("thread_id", thread_id),
+            metadata={
+                "intent": result.get("intent"),
+                "position": current_user.get("position"),
+                "attachment_count": len(attachments_from_result(result)),
+                "period_label": finance_compound_intent.period_label,
+                "outputs": list(finance_compound_intent.outputs),
+            },
+        )
+        return {
+            "thread_id": result.get("thread_id", thread_id),
+            "answer": result.get("answer", ""),
+            "intent": result.get("intent"),
+            "risk_level": result.get("risk_level"),
+            "erp_references": [],
+            "attachments": attachments_from_result(result),
+            "approval_result": result.get("approval_result"),
+            "automation": result.get("automation"),
+        }
 
     if (
         react_decision.action == "finance_salary_export"
@@ -1109,6 +2200,61 @@ def chat(request: ChatRequest,current_user: dict = Depends(get_current_user),):
             "approval_result": None,
         }
 
+    if react_decision.action == "finance_salary_wechat_send":
+        if (
+            current_user.get("role") != "admin"
+            and not is_ai_app_allowed(current_user, "automation-salary_wechat_send")
+        ):
+            raise HTTPException(
+                status_code=403,
+                detail="工资表微信发送应用已被管理员禁用。",
+            )
+        try:
+            result = _run_finance_salary_wechat_send_chat(
+                request=request,
+                current_user=current_user,
+                thread_id=thread_id,
+                run_id=run_id,
+                started_ms=started_ms,
+                stream=False,
+            )
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        assistant_metadata = {
+            "intent": result.get("intent"),
+            "risk_level": result.get("risk_level"),
+            "position": current_user.get("position"),
+            "attachments": [
+                _attachment_without_content(item)
+                for item in attachments_from_result(result)
+            ],
+            "approval_result": result.get("approval_result"),
+            "automation": result.get("automation"),
+        }
+        save_chat_message(
+            thread_id=result.get("thread_id", thread_id),
+            user_id=current_user["id"],
+            role="assistant",
+            content=result.get("answer", ""),
+            metadata=assistant_metadata,
+        )
+        update_context_after_turn(
+            thread_id=result.get("thread_id", thread_id),
+            user_id=current_user["id"],
+            user_message=request.message,
+            graph_result=result,
+        )
+        return {
+            "thread_id": result.get("thread_id", thread_id),
+            "answer": result.get("answer", ""),
+            "intent": result.get("intent"),
+            "risk_level": result.get("risk_level"),
+            "erp_references": [],
+            "attachments": attachments_from_result(result),
+            "approval_result": result.get("approval_result"),
+            "automation": result.get("automation"),
+        }
+
     try:
         step_started_ms = now_ms()
         automation_result = run_chat_automation(
@@ -1117,6 +2263,7 @@ def chat(request: ChatRequest,current_user: dict = Depends(get_current_user),):
             thread_id=thread_id,
             forced_route=automation_route_from_react_decision(react_decision),
             react_decision=chat_react_decision_dict(react_decision),
+            attachments=request.attachments,
             source="chat",
         )
     except Exception as error:
@@ -1325,10 +2472,17 @@ def chat_stream(
     ensure_chat_app_enabled(current_user)
     ensure_chat_allowed_for_position(current_user, request.message)
     salary_export_intent = recognize_salary_export_intent(request.message)
+    finance_compound_intent = recognize_finance_compound_intent(request.message)
+    salary_wechat_intent = recognize_salary_wechat_send_intent(request.message)
+    salary_wechat_requested = (
+        salary_wechat_intent.salary_intent.intent == "finance_salary_export"
+        and "微信" in salary_wechat_intent.matched_keywords
+    )
     if (
         current_user.get("role") != "admin"
         and current_user.get("position") == "finance"
         and salary_export_intent.intent == "finance_salary_export"
+        and not salary_wechat_requested
         and not is_ai_app_allowed(current_user, "automation-salary_summary")
     ):
         raise HTTPException(
@@ -1392,11 +2546,13 @@ def chat_stream(
             "recent_message_count": len(context_bundle.get("recent_messages", [])),
         },
     )
-    react_decision = decide_chat_action(request.message, current_user)
-    graph_input.update({
-        "forced_intent": forced_graph_intent_for_action(react_decision.action),
-        "react_decision": chat_react_decision_dict(react_decision),
-    })
+    agent_route = classify_agent_task(request.message, current_user)
+    react_decision = None if agent_route.requires_plan_execute else decide_chat_action(request.message, current_user)
+    if react_decision is not None:
+        graph_input.update({
+            "forced_intent": forced_graph_intent_for_action(react_decision.action),
+            "react_decision": chat_react_decision_dict(react_decision),
+        })
 
     def event_generator():
         result_state = dict(graph_input)
@@ -1410,7 +2566,242 @@ def chat_stream(
                     "message": "开始处理用户消息",
                 },
             )
+            yield format_business_progress_sse(
+                thread_id=thread_id,
+                workflow_id="chat_react",
+                step_key="understanding",
+                label="正在理解你的需求",
+            )
 
+            if agent_route.requires_plan_execute and agent_route.workflow_id == PLAN_EXECUTE_WORKFLOW_ID:
+                plan = build_finance_monthly_package_plan(request.message)
+                record_step(
+                    run_id=run_id,
+                    step_name="agent.task_classifier",
+                    step_order=step_order,
+                    status_value="succeeded",
+                    provider="rules",
+                    resource_type="automation",
+                    resource_id=agent_route.workflow_id,
+                    input_text=request.message,
+                    output_text=agent_route.intent,
+                    duration_ms=elapsed_ms(started_ms),
+                    metadata={
+                        "mode": agent_route.mode,
+                        "reason": agent_route.reason,
+                        "confidence": agent_route.confidence,
+                        "estimated_step_count": agent_route.estimated_step_count,
+                        "plan": plan,
+                    },
+                )
+                progress_queue: Queue[dict[str, Any]] = Queue()
+
+                def enqueue_progress(progress: dict[str, Any]) -> None:
+                    progress_queue.put({"kind": "progress", "payload": progress})
+
+                def run_plan_executor() -> None:
+                    try:
+                        result = execute_finance_monthly_package_wechat(
+                            message=request.message,
+                            current_user=current_user,
+                            thread_id=thread_id,
+                            parent_run_id=run_id,
+                            source="chat_stream",
+                            progress_callback=enqueue_progress,
+                        )
+                    except Exception as error:
+                        progress_queue.put({"kind": "error", "error": error})
+                    else:
+                        progress_queue.put({"kind": "result", "result": result})
+
+                worker = Thread(target=run_plan_executor, daemon=True)
+                worker.start()
+                result_state = None
+                while result_state is None:
+                    try:
+                        progress_event = progress_queue.get(timeout=0.2)
+                    except Empty:
+                        if not worker.is_alive():
+                            raise RuntimeError("复杂任务执行线程已结束，但没有返回执行结果。")
+                        continue
+
+                    if progress_event.get("kind") == "progress":
+                        payload = progress_event.get("payload") or {}
+                        yield format_business_progress_sse(
+                            thread_id=thread_id,
+                            workflow_id=str(payload.get("workflow_id") or PLAN_EXECUTE_WORKFLOW_ID),
+                            step_key=str(payload.get("step_key") or "running"),
+                            label=str(payload.get("label") or "正在执行复杂任务"),
+                            status_value=str(payload.get("status") or "running"),
+                            detail=payload.get("detail") if isinstance(payload.get("detail"), str) else None,
+                            data=payload.get("data") if isinstance(payload.get("data"), dict) else {},
+                        )
+                        continue
+
+                    if progress_event.get("kind") == "error":
+                        raise progress_event["error"]
+
+                    if progress_event.get("kind") == "result":
+                        result_state = progress_event.get("result") or {}
+
+                final_thread_id = result_state.get("thread_id", thread_id)
+                answer = result_state.get("answer", "")
+                attachments = attachments_from_result(result_state)
+                for chunk in chunk_text(answer):
+                    yield format_sse(
+                        "content",
+                        {
+                            "thread_id": final_thread_id,
+                            "content": chunk,
+                        },
+                    )
+                    time.sleep(0.04)
+
+                save_chat_message(
+                    thread_id=final_thread_id,
+                    user_id=current_user["id"],
+                    role="assistant",
+                    content=answer,
+                    metadata={
+                        "entrypoint": "chat_stream",
+                        "intent": result_state.get("intent"),
+                        "risk_level": result_state.get("risk_level"),
+                        "position": current_user.get("position"),
+                        "attachments": [
+                            _attachment_without_content(item)
+                            for item in attachments
+                        ],
+                        "approval_result": result_state.get("approval_result"),
+                        "automation": result_state.get("automation"),
+                    },
+                )
+                update_context_after_turn(
+                    thread_id=final_thread_id,
+                    user_id=current_user["id"],
+                    user_message=request.message,
+                    graph_result=result_state,
+                )
+                finish_run(
+                    run_id,
+                    status_value="succeeded",
+                    output_text=answer,
+                    duration_ms=elapsed_ms(started_ms),
+                    metadata={
+                        "intent": result_state.get("intent"),
+                        "risk_level": result_state.get("risk_level"),
+                        "mode": agent_route.mode,
+                        "child_run_id": (result_state.get("automation") or {}).get("run_id") if isinstance(result_state.get("automation"), dict) else None,
+                    },
+                )
+                write_audit_log(
+                    user_id=current_user["id"],
+                    action="chat.stream.agent_plan_execute",
+                    resource_type="thread",
+                    resource_id=final_thread_id,
+                    metadata={
+                        "intent": result_state.get("intent"),
+                        "position": current_user.get("position"),
+                        "workflow_id": agent_route.workflow_id,
+                        "child_run_id": (result_state.get("automation") or {}).get("run_id") if isinstance(result_state.get("automation"), dict) else None,
+                    },
+                )
+                yield format_sse(
+                    "done",
+                    {
+                        "thread_id": final_thread_id,
+                        "answer": answer,
+                        "intent": result_state.get("intent"),
+                        "risk_level": result_state.get("risk_level"),
+                        "erp_references": [],
+                        "attachments": attachments,
+                        "approval_result": result_state.get("approval_result"),
+                        "automation": result_state.get("automation"),
+                    },
+                )
+                return
+
+            if _should_handle_generated_file_wechat_send(request.message, salary_wechat_requested=salary_wechat_requested):
+                yield format_business_progress_sse(
+                    thread_id=thread_id,
+                    workflow_id="enterprise_wechat_file_send",
+                    step_key="file_lookup",
+                    label="正在查找最近生成的文件",
+                )
+                result_state = _run_enterprise_wechat_generated_file_send_chat(
+                    request=request,
+                    current_user=current_user,
+                    thread_id=thread_id,
+                    run_id=run_id,
+                    started_ms=started_ms,
+                    stream=True,
+                )
+                final_thread_id = result_state.get("thread_id", thread_id)
+                answer = result_state.get("answer", "")
+                attachments = attachments_from_result(result_state)
+                yield format_business_progress_sse(
+                    thread_id=final_thread_id,
+                    workflow_id="enterprise_wechat_file_send",
+                    step_key="confirmation",
+                    label="正在准备企业微信发送确认",
+                    status_value=str((result_state.get("approval_result") or {}).get("status") or "blocked")
+                    if isinstance(result_state.get("approval_result"), dict)
+                    else "blocked",
+                    data={
+                        "artifact_id": (result_state.get("automation") or {}).get("artifact_id")
+                        if isinstance(result_state.get("automation"), dict)
+                        else None,
+                    },
+                )
+                for chunk in chunk_text(answer):
+                    yield format_sse(
+                        "content",
+                        {
+                            "thread_id": final_thread_id,
+                            "content": chunk,
+                        },
+                    )
+                    time.sleep(0.04)
+
+                _save_assistant_automation_message(
+                    result=result_state,
+                    current_user=current_user,
+                    entrypoint="chat_stream",
+                )
+                update_context_after_turn(
+                    thread_id=final_thread_id,
+                    user_id=current_user["id"],
+                    user_message=request.message,
+                    graph_result=result_state,
+                )
+                write_audit_log(
+                    user_id=current_user["id"],
+                    action="chat.stream.enterprise_wechat_file_send_prepare",
+                    resource_type="thread",
+                    resource_id=final_thread_id,
+                    metadata={
+                        "intent": result_state.get("intent"),
+                        "position": current_user.get("position"),
+                        "artifact_id": (result_state.get("automation") or {}).get("artifact_id")
+                        if isinstance(result_state.get("automation"), dict)
+                        else None,
+                    },
+                )
+                yield format_sse(
+                    "done",
+                    {
+                        "thread_id": final_thread_id,
+                        "answer": answer,
+                        "intent": result_state.get("intent"),
+                        "risk_level": result_state.get("risk_level"),
+                        "erp_references": [],
+                        "attachments": attachments,
+                        "approval_result": result_state.get("approval_result"),
+                        "automation": result_state.get("automation"),
+                    },
+                )
+                return
+
+            assert react_decision is not None
             record_react_decision_step(run_id, react_decision, request.message, thread_id, started_ms)
             direct_result = react_direct_result_for_decision(react_decision, current_user, thread_id)
             if direct_result:
@@ -1476,6 +2867,190 @@ def chat_stream(
                         "erp_references": [],
                         "attachments": [],
                         "approval_result": None,
+                    },
+                )
+                return
+
+            if (
+                react_decision.action == FINANCE_COMPOUND_INTENT
+                and should_handle_finance_compound_generation(finance_compound_intent)
+            ):
+                yield format_business_progress_sse(
+                    thread_id=thread_id,
+                    workflow_id=FINANCE_COMPOUND_INTENT,
+                    step_key="permission",
+                    label="正在检查财务权限",
+                )
+                yield format_business_progress_sse(
+                    thread_id=thread_id,
+                    workflow_id=FINANCE_COMPOUND_INTENT,
+                    step_key="generate_files",
+                    label="正在生成财务资料",
+                    data={
+                        "period_label": finance_compound_intent.period_label,
+                        "outputs": list(finance_compound_intent.outputs),
+                    },
+                )
+                result_state = _run_finance_compound_generation_chat(
+                    request=request,
+                    current_user=current_user,
+                    thread_id=thread_id,
+                    run_id=run_id,
+                    started_ms=started_ms,
+                    intent=finance_compound_intent,
+                    react_decision=react_decision,
+                    stream=True,
+                )
+                final_thread_id = result_state.get("thread_id", thread_id)
+                answer = result_state.get("answer", "")
+                attachments = attachments_from_result(result_state)
+
+                for chunk in chunk_text(answer):
+                    yield format_sse(
+                        "content",
+                        {
+                            "thread_id": final_thread_id,
+                            "content": chunk,
+                        },
+                    )
+                    time.sleep(0.04)
+
+                save_chat_message(
+                    thread_id=final_thread_id,
+                    user_id=current_user["id"],
+                    role="assistant",
+                    content=answer,
+                    metadata={
+                        "entrypoint": "chat_stream",
+                        "intent": result_state.get("intent"),
+                        "risk_level": result_state.get("risk_level"),
+                        "position": current_user.get("position"),
+                        "attachments": [
+                            _attachment_without_content(item)
+                            for item in attachments
+                        ],
+                        "approval_result": result_state.get("approval_result"),
+                        "automation": result_state.get("automation"),
+                        "react_decision": result_state.get("react_decision"),
+                    },
+                )
+                update_context_after_turn(
+                    thread_id=final_thread_id,
+                    user_id=current_user["id"],
+                    user_message=request.message,
+                    graph_result=result_state,
+                )
+                write_audit_log(
+                    user_id=current_user["id"],
+                    action="chat.stream.finance_compound_report_generation",
+                    resource_type="thread",
+                    resource_id=final_thread_id,
+                    metadata={
+                        "intent": result_state.get("intent"),
+                        "risk_level": result_state.get("risk_level"),
+                        "position": current_user.get("position"),
+                        "attachment_count": len(attachments),
+                        "period_label": finance_compound_intent.period_label,
+                        "outputs": list(finance_compound_intent.outputs),
+                    },
+                )
+                yield format_sse(
+                    "done",
+                    {
+                        "thread_id": final_thread_id,
+                        "answer": answer,
+                        "intent": result_state.get("intent"),
+                        "risk_level": result_state.get("risk_level"),
+                        "erp_references": [],
+                        "attachments": attachments,
+                        "approval_result": result_state.get("approval_result"),
+                        "automation": result_state.get("automation"),
+                    },
+                )
+                return
+
+            if react_decision.action == "finance_salary_wechat_send":
+                yield format_business_progress_sse(
+                    thread_id=thread_id,
+                    workflow_id="finance_salary_wechat_send",
+                    step_key="permission",
+                    label="正在检查财务权限",
+                )
+                if (
+                    current_user.get("role") != "admin"
+                    and not is_ai_app_allowed(current_user, "automation-salary_wechat_send")
+                ):
+                    raise HTTPException(
+                        status_code=403,
+                        detail="工资表微信发送应用已被管理员禁用。",
+                    )
+                yield format_business_progress_sse(
+                    thread_id=thread_id,
+                    workflow_id="finance_salary_wechat_send",
+                    step_key="confirmation_plan",
+                    label="正在整理发送确认信息",
+                    detail=f"联系人：{salary_wechat_intent.recipient_name or '待确认'}",
+                    data={
+                        "period_label": salary_wechat_intent.salary_intent.period_label,
+                        "recipient_name": salary_wechat_intent.recipient_name,
+                    },
+                )
+                result_state = _run_finance_salary_wechat_send_chat(
+                    request=request,
+                    current_user=current_user,
+                    thread_id=thread_id,
+                    run_id=run_id,
+                    started_ms=started_ms,
+                    stream=True,
+                )
+                final_thread_id = result_state.get("thread_id", thread_id)
+                answer = result_state.get("answer", "")
+                attachments = attachments_from_result(result_state)
+                for chunk in chunk_text(answer):
+                    yield format_sse(
+                        "content",
+                        {
+                            "thread_id": final_thread_id,
+                            "content": chunk,
+                        },
+                    )
+                    time.sleep(0.04)
+
+                save_chat_message(
+                    thread_id=final_thread_id,
+                    user_id=current_user["id"],
+                    role="assistant",
+                    content=answer,
+                    metadata={
+                        "entrypoint": "chat_stream",
+                        "intent": result_state.get("intent"),
+                        "risk_level": result_state.get("risk_level"),
+                        "position": current_user.get("position"),
+                        "attachments": [
+                            _attachment_without_content(item)
+                            for item in attachments
+                        ],
+                        "approval_result": result_state.get("approval_result"),
+                        "automation": result_state.get("automation"),
+                    },
+                )
+                update_context_after_turn(
+                    thread_id=final_thread_id,
+                    user_id=current_user["id"],
+                    user_message=request.message,
+                    graph_result=result_state,
+                )
+                yield format_sse(
+                    "done",
+                    {
+                        "thread_id": final_thread_id,
+                        "answer": answer,
+                        "intent": result_state.get("intent"),
+                        "risk_level": result_state.get("risk_level"),
+                        "erp_references": [],
+                        "attachments": attachments,
+                        "approval_result": result_state.get("approval_result"),
+                        "automation": result_state.get("automation"),
                     },
                 )
                 return
@@ -1573,12 +3148,26 @@ def chat_stream(
                 return
 
             automation_started_ms = now_ms()
+            if react_decision.action == "operations_listing_draft":
+                for step_key, label in [
+                    ("permission", "正在检查运营权限"),
+                    ("erp", "正在查询 SKU 商品资料"),
+                    ("image", "正在分析产品图片"),
+                    ("listing", "正在生成 Listing 草稿"),
+                ]:
+                    yield format_business_progress_sse(
+                        thread_id=thread_id,
+                        workflow_id="operations_listing_amazon",
+                        step_key=step_key,
+                        label=label,
+                    )
             automation_result = run_chat_automation(
                 message=request.message,
                 current_user=current_user,
                 thread_id=thread_id,
                 forced_route=automation_route_from_react_decision(react_decision),
                 react_decision=chat_react_decision_dict(react_decision),
+                attachments=request.attachments,
                 source="chat_stream",
             )
             if automation_result:
@@ -1587,6 +3176,17 @@ def chat_stream(
                 answer = automation_result.get("answer", "")
                 erp_references = automation_result.get("erp_references") or []
                 draft = platform_draft_from_result(automation_result)
+                if react_decision.action == "operations_listing_draft":
+                    yield format_business_progress_sse(
+                        thread_id=final_thread_id,
+                        workflow_id="operations_listing_amazon",
+                        step_key="waiting_confirmation",
+                        label="等待你确认上传 Amazon",
+                        status_value="blocked",
+                        data={
+                            "platform_draft_id": draft.get("id") if draft else None,
+                        },
+                    )
 
                 _finish_chat_automation_run(
                     run_id=run_id,
@@ -1814,7 +3414,7 @@ def chat_stream(
                 "error",
                 {
                     "thread_id": thread_id,
-                    "message": str(error),
+                    "message": business_error_message_for_user(error, current_user),
                 },
             )
 

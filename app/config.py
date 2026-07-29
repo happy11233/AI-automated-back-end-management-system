@@ -82,6 +82,26 @@ class Settings(BaseSettings):
     platform_action_execution_callback_timestamp_header: str = "X-Platform-Callback-Timestamp"
     platform_action_execution_callback_nonce_header: str = "X-Platform-Callback-Nonce"
     platform_action_execution_callback_tolerance_seconds: int = 300
+    finance_wechat_executor_mode: str = "manual_final_click"
+    finance_wechat_n8n_webhook_url: str | None = None
+    finance_wechat_n8n_api_key: str | None = None
+    finance_wechat_executor_timeout_seconds: int = 12
+    finance_wechat_mac_rpa_enabled: bool = False
+    finance_wechat_mac_app_name: str = "WeChat"
+    amazon_playwright_enabled: bool = False
+    amazon_seller_central_url: str = "https://sellercentral.amazon.com/"
+    amazon_playwright_user_data_dir: str | None = None
+    amazon_playwright_selector_profile: str | None = None
+    amazon_playwright_timeout_seconds: int = 20
+    amazon_playwright_browser_channel: str | None = "chrome"
+    amazon_playwright_headless: bool = False
+    message_sender_real_send_enabled: bool = False
+    message_sender_allowed_email_domains: str = ""
+    enterprise_wechat_webhook_url: str | None = None
+    wechat_work_corp_id: str | None = None
+    wechat_work_agent_id: str | None = None
+    wechat_work_secret: str | None = None
+    wechat_work_timeout_seconds: int = 12
 
     model_config = SettingsConfigDict(
         env_file=".env",

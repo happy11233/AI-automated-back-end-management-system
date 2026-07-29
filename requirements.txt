@@ -15,6 +15,7 @@ pyjwt
 pwdlib[argon2]
 langchain
 mcp
+playwright
 pypdf
 openpyxl
 xlrd

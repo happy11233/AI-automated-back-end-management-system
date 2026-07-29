@@ -169,6 +169,20 @@ def get_generated_file(
     *,
     current_user: dict,
 ) -> dict[str, Any]:
+    item = get_generated_file_storage_reference(artifact_id, current_user=current_user)
+    return {
+        "id": item["id"],
+        "filename": item["filename"],
+        "mime_type": item["mime_type"],
+        "content": Path(item["storage_path"]).read_bytes(),
+    }
+
+
+def get_generated_file_storage_reference(
+    artifact_id: str,
+    *,
+    current_user: dict,
+) -> dict[str, Any]:
     cleanup_expired_generated_files()
     row = fetch_one(
         """
@@ -207,10 +221,57 @@ def get_generated_file(
 
     return {
         "id": str(row[0]),
+        "run_id": str(row[1]),
+        "artifact_type": row[2],
         "filename": row[3],
         "mime_type": row[4] or "application/octet-stream",
-        "content": path.read_bytes(),
+        "size_bytes": row[5],
+        "metadata": sanitize_metadata(row[7] or {}),
+        "created_at": isoformat(row[8]),
+        "storage_path": str(path),
+        "app_id": row[12],
+        "app_name": row[13],
+        "run_type": row[14],
+        "run_status": row[15],
+        "owner_user_id": owner_user_id,
+        "owner_position": owner_position,
     }
+
+
+def get_latest_generated_file_for_thread(
+    *,
+    thread_id: str,
+    current_user: dict,
+    allowed_types: set[str] | None = None,
+) -> dict[str, Any] | None:
+    cleanup_expired_generated_files()
+    types = allowed_types or DOWNLOADABLE_ARTIFACT_TYPES
+    rows = fetch_all(
+        """
+        SELECT
+            a.id, a.run_id, a.artifact_type, a.name, a.mime_type, a.size_bytes,
+            a.external_ref, a.metadata, a.created_at, a.expires_at, a.downloadable,
+            a.storage_path, r.app_id, r.app_name, r.run_type, r.status,
+            r.user_id, r.username, r.position
+        FROM automation_run_artifacts a
+        JOIN automation_runs r ON r.id = a.run_id
+        WHERE r.thread_id = %s
+          AND a.downloadable = TRUE
+          AND a.storage_path IS NOT NULL
+          AND (a.expires_at IS NULL OR a.expires_at > now())
+          AND a.artifact_type = ANY(%s)
+        ORDER BY a.created_at DESC
+        LIMIT 10;
+        """,
+        (thread_id, list(types)),
+    )
+
+    for row in rows:
+        try:
+            return get_generated_file_storage_reference(str(row[0]), current_user=current_user)
+        except HTTPException:
+            continue
+    return None
 
 
 def cleanup_expired_generated_files() -> int:

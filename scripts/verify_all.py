@@ -65,7 +65,7 @@ def main(argv: Sequence[str] | None = None) -> None:
 
 
 def _parse_args(argv: Sequence[str] | None):
-    parser = ArgumentParser(description="Company RAG Agent 分层验证入口")
+    parser = ArgumentParser(description="AI automated back-end management system 分层验证入口")
     parser.add_argument(
         "--profile",
         choices=PROFILES,

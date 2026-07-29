@@ -26,6 +26,7 @@ export type ChatResponse = {
   attachments?: ChatAttachment[];
   platform_draft?: PlatformDraftItem | null;
   approval_result: Record<string, unknown> | null;
+  automation?: Record<string, unknown> | null;
 };
 
 export type ChatAttachment = {
@@ -35,6 +36,16 @@ export type ChatAttachment = {
   size_bytes?: number;
   content_base64?: string;
   metadata?: Record<string, unknown>;
+};
+
+export type BusinessProgressPayload = {
+  thread_id?: string;
+  workflow_id?: string;
+  step_key?: string;
+  label?: string;
+  status?: string;
+  detail?: string | null;
+  data?: Record<string, unknown>;
 };
 
 export type ChatStreamPayload = {
@@ -50,10 +61,13 @@ export type ChatStreamPayload = {
   attachments?: ChatAttachment[];
   platform_draft?: PlatformDraftItem | null;
   approval_result?: Record<string, unknown> | null;
+  automation?: Record<string, unknown> | null;
+  business_progress?: BusinessProgressPayload;
 };
 
 export type ChatStreamHandlers = {
   onStart?: (payload: ChatStreamPayload) => void;
+  onBusinessProgress?: (payload: BusinessProgressPayload) => void;
   onNode?: (payload: ChatStreamPayload) => void;
   onContent?: (payload: ChatStreamPayload) => void;
   onDone?: (payload: ChatStreamPayload) => void;
@@ -883,6 +897,10 @@ export type PlatformDraftExecuteResponse = {
   message: string;
 };
 
+export type AmazonListingUploadResponse = PlatformDraftExecuteResponse & {
+  amazon_upload: Record<string, unknown>;
+};
+
 export type PlatformDraftReviewResponse = {
   item: PlatformDraftItem;
 };
@@ -1015,6 +1033,150 @@ export type ConnectorsResponse = {
 
 export type ConnectorDetailResponse = {
   item: ConnectorItem;
+};
+
+export type EnterpriseWechatDiagnosticStep = {
+  key: string;
+  label: string;
+  status: string;
+  message: string;
+  description?: string;
+};
+
+export type EnterpriseWechatSettings = {
+  configured: boolean;
+  real_send_enabled: boolean;
+  status: string;
+  message: string;
+  config_source: string;
+  has_database_config: boolean;
+  timeout_seconds: number;
+  last_health_status: string | null;
+  last_health_message: string | null;
+  last_sync_at: string | null;
+  last_sync_result: Record<string, unknown>;
+  missing_fields: string[];
+  setup_steps: EnterpriseWechatDiagnosticStep[];
+  demo_checklist: EnterpriseWechatDiagnosticStep[];
+  config_fields: ConnectorConfigField[];
+};
+
+export type EnterpriseWechatContactItem = {
+  id: string;
+  object_type: "user" | "group" | "department" | string;
+  object_type_label: string;
+  name: string;
+  aliases: string[];
+  wechat_userid: string | null;
+  chat_id: string | null;
+  department_id: string | null;
+  department: string | null;
+  avatar_url: string | null;
+  avatar_text: string;
+  phone_last4: string;
+  masked_phone: string;
+  source: string;
+  send_target?: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
+};
+
+export type EnterpriseWechatContactsSummary = {
+  total: number;
+  users: number;
+  departments: number;
+  groups: number;
+};
+
+export type EnterpriseWechatContactsResponse = {
+  query: string;
+  object_type: string;
+  items: EnterpriseWechatContactItem[];
+  matched_count: number;
+  summary: EnterpriseWechatContactsSummary;
+};
+
+export type EnterpriseWechatDiagnostics = {
+  status: string;
+  message: string;
+  steps: EnterpriseWechatDiagnosticStep[];
+  last_sync_at: string | null;
+};
+
+export type EnterpriseWechatManagementResponse = {
+  settings: EnterpriseWechatSettings;
+  contacts: EnterpriseWechatContactsResponse;
+  diagnostics: EnterpriseWechatDiagnostics;
+};
+
+export type EnterpriseWechatSettingsUpdatePayload = {
+  corp_id?: string | null;
+  agent_id?: string | null;
+  secret?: string | null;
+  real_send_enabled?: boolean | null;
+  timeout_seconds?: number | null;
+  clear_secret?: boolean;
+};
+
+export type EnterpriseWechatGroupPayload = {
+  name: string;
+  chat_id: string;
+};
+
+export type EnterpriseWechatTestSendPayload = {
+  recipient_id: string;
+};
+
+export type EnterpriseWechatMutationResponse = Record<string, unknown>;
+
+export type McpToolItem = {
+  id: string;
+  tool_id: string;
+  server_name: string;
+  tool_name: string;
+  label: string;
+  category: string;
+  description: string;
+  risk_level: "low" | "medium" | "high" | string;
+  risk_label: string;
+  position_scopes: string[];
+  position_scope_labels: string[];
+  execution_mode: string;
+  enabled: boolean;
+  status: string;
+  status_label: string;
+  requires_approval: boolean;
+  supports_real_health_check: boolean;
+  health_status: string;
+  health_message: string;
+  last_checked_at: string | null;
+  input_schema: Array<Record<string, unknown>>;
+  output_schema: Array<Record<string, unknown>>;
+  safety_rules: string[];
+  example: string;
+  admin_note: string;
+};
+
+export type McpToolsSummary = {
+  total: number;
+  enabled: number;
+  paused: number;
+  high_risk: number;
+  servers: number;
+  healthy: number;
+};
+
+export type McpToolsResponse = {
+  summary: McpToolsSummary;
+  items: McpToolItem[];
+};
+
+export type McpToolDetailResponse = {
+  item: McpToolItem;
+};
+
+export type McpToolHealthResponse = {
+  item: McpToolItem;
+  health: Record<string, unknown>;
 };
 
 export type PlatformActionExecutorOption = {
@@ -1832,6 +1994,32 @@ export type PublicLLMChatResponse = {
   answer: string;
 };
 
+export type EnterpriseWechatFileSendConfirmPayload = {
+  artifact_id: string;
+  recipient_name: string;
+  recipient_candidate_id?: string | null;
+  recipient?: Record<string, unknown> | null;
+  filename?: string | null;
+  source_message?: string | null;
+  source_message_id?: string | null;
+  source_workflow_id?: string | null;
+  thread_id?: string | null;
+  recipient_confirmed: boolean;
+  sensitive_data_confirmed: boolean;
+};
+
+export type EnterpriseWechatFileSendConfirmResponse = {
+  run_id: string;
+  status: string;
+  status_label: string;
+  answer: string;
+  filename: string;
+  artifact_id: string;
+  download_path?: string | null;
+  recipient_name: string;
+  execution: Record<string, unknown>;
+};
+
 type JsonValue = Record<string, unknown> | Array<unknown> | string | number | boolean | null;
 
 const AUTH_EXPIRED_EVENT = "company-rag-auth-expired";
@@ -1984,10 +2172,12 @@ export async function sendChat(
   token: string,
   message: string,
   threadId?: string,
+  attachments: ChatAttachment[] = [],
 ): Promise<ChatResponse> {
   const body: JsonValue = {
     message,
     thread_id: threadId || null,
+    attachments,
   };
 
   return requestJson<ChatResponse>(
@@ -2008,6 +2198,7 @@ export async function sendChatStream(
   message: string,
   threadId: string | undefined,
   handlers: ChatStreamHandlers,
+  attachments: ChatAttachment[] = [],
 ) {
   const response = await fetch(`${API_BASE_URL}/chat/stream`, {
     method: "POST",
@@ -2018,6 +2209,7 @@ export async function sendChatStream(
     body: JSON.stringify({
       message,
       thread_id: threadId || null,
+      attachments,
     }),
   });
 
@@ -2056,6 +2248,23 @@ export async function sendChatStream(
   }
 }
 
+export async function confirmEnterpriseWechatFileSend(
+  token: string,
+  payload: EnterpriseWechatFileSendConfirmPayload,
+): Promise<EnterpriseWechatFileSendConfirmResponse> {
+  return requestJson<EnterpriseWechatFileSendConfirmResponse>(
+    "/automation/files/enterprise-wechat-send/confirm",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    },
+    token,
+  );
+}
+
 function dispatchStreamEvent(block: string, handlers: ChatStreamHandlers) {
   const parsed = parseStreamEvent(block);
 
@@ -2070,6 +2279,11 @@ function dispatchStreamEvent(block: string, handlers: ChatStreamHandlers) {
 
   if (parsed.event === "node") {
     handlers.onNode?.(parsed.data);
+    return;
+  }
+
+  if (parsed.event === "business_progress") {
+    handlers.onBusinessProgress?.(parsed.data as BusinessProgressPayload);
     return;
   }
 
@@ -2760,6 +2974,30 @@ export async function publishPlatformDraft(token: string, draftId: string) {
   );
 }
 
+export async function prepareAmazonListingUpload(
+  token: string,
+  draftId: string,
+  payload: {
+    confirmed: boolean;
+    upload_mode?: "auto" | "web_form" | "batch_excel";
+    target_marketplace?: string | null;
+    price?: number | null;
+    inventory?: number | null;
+  },
+) {
+  return requestJson<AmazonListingUploadResponse>(
+    `/platform-drafts/${encodeURIComponent(draftId)}/amazon-upload`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    },
+    token,
+  );
+}
+
 export async function getBusinessActionLoop(token: string, filters: { limit?: number } = {}) {
   const params = new URLSearchParams();
   params.set("limit", String(filters.limit || 80));
@@ -2882,6 +3120,118 @@ export async function getConnectorDetail(token: string, connectorId: string) {
   return requestJson<ConnectorDetailResponse>(
     `/connectors/${encodeURIComponent(connectorId)}`,
     {},
+    token,
+  );
+}
+
+export async function getEnterpriseWechatManagement(token: string) {
+  return requestJson<EnterpriseWechatManagementResponse>("/connectors/wechat-work/management", {}, token);
+}
+
+export async function updateEnterpriseWechatSettings(
+  token: string,
+  payload: EnterpriseWechatSettingsUpdatePayload,
+) {
+  return requestJson<{ settings: EnterpriseWechatSettings }>(
+    "/connectors/wechat-work/settings",
+    {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    },
+    token,
+  );
+}
+
+export async function syncEnterpriseWechatContacts(token: string) {
+  return requestJson<EnterpriseWechatMutationResponse>(
+    "/connectors/wechat-work/sync",
+    { method: "POST" },
+    token,
+  );
+}
+
+export async function listEnterpriseWechatContacts(
+  token: string,
+  params: { query?: string; object_type?: string } = {},
+) {
+  const search = new URLSearchParams();
+  if (params.query) {
+    search.set("query", params.query);
+  }
+  if (params.object_type) {
+    search.set("object_type", params.object_type);
+  }
+  const suffix = search.toString() ? `?${search.toString()}` : "";
+  return requestJson<EnterpriseWechatContactsResponse>(`/connectors/wechat-work/contacts${suffix}`, {}, token);
+}
+
+export async function upsertEnterpriseWechatGroup(token: string, payload: EnterpriseWechatGroupPayload) {
+  return requestJson<EnterpriseWechatMutationResponse>(
+    "/connectors/wechat-work/groups",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    },
+    token,
+  );
+}
+
+export async function testEnterpriseWechatSend(token: string, payload: EnterpriseWechatTestSendPayload) {
+  return requestJson<EnterpriseWechatMutationResponse>(
+    "/connectors/wechat-work/test-send",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    },
+    token,
+  );
+}
+
+export async function listMcpTools(token: string) {
+  return requestJson<McpToolsResponse>("/admin/mcp-tools", {}, token);
+}
+
+export async function getMcpToolDetail(token: string, toolId: string) {
+  return requestJson<McpToolDetailResponse>(
+    `/admin/mcp-tools/${encodeURIComponent(toolId)}`,
+    {},
+    token,
+  );
+}
+
+export async function updateMcpTool(
+  token: string,
+  toolId: string,
+  payload: { enabled: boolean; admin_note?: string },
+) {
+  return requestJson<McpToolDetailResponse>(
+    `/admin/mcp-tools/${encodeURIComponent(toolId)}`,
+    {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    },
+    token,
+  );
+}
+
+export async function checkMcpToolHealth(token: string, toolId: string) {
+  return requestJson<McpToolHealthResponse>(
+    `/admin/mcp-tools/${encodeURIComponent(toolId)}/health-check`,
+    {
+      method: "POST",
+    },
     token,
   );
 }

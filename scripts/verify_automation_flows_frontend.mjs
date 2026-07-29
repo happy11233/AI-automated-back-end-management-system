@@ -1037,7 +1037,7 @@ async function loginAtPath(page, account, path) {
   });
   await page.goto(`${FRONTEND_URL}${path}`, { waitUntil: "networkidle" });
   await page.getByRole("button", { name: /登录|未登录/ }).first().click();
-  const modal = page.locator(".ant-modal").filter({ hasText: "登录 Company RAG Agent" }).first();
+  const modal = page.locator(".ant-modal").filter({ hasText: /登录/ }).first();
   await modal.waitFor({ state: "visible", timeout: 10000 });
   await modal.locator("input").nth(0).fill(account.username);
   await modal.locator("input").nth(1).fill(account.password);

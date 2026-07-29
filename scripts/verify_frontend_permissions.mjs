@@ -398,7 +398,7 @@ async function loginThroughUi(page, username, password) {
   await page.getByRole("button", { name: /登录|未登录/ }).first().click();
 
   const modal = page.locator(".ant-modal").filter({
-    hasText: "登录 Company RAG Agent",
+    hasText: /登录/,
   }).first();
   await modal.waitFor({ state: "visible", timeout: 15000 });
   await modal.locator("input").nth(0).fill(username);

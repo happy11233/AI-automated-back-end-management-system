@@ -126,6 +126,7 @@ class ERPNextProvider(ERPProvider):
         searchable_fields = {
             "Item": ["name", "item_name", "item_code"],
             "Item Price": ["name", "item_code", "price_list"],
+            "Bin": ["name", "item_code", "warehouse"],
             "Customer": ["name", "customer_name"],
             "Sales Order": ["name", "customer", "customer_name", "po_no"],
             "Sales Invoice": ["name", "customer", "customer_name", "po_no"],

@@ -10,6 +10,10 @@ from app.erp.providers import PROVIDER_ORDER, get_provider
 from app.erp.resources import ERP_RESOURCE_CATALOG, provider_fields_for, provider_resource_for
 from app.feishu.client import get_configured_document_refs
 from app.permissions import POSITION_ERP_SCOPES, POSITION_LABELS
+from app.services.enterprise_wechat_service import (
+    enterprise_wechat_contacts_summary,
+    get_enterprise_wechat_settings_public,
+)
 
 
 def list_connectors() -> dict[str, Any]:
@@ -223,24 +227,59 @@ def _feishu_connector() -> dict[str, Any]:
 
 
 def _wechat_work_connector() -> dict[str, Any]:
-    fields = [
-        _env_field("WECHAT_WORK_CORP_ID", True, "企业微信 Corp ID"),
-        _env_field("WECHAT_WORK_AGENT_ID", True, "企业微信 Agent ID"),
-        _env_field("WECHAT_WORK_SECRET", True, "企业微信应用 Secret"),
-    ]
-    configured = all(item["configured"] for item in fields)
-    return _external_connector(
-        connector_id="wechat_work",
-        label="企业微信",
-        category="Collaboration",
-        description="企业微信通知、审批提醒和内部消息。",
-        auth_type="Corp Secret",
-        configured=configured,
-        fields=fields,
-        capabilities=["内部通知", "审批提醒", "消息推送"],
-        position_scopes=["platform"],
-        resources=[_resource("Message", "企业微信消息", "platform", "message")],
-    )
+    settings_public = get_enterprise_wechat_settings_public()
+    contacts_summary = enterprise_wechat_contacts_summary()
+    configured = bool(settings_public["configured"])
+    real_send_enabled = bool(settings_public["real_send_enabled"])
+    status = "healthy" if configured and real_send_enabled else ("configured_pending" if configured else "not_configured")
+    health_status = "ok" if configured and real_send_enabled else ("configured_pending" if configured else "not_configured")
+    next_steps = []
+    if not configured:
+        next_steps.append("在连接器中心填写企业微信 Corp ID、Agent ID 和 Secret。")
+    if configured and not real_send_enabled:
+        next_steps.append("管理员确认权限后打开真实发送开关。")
+    next_steps.extend([
+        "点击一键同步成员和部门。",
+        "需要群聊时手动录入群聊名称和 chat_id。",
+        "选择一个接收对象发送安全测试文件。",
+    ])
+    return {
+        "id": "wechat_work",
+        "label": "企业微信",
+        "category": "Collaboration",
+        "description": "企业微信通知、审批提醒、通讯录候选和内部文件发送。",
+        "active": configured,
+        "configured": configured,
+        "status": status,
+        "health_status": health_status,
+        "health_message": (
+            f"{settings_public['message']} 当前缓存：成员 {contacts_summary['users']}、部门 {contacts_summary['departments']}、群聊 {contacts_summary['groups']}。"
+        ),
+        "auth_type": "Corp Secret / 后台管理",
+        "admin_only": True,
+        "supports_real_health_check": True,
+        "managed_by": "连接器中心、企业微信发送确认、审计记录",
+        "capabilities": ["内部通知", "审批提醒", "文件发送", "通讯录候选", "安全测试发送"],
+        "position_scopes": ["finance", "platform"],
+        "position_scope_labels": ["财务", "平台"],
+        "config_fields": [
+            {
+                "name": f"WECHAT_WORK_{item['name'].upper()}",
+                "configured": item["configured"],
+                "secret": item["secret"],
+                "value_preview": item["value_preview"],
+                "description": item["description"],
+            }
+            for item in settings_public["config_fields"]
+        ],
+        "resources": [
+            _resource("Message", "企业微信消息", "platform", "message"),
+            _resource("Contact", "企业微信通讯录", "platform", "contact"),
+            _resource("Group Chat", "企业微信群聊", "platform", "manual_chat_id"),
+        ],
+        "next_steps": next_steps,
+        "last_checked_at": settings_public.get("last_sync_at") or _checked_at(),
+    }
 
 
 def _email_connector() -> dict[str, Any]:

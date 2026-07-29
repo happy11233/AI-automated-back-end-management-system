@@ -8,6 +8,11 @@ from langchain_core.prompts import ChatPromptTemplate
 
 from app.llm import chat_model
 from app.permissions import POSITION_LABELS
+from app.services.finance_compound_intent_service import (
+    FINANCE_COMPOUND_INTENT,
+    recognize_finance_compound_intent,
+    should_handle_finance_compound_generation,
+)
 
 
 ChatAction = Literal[
@@ -17,7 +22,9 @@ ChatAction = Literal[
     "erp_query",
     "order_query",
     "refund_request",
+    "finance_compound_report_generation",
     "finance_salary_export",
+    "finance_salary_wechat_send",
     "operations_listing_draft",
     "customer_service_reply_draft",
     "deny",
@@ -59,7 +66,9 @@ REACT_PROMPT = ChatPromptTemplate.from_messages([
 - 用户要查 ERP 业务数据：erp_query。
 - 用户查本地订单状态：order_query。
 - 用户申请退款或高风险退款审批：refund_request。
+- 财务要生成财务报表、财务月报、经营汇总表，或一句话里同时要财务报表和工资表：finance_compound_report_generation。
 - 财务要导出员工工资表/工资单 Excel：finance_salary_export。
+- 财务要生成工资表并通过个人微信/微信发送给联系人：finance_salary_wechat_send。
 - 运营要生成/上传/保存 Listing 或上架草稿：operations_listing_draft。
 - 客服要根据客户消息自动回复/保存回复草稿：customer_service_reply_draft。
 - 明确要求做不属于当前岗位的业务动作：仍然输出该业务动作对应 action，不要自己拒绝；后端权限闸门会拒绝。
@@ -134,7 +143,9 @@ def permission_denial_for_decision(decision: ChatReActDecision, current_user: di
     action_positions = {
         "operations_listing_draft": "operations",
         "customer_service_reply_draft": "customer_service",
+        "finance_compound_report_generation": "finance",
         "finance_salary_export": "finance",
+        "finance_salary_wechat_send": "finance",
     }
     required_position = action_positions.get(decision.action)
     if required_position and required_position != position:
@@ -164,6 +175,23 @@ def _deterministic_decision(text: str) -> ChatReActDecision | None:
             requested_position="operations",
             confidence=0.95,
             reason="用户要求生成或保存 Listing/上架草稿",
+        )
+
+    compound_intent = recognize_finance_compound_intent(text)
+    if should_handle_finance_compound_generation(compound_intent) and compound_intent.confidence >= 0.78:
+        return ChatReActDecision(
+            action="finance_compound_report_generation",
+            requested_position="finance",
+            confidence=max(compound_intent.confidence, 0.94),
+            reason="用户要求生成财务报表或同时生成多份财务资料",
+        )
+
+    if _looks_like_salary_wechat_send(text):
+        return ChatReActDecision(
+            action="finance_salary_wechat_send",
+            requested_position="finance",
+            confidence=0.96,
+            reason="用户要求生成工资表并准备通过微信发送",
         )
 
     if _looks_like_salary_export(text):
@@ -206,6 +234,29 @@ def _fallback_decision(text: str) -> ChatReActDecision:
 
 
 def _normalize_decision(decision: ChatReActDecision, text: str) -> ChatReActDecision:
+    compound_intent = recognize_finance_compound_intent(text)
+    if should_handle_finance_compound_generation(compound_intent) and decision.action in {
+        "finance_salary_export",
+        "finance_salary_wechat_send",
+        "erp_query",
+        "rag_query",
+        "chitchat",
+    }:
+        return ChatReActDecision(
+            action=FINANCE_COMPOUND_INTENT,
+            requested_position="finance",
+            confidence=max(decision.confidence, compound_intent.confidence, 0.9),
+            reason="规则纠正为财务报表/多财务表生成请求",
+        )
+
+    if decision.action == "finance_salary_export" and _looks_like_salary_wechat_send(text):
+        return ChatReActDecision(
+            action="finance_salary_wechat_send",
+            requested_position="finance",
+            confidence=max(decision.confidence, 0.93),
+            reason="规则纠正为工资表微信发送准备",
+        )
+
     if decision.action == "finance_salary_export" and not _looks_like_salary_export(text):
         if _looks_like_ambiguous_excel(text):
             return ChatReActDecision(
@@ -226,15 +277,23 @@ def _looks_like_listing(text: str) -> bool:
 
 def _looks_like_salary_export(text: str) -> bool:
     lowered = text.lower()
-    has_salary = any(keyword in lowered for keyword in ["工资", "薪资", "工资表", "工资单", "salary", "payroll"])
+    has_salary = any(keyword in lowered for keyword in ["工资", "薪资", "薪水", "薪酬", "工资表", "工资单", "salary", "payroll"])
     has_export = any(keyword in lowered for keyword in ["导出", "生成", "下载", "excel", "xlsx", "表", "发给我", "发送"])
     return has_salary and has_export
+
+
+def _looks_like_salary_wechat_send(text: str) -> bool:
+    lowered = text.lower()
+    has_salary_export = _looks_like_salary_export(text)
+    has_wechat = any(keyword in lowered for keyword in ["微信", "个人微信", "wechat", "weixin"])
+    has_send = any(keyword in lowered for keyword in ["发送", "发给", "传给", "转发", "send"])
+    return has_salary_export and has_wechat and has_send
 
 
 def _looks_like_ambiguous_excel(text: str) -> bool:
     lowered = text.lower()
     wants_excel = any(keyword in lowered for keyword in ["excel", "xlsx", "表格", "导出", "生成表", "下载表"])
-    has_specific_table = any(keyword in lowered for keyword in ["工资", "薪资", "发票", "总账", "收付款", "采购", "销售", "利润", "对账"])
+    has_specific_table = any(keyword in lowered for keyword in ["工资", "薪资", "薪水", "薪酬", "财务报表", "发票", "总账", "收付款", "采购", "销售", "利润", "对账"])
     return wants_excel and not has_specific_table
 
 
@@ -261,7 +320,9 @@ def _denial_message(current_position: str | None, required_position: str, action
     action_labels = {
         "operations_listing_draft": "生成 Listing 或上架草稿",
         "customer_service_reply_draft": "处理客服自动回复",
+        "finance_compound_report_generation": "生成财务报表或多份财务资料",
         "finance_salary_export": "导出财务工资表",
+        "finance_salary_wechat_send": "准备通过微信发送工资表",
     }
     action_label = action_labels.get(action, f"{required_label}岗位业务")
     return (

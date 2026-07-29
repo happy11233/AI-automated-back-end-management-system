@@ -12,6 +12,14 @@ const ACCOUNTS = {
     username: "operations_demo",
     password: "Operations123456",
   },
+  customer_service: {
+    username: "employee_demo",
+    password: "Employee123456",
+  },
+  finance: {
+    username: "finance_demo",
+    password: "Finance123456",
+  },
 };
 
 const browser = await chromium.launch({
@@ -20,21 +28,26 @@ const browser = await chromium.launch({
 });
 
 try {
-  const desktop = await runErpRecordDetailCase({
-    label: "erp_record_detail_desktop",
-    viewport: { width: 1440, height: 960 },
-    screenshot: "/tmp/company-rag-erp-record-detail-desktop.png",
-  });
+  const desktopResults = [];
+  for (const [accountName, account] of Object.entries(ACCOUNTS)) {
+    desktopResults.push(await runErpRecordDetailCase({
+      label: `${accountName}_erp_record_detail_desktop`,
+      account,
+      viewport: { width: 1440, height: 960 },
+      screenshot: `/tmp/company-rag-${accountName}-erp-record-detail-desktop.png`,
+    }));
+  }
 
   const mobile = await runErpRecordDetailCase({
-    label: "erp_record_detail_mobile",
+    label: "operations_erp_record_detail_mobile",
+    account: ACCOUNTS.operations,
     viewport: { width: 390, height: 844 },
     screenshot: "/tmp/company-rag-erp-record-detail-mobile.png",
   });
 
   console.log(JSON.stringify({
     ok: true,
-    results: [desktop, mobile],
+    results: [...desktopResults, mobile],
     note: "real browser, real frontend, real API login and ERP record detail; no mock/stub/fake",
   }, null, 2));
 } finally {
@@ -46,24 +59,18 @@ try {
 
 process.exit(0);
 
-async function runErpRecordDetailCase({ label, viewport, screenshot }) {
+async function runErpRecordDetailCase({ label, account, viewport, screenshot }) {
   const page = await browser.newPage({ viewport });
   await page.goto(`${FRONTEND_URL}/dashboard`, { waitUntil: "networkidle" });
-  await login(page, ACCOUNTS.operations);
+  await login(page, account);
   await page.goto(`${FRONTEND_URL}/dashboard`, { waitUntil: "networkidle" });
   await page.getByText("岗位数据概览", { exact: false }).first().waitFor({
-    state: "visible",
-    timeout: 30000,
-  });
-  await page.getByText("销售订单", { exact: false }).first().waitFor({
     state: "visible",
     timeout: 30000,
   });
   await page.waitForTimeout(800);
 
   const detailButton = page.locator(".dashboardOverviewCard")
-    .filter({ hasText: "销售订单" })
-    .first()
     .getByRole("button", { name: /ERP 详情/ })
     .first();
   await detailButton.waitFor({
@@ -83,7 +90,7 @@ async function runErpRecordDetailCase({ label, viewport, screenshot }) {
     state: "visible",
     timeout: 15000,
   });
-  await modal.getByRole("tab", { name: "基础信息" }).waitFor({
+  await modal.getByRole("tab", { name: "业务概览" }).waitFor({
     state: "visible",
     timeout: 15000,
   });
@@ -97,20 +104,12 @@ async function runErpRecordDetailCase({ label, viewport, screenshot }) {
     state: "visible",
     timeout: 15000,
   });
-  await modal.getByText("值", { exact: true }).first().waitFor({
+  await modal.getByText("内容", { exact: true }).first().waitFor({
     state: "visible",
     timeout: 15000,
   });
 
-  await openDetailTab(modal, "原始数据");
-  await modal.getByText("原始返回数据", { exact: false }).first().waitFor({
-    state: "visible",
-    timeout: 15000,
-  });
-  await modal.getByText("record_id", { exact: false }).first().waitFor({
-    state: "visible",
-    timeout: 15000,
-  });
+  await assertNoForbiddenTechnicalText(modal, label);
 
   const overflow = await assertNoHorizontalOverflow(page, label);
   await page.screenshot({ path: screenshot, fullPage: true });
@@ -121,6 +120,16 @@ async function runErpRecordDetailCase({ label, viewport, screenshot }) {
     screenshot,
     overflow,
   };
+}
+
+async function assertNoForbiddenTechnicalText(scope, label) {
+  const forbidden = ["原始数据", "技术详情", "metadata", "payload", "JSON"];
+  for (const text of forbidden) {
+    const count = await scope.getByText(text, { exact: false }).count();
+    if (count > 0) {
+      throw new Error(`${label}: employee ERP detail still exposes ${text}`);
+    }
+  }
 }
 
 async function openDetailTab(modal, name) {
@@ -155,7 +164,7 @@ async function login(page, account) {
     await loginButton.first().click();
   }
 
-  const modal = page.locator(".ant-modal").filter({ hasText: "登录 Company RAG Agent" }).first();
+  const modal = page.locator(".ant-modal").filter({ hasText: /登录/ }).first();
   await modal.waitFor({ state: "visible", timeout: 10000 });
   await modal.locator("input").nth(0).fill(account.username);
   await modal.locator("input").nth(1).fill(account.password);

@@ -24,6 +24,17 @@ ERP_RESOURCE_CATALOG: dict[str, dict[str, Any]] = {
         },
         "erpnext_fields": ["name", "item_code", "price_list", "price_list_rate", "currency", "modified"],
     },
+    "Bin": {
+        "label": "库存",
+        "description": "SKU 在 ERPNext 仓库中的可用库存。",
+        "keywords": ["库存", "数量", "stock", "inventory", "bin"],
+        "provider_refs": {
+            "erpnext": "Bin",
+            "kingdee": "STK_INVENTORY",
+            "yonyou": "inventory",
+        },
+        "erpnext_fields": ["name", "item_code", "warehouse", "actual_qty", "projected_qty", "modified"],
+    },
     "Sales Order": {
         "label": "销售订单",
         "description": "订单、客户、状态、金额和交付进度。",

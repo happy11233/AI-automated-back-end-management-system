@@ -12,7 +12,14 @@ from mcp.client.stdio import stdio_client
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 MCP_SERVERS = {
+    "playwright_amazon": "app.mcp_servers.playwright_amazon",
+    "desktop_rpa": "app.mcp_servers.desktop_rpa",
     "document_system": "app.mcp_servers.document_system",
+    "erpnext_tools": "app.mcp_servers.erpnext_tools",
+    "file_center": "app.mcp_servers.file_center",
+    "message_sender": "app.mcp_servers.message_sender",
+    "n8n_dispatcher": "app.mcp_servers.n8n_dispatcher",
+    "postgres_readonly": "app.mcp_servers.postgres_readonly",
     "ticket_system": "app.mcp_servers.ticket_system",
 }
 

@@ -32,6 +32,7 @@ def run_chat_automation(
     thread_id: str,
     forced_route: dict[str, Any] | None = None,
     react_decision: dict[str, Any] | None = None,
+    attachments: list[dict[str, Any]] | None = None,
     source: str = "chat_automation",
 ) -> dict[str, Any] | None:
     route = forced_route
@@ -47,6 +48,7 @@ def run_chat_automation(
             thread_id=thread_id,
             route=route,
             react_decision=react_decision,
+            attachments=attachments or [],
             source=source,
         )
 
@@ -70,6 +72,7 @@ def _run_operations_listing(
     thread_id: str,
     route: dict[str, Any],
     react_decision: dict[str, Any] | None,
+    attachments: list[dict[str, Any]],
     source: str,
 ) -> dict[str, Any]:
     skill = _skill_from_route(route)
@@ -77,6 +80,7 @@ def _run_operations_listing(
         skill_id=skill.skill_id,
         payload={
             "message": message,
+            "attachments": attachments,
             "metadata": _chat_skill_metadata(thread_id=thread_id, current_user=current_user),
         },
         current_user=current_user,
@@ -87,8 +91,8 @@ def _run_operations_listing(
     draft_id = draft.get("id") if draft else "未返回"
     writeback_status = draft.get("writeback_status") if draft else "unknown"
     answer = (
-        "已识别为运营上架自动化需求。AI 已一次性生成 Listing、标题、五点描述、关键词和促销文案，"
-        "并保存为跨境平台草稿，等待运营人工审核发布。\n"
+        "已识别为运营上架自动化需求。AI 已根据 SKU、ERPNext 商品资料和图片信息生成 Listing 草稿，"
+        "并保存为跨境平台草稿，等待运营确认后上传 Amazon。\n"
         f"草稿 ID：{draft_id}\n"
         f"写回状态：{writeback_status}\n\n"
         f"{result.answer or ''}"
@@ -109,6 +113,7 @@ def _run_operations_listing(
             extra={
                 "type": "ai_workflow",
                 "workflow_id": "operations_listing_launch",
+                "amazon_upload_status": result.metadata.get("amazon_upload_status"),
             },
         ),
     }

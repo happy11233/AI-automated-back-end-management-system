@@ -1,9 +1,10 @@
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.auth.security import get_current_user
+from app.services.operations_listing_amazon_service import confirm_and_prepare_amazon_listing_upload
 from app.services.platform_action_executor_service import (
     execute_platform_draft_action,
     latest_platform_action_executions,
@@ -111,6 +112,23 @@ class PlatformDraftReviewResponse(BaseModel):
     item: PlatformDraftItem
 
 
+class AmazonListingUploadRequest(BaseModel):
+    confirmed: bool = False
+    upload_mode: Literal["auto", "web_form", "batch_excel"] = "auto"
+    target_marketplace: str | None = Field(default=None, max_length=20)
+    price: float | None = None
+    inventory: int | None = None
+
+
+class AmazonListingUploadResponse(BaseModel):
+    draft: PlatformDraftItem
+    execution: PlatformActionExecutionItem
+    task: PlatformExecutionTaskItem | None = None
+    run_id: str
+    message: str
+    amazon_upload: dict[str, Any]
+
+
 @router.get("", response_model=PlatformDraftsResponse)
 def get_platform_drafts(
     draft_type: str | None = Query(default=None, pattern="^(listing|customer_reply)$"),
@@ -185,4 +203,21 @@ def publish_platform_draft(
     return publish_platform_draft_action(
         draft_id=draft_id,
         current_user=current_user,
+    )
+
+
+@router.post("/{draft_id}/amazon-upload", response_model=AmazonListingUploadResponse)
+def prepare_amazon_listing_upload(
+    draft_id: str,
+    request: AmazonListingUploadRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    return confirm_and_prepare_amazon_listing_upload(
+        draft_id=draft_id,
+        current_user=current_user,
+        confirmed=request.confirmed,
+        upload_mode=request.upload_mode,
+        target_marketplace=request.target_marketplace,
+        price=request.price,
+        inventory=request.inventory,
     )

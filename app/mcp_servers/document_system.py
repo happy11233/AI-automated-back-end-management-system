@@ -28,6 +28,26 @@ def _safe_doc_path(filename: str) -> Path:
 
 
 @mcp.tool()
+def health_check() -> dict:
+    """检查文档 MCP 是否可读取配置来源。"""
+    feishu_client = get_feishu_client()
+    feishu_refs = get_configured_document_refs()
+    if feishu_client.is_configured and feishu_refs:
+        return {
+            "ok": True,
+            "status": "healthy",
+            "message": f"飞书文档 MCP 已配置，当前 {len(feishu_refs)} 个文档引用。",
+            "provider": "feishu",
+        }
+    return {
+        "ok": DOCS_DIR.exists(),
+        "status": "healthy" if DOCS_DIR.exists() else "not_configured",
+        "message": "本地 docs 目录可读取。" if DOCS_DIR.exists() else "本地 docs 目录不存在。",
+        "provider": "local",
+    }
+
+
+@mcp.tool()
 def list_documents() -> list[dict]:
     """列出公司文档系统中可同步到知识库的文档。"""
     feishu_client = get_feishu_client()

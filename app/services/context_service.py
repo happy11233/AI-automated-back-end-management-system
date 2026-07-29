@@ -479,6 +479,12 @@ def cleanup_expired_context(
                 """
                 DELETE FROM chat_threads
                 WHERE updated_at < now() - (%s || ' days')::interval
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM approval_requests ar
+                      JOIN refund_transactions rt ON rt.approval_id = ar.id
+                      WHERE ar.thread_id = chat_threads.id
+                  )
                 RETURNING 1;
                 """,
                 (all_thread_days,),
@@ -490,6 +496,12 @@ def cleanup_expired_context(
                 DELETE FROM chat_threads
                 WHERE status = 'closed'
                   AND updated_at < now() - (%s || ' days')::interval
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM approval_requests ar
+                      JOIN refund_transactions rt ON rt.approval_id = ar.id
+                      WHERE ar.thread_id = chat_threads.id
+                  )
                 RETURNING 1;
                 """,
                 (thread_days,),

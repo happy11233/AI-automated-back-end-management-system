@@ -208,6 +208,113 @@ def save_chat_message(
     )
 
 
+def update_chat_message(
+    *,
+    message_id: str,
+    thread_id: str,
+    content: str | None = None,
+    metadata: dict | None = None,
+) -> dict | None:
+    row = fetch_one(
+        """
+        UPDATE chat_messages
+        SET content = COALESCE(%s, content),
+            metadata = CASE
+                WHEN %s::jsonb IS NULL THEN metadata
+                ELSE metadata || %s::jsonb
+            END
+        WHERE id = %s
+          AND thread_id = %s
+        RETURNING id, thread_id, user_id, role, content, metadata, created_at;
+        """,
+        (
+            content,
+            dumps_json(metadata) if metadata is not None else None,
+            dumps_json(metadata) if metadata is not None else None,
+            message_id,
+            thread_id,
+        ),
+    )
+    if row is None:
+        return None
+    return {
+        "id": str(row[0]),
+        "thread_id": row[1],
+        "user_id": str(row[2]) if row[2] else None,
+        "role": row[3],
+        "content": row[4],
+        "metadata": row[5],
+        "created_at": row[6],
+    }
+
+
+def update_latest_chat_message_by_artifact(
+    *,
+    thread_id: str,
+    artifact_id: str,
+    content: str | None = None,
+    metadata: dict | None = None,
+) -> dict | None:
+    metadata_json = dumps_json(metadata) if metadata is not None else None
+    attachment_match = dumps_json({"attachments": [{"metadata": {"artifact_id": artifact_id}}]})
+    automation_match = dumps_json({"automation": {"artifact_id": artifact_id}})
+    approval_match = dumps_json({
+        "approval_result": {
+            "confirmation_card": {
+                "artifact": {
+                    "artifact_id": artifact_id,
+                },
+            },
+        },
+    })
+    row = fetch_one(
+        """
+        UPDATE chat_messages
+        SET content = COALESCE(%s, content),
+            metadata = CASE
+                WHEN %s::jsonb IS NULL THEN metadata
+                ELSE metadata || %s::jsonb
+            END
+        WHERE id = (
+            SELECT id
+            FROM chat_messages
+            WHERE thread_id = %s
+              AND role = 'assistant'
+              AND (
+                metadata @> %s::jsonb
+                OR metadata @> %s::jsonb
+                OR metadata @> %s::jsonb
+                OR metadata::text LIKE %s
+              )
+            ORDER BY created_at DESC
+            LIMIT 1
+        )
+        RETURNING id, thread_id, user_id, role, content, metadata, created_at;
+        """,
+        (
+            content,
+            metadata_json,
+            metadata_json,
+            thread_id,
+            attachment_match,
+            automation_match,
+            approval_match,
+            f"%{artifact_id}%",
+        ),
+    )
+    if row is None:
+        return None
+    return {
+        "id": str(row[0]),
+        "thread_id": row[1],
+        "user_id": str(row[2]) if row[2] else None,
+        "role": row[3],
+        "content": row[4],
+        "metadata": row[5],
+        "created_at": row[6],
+    }
+
+
 def write_audit_log(
     user_id: str | None,
     action: str,

@@ -46,6 +46,7 @@ POSITION_ERP_SCOPES: dict[str, list[str]] = {
     "operations": [
         "Item",
         "Item Price",
+        "Bin",
         "Sales Order",
         "Sales Invoice summary",
     ],

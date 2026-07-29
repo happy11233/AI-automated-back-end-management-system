@@ -36,6 +36,18 @@ EXPECTED_SKILLS = {
         "flow_key": "automation:finance:salary-export",
         "react_actions": {"finance_salary_export"},
     },
+    "finance_compound_report_generation": {
+        "position": "finance",
+        "app_id": "automation-report_analysis",
+        "flow_key": "automation:finance:compound-report-generation",
+        "react_actions": {"finance_compound_report_generation"},
+    },
+    "finance_salary_wechat_send": {
+        "position": "finance",
+        "app_id": "automation-salary_wechat_send",
+        "flow_key": "automation:finance:salary-wechat-send",
+        "react_actions": {"finance_salary_wechat_send"},
+    },
     "finance_excel_settlement": {
         "position": "finance",
         "app_id": "finance-excel-transform",
@@ -54,6 +66,8 @@ EXPECTED_DOC_PHRASES = {
     "operations_listing": ["运营", "Listing", "平台草稿", "automation-listing"],
     "customer_reply": ["客服", "回复草稿", "customer-service-message-loop", "审批"],
     "finance_salary_export": ["财务", "工资", "Salary Slip", "automation-salary_summary"],
+    "finance_compound_report_generation": ["财务", "复合", "Salary Slip", "automation-report_analysis"],
+    "finance_salary_wechat_send": ["财务", "微信", "Salary Slip", "automation-salary_wechat_send"],
     "finance_excel_settlement": ["财务", "Excel", "finance-excel-transform", "ERP"],
     "finance_reconciliation": ["财务", "对账", "finance-reconciliation", "不自动入账"],
 }
@@ -84,6 +98,8 @@ def main() -> None:
     assert skill_for_react_action("operations_listing_draft").skill_id == "operations_listing"
     assert skill_for_react_action("customer_service_reply_draft").skill_id == "customer_reply"
     assert skill_for_react_action("finance_salary_export").skill_id == "finance_salary_export"
+    assert skill_for_react_action("finance_compound_report_generation").skill_id == "finance_compound_report_generation"
+    assert skill_for_react_action("finance_salary_wechat_send").skill_id == "finance_salary_wechat_send"
     assert skill_for_react_action("rag_query") is None
 
     assert_access_guards(by_id)
@@ -132,7 +148,16 @@ def assert_erp_resources_do_not_exceed_position(skill: SkillDefinition) -> None:
 
 def assert_access_guards(by_id: dict[str, SkillDefinition]) -> None:
     operations_user = user("operations", allowed_apps=["automation-listing"])
-    finance_user = user("finance", allowed_apps=["automation-salary_summary", "finance-excel-transform", "finance-reconciliation"])
+    finance_user = user(
+        "finance",
+        allowed_apps=[
+            "automation-salary_summary",
+            "automation-report_analysis",
+            "automation-salary_wechat_send",
+            "finance-excel-transform",
+            "finance-reconciliation",
+        ],
+    )
     customer_user = user("customer_service", allowed_apps=["customer-service-message-loop"])
     admin_user = {"id": "admin", "username": "admin", "role": "admin", "position": None}
 
@@ -157,6 +182,20 @@ def assert_access_guards(by_id: dict[str, SkillDefinition]) -> None:
             react_decision={"confidence": 0.5, "requested_position": "finance"},
         ),
         400,
+    )
+    expect_http_error(
+        lambda: validate_skill_access(
+            skill=by_id["finance_salary_wechat_send"],
+            current_user=user("finance", allowed_apps=["automation-salary_summary"]),
+        ),
+        403,
+    )
+    expect_http_error(
+        lambda: validate_skill_access(
+            skill=by_id["finance_compound_report_generation"],
+            current_user=user("finance", allowed_apps=["automation-salary_summary"]),
+        ),
+        403,
     )
     expect_http_error(
         lambda: validate_skill_access(
@@ -185,6 +224,7 @@ def assert_finance_apis_use_skill_executor() -> None:
 
     for skill_id in [
         "finance_salary_export",
+        "finance_salary_wechat_send",
         "finance_excel_settlement",
         "finance_reconciliation",
     ]:

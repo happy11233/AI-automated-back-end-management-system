@@ -552,6 +552,24 @@ button {
   line-height: 1.8;
 }
 
+.messageBusinessProgress {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  color: #667085;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.messageBusinessProgressDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: #2f6feb;
+  box-shadow: 0 0 0 4px rgba(47, 111, 235, 0.1);
+}
+
 .messageBubble.assistant .messageContent,
 .messageBubble.system .messageContent,
 .messageBubble.tool .messageContent {
@@ -582,6 +600,252 @@ button {
   border: 1px solid #e5e7eb;
   border-radius: 8px;
   background: #ffffff;
+}
+
+.enterpriseWechatConfirmCard {
+  display: grid;
+  gap: 12px;
+  width: min(680px, 100%);
+  margin-top: 14px;
+  padding: 14px;
+  border: 1px solid #dce5f2;
+  border-radius: 8px;
+  background: #f8fbff;
+}
+
+.enterpriseWechatConfirmHeader,
+.enterpriseWechatConfirmFile,
+.enterpriseWechatConfirmFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.enterpriseWechatConfirmFile {
+  padding: 10px 12px;
+  border: 1px solid #e5edf6;
+  border-radius: 6px;
+  background: #ffffff;
+}
+
+.enterpriseWechatConfirmFileName {
+  min-width: 0;
+}
+
+.enterpriseWechatConfirmFileName span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.enterpriseWechatRecipientBlock {
+  display: grid;
+  gap: 8px;
+}
+
+.enterpriseWechatSectionTitle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #1f2329;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.enterpriseWechatHint {
+  display: block;
+  font-size: 12px;
+}
+
+.enterpriseWechatCandidateList {
+  display: grid;
+  gap: 8px;
+}
+
+.enterpriseWechatCandidate {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+  padding: 8px 10px;
+  color: #1f2329;
+  text-align: left;
+  border: 1px solid #e5edf6;
+  border-radius: 6px;
+  background: #ffffff;
+  cursor: pointer;
+}
+
+.enterpriseWechatCandidate:hover,
+.enterpriseWechatCandidate.selected {
+  background: #eef6ff;
+  border-color: #91caff;
+}
+
+.enterpriseWechatCandidateMain {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.enterpriseWechatCandidateNameRow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.enterpriseWechatCandidateNameRow .ant-typography {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.enterpriseWechatCandidateMeta {
+  color: #667085;
+  font-size: 12px;
+}
+
+.enterpriseWechatManualRecipient {
+  display: grid;
+  gap: 8px;
+}
+
+.enterpriseWechatManualRecipientForm {
+  display: grid;
+  grid-template-columns: 132px minmax(160px, 1fr) minmax(120px, 180px);
+  gap: 8px;
+  align-items: center;
+  padding: 10px;
+  border: 1px solid #e5edf6;
+  border-radius: 6px;
+  background: #ffffff;
+}
+
+@media (max-width: 720px) {
+  .enterpriseWechatManualRecipientForm {
+    grid-template-columns: 1fr;
+  }
+}
+
+.enterpriseWechatConfirmChecks {
+  width: 100%;
+  font-size: 13px;
+}
+
+.enterpriseWechatConfirmFooter {
+  padding-top: 2px;
+}
+
+.enterpriseWechatManager {
+  width: 100%;
+}
+
+.enterpriseWechatMetric,
+.enterpriseWechatSection {
+  border: 1px solid #e6ebf2;
+  border-radius: 8px;
+  background: #fbfcfe;
+}
+
+.enterpriseWechatGuidePanel {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid #e6ebf2;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.enterpriseWechatMetric {
+  display: grid;
+  gap: 4px;
+  min-height: 72px;
+  padding: 12px;
+}
+
+.enterpriseWechatMetric strong {
+  color: #1f2329;
+  font-size: 18px;
+}
+
+.enterpriseWechatSection {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+}
+
+.enterpriseWechatSectionHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.enterpriseWechatConfigGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.enterpriseWechatField {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.enterpriseWechatField .ant-input-number {
+  width: 100%;
+}
+
+.enterpriseWechatSwitchRow,
+.enterpriseWechatActionRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 32px;
+}
+
+.enterpriseWechatActionRow {
+  justify-content: flex-end;
+}
+
+.enterpriseWechatStepList {
+  display: grid;
+  gap: 8px;
+}
+
+.enterpriseWechatStep {
+  display: grid;
+  gap: 4px;
+  padding: 9px 10px;
+  border-radius: 7px;
+  background: #ffffff;
+}
+
+.enterpriseWechatGroupGrid,
+.enterpriseWechatSearchRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  gap: 10px;
+}
+
+.enterpriseWechatSearchRow {
+  grid-template-columns: minmax(220px, 1fr) 150px auto;
+}
+
+@media (max-width: 768px) {
+  .enterpriseWechatConfigGrid,
+  .enterpriseWechatGroupGrid,
+  .enterpriseWechatSearchRow {
+    grid-template-columns: 1fr;
+  }
+
+  .enterpriseWechatSectionHeader {
+    display: grid;
+  }
 }
 
 .uploadIcon {
@@ -1432,6 +1696,126 @@ button {
   background: #f8fafc;
   border: 1px solid rgba(15, 23, 42, 0.06);
   border-radius: 6px;
+}
+
+.runRecordBusinessSummaryGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.runRecordBusinessSummaryItem {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  padding: 12px;
+  background: linear-gradient(180deg, #f7faff 0%, #ffffff 100%);
+  border: 1px solid rgba(40, 100, 216, 0.12);
+  border-radius: 6px;
+}
+
+.runRecordBusinessSummaryItem h4 {
+  margin: 0 !important;
+  color: #164b9a;
+}
+
+.runRecordBusinessSectionCard {
+  height: 100%;
+}
+
+.runRecordBusinessTimeline {
+  position: relative;
+  display: grid;
+  gap: 12px;
+}
+
+.runRecordBusinessTimeline::before {
+  position: absolute;
+  top: 14px;
+  bottom: 14px;
+  left: 8px;
+  width: 2px;
+  content: "";
+  background: #d8e6ff;
+}
+
+.runRecordBusinessTimelineItem {
+  position: relative;
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  gap: 8px;
+  min-width: 0;
+}
+
+.runRecordBusinessTimelineDot {
+  position: relative;
+  z-index: 1;
+  width: 18px;
+  height: 18px;
+  margin-top: 3px;
+  background: #8aa4c8;
+  border: 3px solid #ffffff;
+  border-radius: 999px;
+  box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.08);
+}
+
+.runRecordBusinessTimelineDot.succeeded {
+  background: #22a06b;
+}
+
+.runRecordBusinessTimelineDot.failed {
+  background: #d92d20;
+}
+
+.runRecordBusinessTimelineDot.blocked {
+  background: #f97316;
+}
+
+.runRecordBusinessTimelineDot.running {
+  background: #2864d8;
+}
+
+.runRecordBusinessTimelineBody {
+  min-width: 0;
+  padding: 10px 12px;
+  background: #f8fafc;
+  border: 1px solid rgba(15, 23, 42, 0.06);
+  border-radius: 6px;
+}
+
+.runRecordBusinessTimelineHeader,
+.runRecordEvidenceHeader {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+  min-width: 0;
+}
+
+.runRecordBusinessTimelineDescription {
+  margin: 8px 0 !important;
+  color: #4b5563;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+
+.runRecordEvidenceList {
+  display: grid;
+  gap: 10px;
+}
+
+.runRecordEvidenceItem {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding: 10px 12px;
+  background: #f8fafc;
+  border: 1px solid rgba(15, 23, 42, 0.06);
+  border-radius: 6px;
+}
+
+.runRecordTechCollapse .statePre {
+  max-height: 360px;
 }
 
 .effectAnalyticsToolbar {
@@ -2855,6 +3239,28 @@ button {
   gap: 10px;
 }
 
+.erpAmountCardGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.erpAmountCard {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding: 12px;
+  background: linear-gradient(180deg, #fff8eb 0%, #ffffff 100%);
+  border: 1px solid rgba(217, 119, 6, 0.2);
+  border-radius: 6px;
+}
+
+.erpAmountCard h4 {
+  margin: 0 !important;
+  color: #b45309;
+  overflow-wrap: anywhere;
+}
+
 .erpRecordDetailItem {
   display: grid;
   gap: 4px;
@@ -3217,6 +3623,33 @@ button {
   font-size: 12px;
   line-height: 1.6;
   white-space: pre-wrap;
+}
+
+.threadBusinessStateGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.threadBusinessStateItem {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding: 10px 12px;
+  background: #f8fafc;
+  border: 1px solid rgba(15, 23, 42, 0.06);
+  border-radius: 6px;
+}
+
+.threadBusinessAttachmentList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.threadBusinessTechCollapse {
+  margin-top: 10px;
 }
 
 .platformDraftToolbar {
@@ -3604,6 +4037,7 @@ button {
 
 	  .runRecordFilterGrid,
 	  .runRecordDetailGrid,
+  .runRecordBusinessSummaryGrid,
 	  .effectAnalyticsToolbar,
 	  .effectAnalyticsToolbar.admin,
 	  .monitoringToolbar,
@@ -3616,6 +4050,8 @@ button {
   .flowGovernanceDraftGrid,
   .flowPreflightCheckGrid,
   .erpRecordDetailGrid,
+  .erpAmountCardGrid,
+  .threadBusinessStateGrid,
 	  .connectorDetailGrid,
 	  .customerInboxDetailGrid,
   .platformTaskToolbar,

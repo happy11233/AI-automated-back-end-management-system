@@ -21,6 +21,24 @@ mcp = FastMCP(
 
 
 @mcp.tool()
+def health_check() -> dict:
+    """检查外部工单 MCP 是否可用。"""
+    if _is_feishu_ticket_configured():
+        return {
+            "ok": True,
+            "status": "healthy",
+            "message": "飞书多维表格工单 MCP 已配置。",
+            "provider": "feishu",
+        }
+    return {
+        "ok": True,
+        "status": "healthy",
+        "message": "本地 JSONL 工单 MCP 可用。",
+        "provider": "local_jsonl",
+    }
+
+
+@mcp.tool()
 def create_ticket(
     title: str,
     description: str,

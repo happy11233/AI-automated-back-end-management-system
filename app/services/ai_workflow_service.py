@@ -10,7 +10,6 @@ from app.permissions import POSITION_LABELS, is_valid_position
 from app.services.automation_service import build_automation_prompt
 from app.services.erp_service import query_erp_for_current_user, summarize_erp_items
 from app.services.logging_service import write_audit_log
-from app.services.platform_action_executor_service import execute_platform_draft_action
 from app.services.platform_draft_service import (
     create_platform_draft,
     listing_content_from_answer,
@@ -48,9 +47,9 @@ WORKFLOW_DEFINITIONS: list[dict[str, Any]] = [
         "output_contract": "Listing 草稿、标题、五点描述、后台搜索词、促销文案、中文优化备注，以及已保存的跨境平台草稿 ID。",
         "requires_approval": False,
         "approval_policy": "AI 只保存平台草稿，不直接发布到 Amazon；运营审核通过后发布。",
-        "tools": ["llm.chat", "platform_drafts.write", "rpa.queue_ready", "run_records"],
-        "erp_resources": ["Item", "Item Price", "Sales Order"],
-        "writeback_target": "写入 platform_drafts，状态 pending_review；可由 Amazon SP-API/ERP/影刀 RPA 读取后写入外部平台草稿。",
+        "tools": ["erp.provider.query", "llm.chat", "platform_drafts.write", "openpyxl.write_workbook", "mcp.playwright_amazon.prepare_seller_central_listing", "rpa.queue_ready", "run_records"],
+        "erp_resources": ["Item", "Item Price", "Bin", "Sales Order"],
+        "writeback_target": "写入 platform_drafts，状态 pending_review；可由 Playwright MCP、Amazon SP-API、ERP、影刀 RPA 或 n8n 读取后写入外部平台草稿。",
         "notification_target": "运营负责人在草稿区查看并审核发布。",
         "saved_minutes": 45,
     },
@@ -191,6 +190,70 @@ WORKFLOW_DEFINITIONS: list[dict[str, Any]] = [
         "writeback_target": "下载工资 Excel；运行记录保存意图、期间、员工数、金额合计和文件产物。",
         "notification_target": "财务负责人在工作台查看。",
         "saved_minutes": 25,
+    },
+    {
+        "id": "finance_salary_wechat_send",
+        "name": "财务工资表微信发送准备",
+        "position": "finance",
+        "category": "财务自动化",
+        "scenario": "生成指定期间员工工资表，并准备通过个人微信发送给已确认联系人。",
+        "business_value": "减少财务查询工资单、整理 Excel 和重复准备微信附件的操作，同时保留人工最终发送确认。",
+        "trigger_type": "manual_form",
+        "automation_level": "assist_auto",
+        "execution_mode": "external_existing_endpoint",
+        "entry_view": "automation_finance",
+        "entry_label": "打开财务微信发送准备",
+        "source_task_id": "salary_wechat_send",
+        "input_placeholder": "例如：生成这个月员工工资表，准备通过个人微信发给张三。",
+        "output_contract": "执行计划、工资 Excel、微信联系人、待人工发送状态、执行器日志和审计记录。",
+        "requires_approval": True,
+        "approval_policy": "工资属于敏感数据，联系人和最终发送必须人工确认；第一版不自动点击微信发送。",
+        "tools": [
+            "intent.recognizer",
+            "erp.provider.query",
+            "openpyxl.write_workbook",
+            "mcp.n8n.dispatch_workflow",
+            "mcp.desktop_rpa.prepare_wechat_attachment",
+            "mcp.file_center.get_generated_file_download_path",
+            "run_records",
+        ],
+        "erp_resources": ["Salary Slip"],
+        "writeback_target": "保存工资 Excel 到文档下载，并创建 waiting_manual_send 外部发送准备记录。",
+        "notification_target": "财务在聊天结果和文档下载中查看，并人工完成微信最终发送。",
+        "saved_minutes": 18,
+    },
+    {
+        "id": "finance_monthly_package_wechat_send",
+        "name": "财务月度资料微信发送",
+        "position": "finance",
+        "category": "Agent 复杂任务",
+        "scenario": "财务用一句话要求整理本月财务报表和工资表，合并成汇总 Excel，并准备通过个人微信发送给指定联系人。",
+        "business_value": "把跨 ERP 查询、工资表生成、财务报表整理、文件合并和外部发送准备整合为一个可审计的 Plan-and-Execute 自动化任务。",
+        "trigger_type": "chat_plan_execute",
+        "automation_level": "plan_execute_auto",
+        "execution_mode": "agent_execution_hub",
+        "entry_view": "chat",
+        "entry_label": "在 AI 对话中发起复杂财务任务",
+        "source_task_id": "finance_monthly_package_wechat_send",
+        "input_placeholder": "例如：整理这个月财务报表和工资表，合并后通过微信发给张三。",
+        "output_contract": "工资表 Excel、财务报表 Excel、合并汇总 Excel、微信待人工发送状态、MCP 调用记录和审计记录。",
+        "requires_approval": True,
+        "approval_policy": "工资和财务数据属于敏感内容；复杂任务不需要确认计划，但微信最终发送必须人工确认。",
+        "tools": [
+            "react.intent_classifier",
+            "plan_execute.planner",
+            "skill.finance_salary_export",
+            "python.erp_report",
+            "python.openpyxl",
+            "mcp.file_center.get_generated_file_download_path",
+            "mcp.n8n.dispatch_workflow",
+            "mcp.desktop_rpa.prepare_wechat_attachment",
+            "run_records",
+        ],
+        "erp_resources": ["Salary Slip", "GL Entry", "Payment Entry", "Sales Invoice", "Purchase Invoice"],
+        "writeback_target": "保存多个 Excel 到文档下载，创建个人微信待人工发送任务，管理员可在运行记录查看完整步骤。",
+        "notification_target": "财务在聊天最终结果和文档下载中查看，管理员在运行记录中审计。",
+        "saved_minutes": 35,
     },
     {
         "id": "finance_excel_settlement",
@@ -366,14 +429,15 @@ def run_ai_workflow(
                 source_resource_type="ai_workflow",
                 source_resource_id=str(workflow["id"]),
                 content=draft_content,
-                writeback_status="rpa_ready",
+                writeback_status="draft_saved",
                 writeback_message=(
-                    "已保存到跨境平台草稿区，等待运营审核；可由 Amazon SP-API、ERP 连接器或影刀 RPA 同步到外部平台草稿。"
+                    "已保存到跨境平台草稿区，等待运营确认后再打开 Amazon Seller Central 填表。"
                 ),
                 metadata={
                     "automation": "operations_listing_launch",
                     "source": "ai_workflow",
                     "saved_by_ai": True,
+                    "amazon_upload_status": "waiting_confirmation",
                 },
             )
             steps.append(_record_workflow_step(
@@ -391,39 +455,12 @@ def run_ai_workflow(
                 },
                 duration_ms=elapsed_ms(writeback_started_ms),
             ))
-            action_started_ms = now_ms()
-            action_result = execute_platform_draft_action(
-                draft_id=platform_draft["id"],
-                current_user=execution_user,
-                trigger_source="ai_workflow",
-            )
-            platform_draft = action_result["draft"]
-            steps.append(_record_workflow_step(
-                run_id=run_id,
-                order=len(steps) + 1,
-                name="submit_external_writeback",
-                status_value=(
-                    "succeeded"
-                    if action_result["execution"]["status"] == "succeeded"
-                    else "blocked"
-                    if action_result["execution"]["status"] == "waiting_executor"
-                    else "failed"
-                ),
-                workflow=workflow,
-                input_text=str(workflow["id"]),
-                output_text={
-                    "execution_id": action_result["execution"]["id"],
-                    "execution_status": action_result["execution"]["status"],
-                    "executor_type": action_result["execution"]["executor_type"],
-                    "writeback_status": platform_draft["writeback_status"],
-                },
-                duration_ms=elapsed_ms(action_started_ms),
-            ))
             answer = (
-                "AI 已完成完整 Listing 自动化，并提交外部写回执行闭环。\n"
+                "AI 已完成 Listing 草稿生成，并等待运营确认上传 Amazon。\n"
                 f"草稿 ID：{platform_draft['id']}\n"
                 f"写回目标：{platform_draft['external_target']}\n"
                 f"写回状态：{platform_draft['writeback_status']}\n\n"
+                "下一步：运营确认后调用 Amazon Playwright 上传准备，系统会停在最终发布前。\n\n"
                 f"{answer}"
             )
 
