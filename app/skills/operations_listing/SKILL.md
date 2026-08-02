@@ -20,16 +20,16 @@
 
 - 仅运营岗位或管理员可执行。
 - 非管理员必须启用 `automation-listing`。
-- 管理员执行时必须按运营岗位收窄执行上下文。
+- 管理员也可以发起或代发起，但执行上下文仍按运营 Listing 限定。
 - 只保存平台草稿；运营确认后可以打开 Amazon 填表，但不直接发布到外部平台。
 
 ## 执行步骤
 
 1. 校验岗位和 AI 应用启用状态。
 2. 按 SKU 查询 ERPNext 商品资料、价格和库存；用户已输入价格或库存时优先使用用户输入。
-3. 分析用户上传的产品图片，只提取图片中能确定的信息。
+3. 只分析用户上传的产品图片，第一版按“1 张主图 + 少量辅图”处理，只提取图片中能确定的信息。
 4. 生成 Listing 内容并写入 `platform_drafts`，状态等待运营审核。
-5. 运营确认后可进入 `mcp.playwright_amazon.prepare_seller_central_listing`，打开 Seller Central 并填写草稿字段或上传批量 Excel 模板。
+5. 运营或管理员确认后可进入 `mcp.playwright_amazon.prepare_seller_central_listing`，打开 Seller Central 并填写草稿字段或上传批量 Excel 模板。
 6. 提交外部写回任务时只进入草稿或待执行状态，不伪装已发布。
 7. 写入运行记录、步骤和审计。
 
@@ -50,3 +50,4 @@
 ReAct 可以选择本 Skill，但不能直接执行。真正执行必须先经过 Skill Executor 的岗位、AI 应用、ERP 资源、运行记录和审计校验。
 
 Amazon 第一版只允许填写 Listing 草稿并停在最终发布前，不保存账号密码，也不自动点击发布按钮。
+如果没有可用的 Seller Central 登录态，直接返回失败，不进入待执行队列。

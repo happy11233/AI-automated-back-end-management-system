@@ -429,8 +429,16 @@ def build_enterprise_wechat_file_confirmation_task(
     source_workflow_id: str | None = None,
     mime_type: str | None = None,
     requires_sensitive_confirmation: bool = False,
+    artifacts: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     normalized_recipient = recipient_name.strip()
+    generated_artifacts = _normalize_confirmation_artifacts(
+        artifact_id=artifact_id,
+        artifact_filename=artifact_filename,
+        mime_type=mime_type,
+        artifacts=artifacts,
+    )
+    primary_artifact = generated_artifacts[0]
     recipient_search = search_enterprise_wechat_recipients(
         normalized_recipient,
         object_types=_recipient_object_types_for_name(normalized_recipient),
@@ -450,17 +458,19 @@ def build_enterprise_wechat_file_confirmation_task(
         "recipient": selected_recipient,
         "recipient_search": recipient_search,
         "salary_file": {
-            "artifact_id": artifact_id,
-            "filename": artifact_filename,
-            "download_path": f"/files/{artifact_id}/download",
-            "mime_type": mime_type or "application/octet-stream",
+            "artifact_id": primary_artifact["artifact_id"],
+            "filename": primary_artifact["filename"],
+            "download_path": primary_artifact["download_path"],
+            "mime_type": primary_artifact["mime_type"],
         },
         "generated_file": {
-            "artifact_id": artifact_id,
-            "filename": artifact_filename,
-            "download_path": f"/files/{artifact_id}/download",
-            "mime_type": mime_type or "application/octet-stream",
+            "artifact_id": primary_artifact["artifact_id"],
+            "filename": primary_artifact["filename"],
+            "download_path": primary_artifact["download_path"],
+            "mime_type": primary_artifact["mime_type"],
         },
+        "generated_artifacts": generated_artifacts,
+        "attachments": generated_artifacts,
         "source_message": source_message,
         "source_workflow_id": source_workflow_id,
         "manual_final_send_required": False,
@@ -490,9 +500,10 @@ def build_enterprise_wechat_file_confirmation_task(
         "requires_recipient_confirmation": True,
         "requires_sensitive_confirmation": requires_sensitive_confirmation,
         "message_body": "",
-        "artifact_id": artifact_id,
-        "artifact_filename": artifact_filename,
-        "download_path": f"/files/{artifact_id}/download",
+        "artifact_id": primary_artifact["artifact_id"],
+        "artifact_filename": primary_artifact["filename"],
+        "download_path": primary_artifact["download_path"],
+        "generated_artifacts": generated_artifacts,
         "payload": payload,
         "logs": [
             {"level": "info", "message": "已准备企业微信文件发送确认卡。"},
@@ -509,6 +520,9 @@ def build_enterprise_wechat_confirmation_card(*, execution: dict[str, Any]) -> d
     salary_file = payload.get("salary_file") if isinstance(payload.get("salary_file"), dict) else {}
     generated_file = payload.get("generated_file") if isinstance(payload.get("generated_file"), dict) else {}
     file_payload = generated_file or salary_file
+    generated_artifacts = execution.get("generated_artifacts")
+    if not isinstance(generated_artifacts, list):
+        generated_artifacts = payload.get("generated_artifacts") if isinstance(payload.get("generated_artifacts"), list) else []
     recipient = execution.get("recipient") if isinstance(execution.get("recipient"), dict) else None
     recipient_search = execution.get("recipient_search") if isinstance(execution.get("recipient_search"), dict) else {}
     requires_sensitive_confirmation = bool(execution.get("requires_sensitive_confirmation"))
@@ -534,6 +548,14 @@ def build_enterprise_wechat_confirmation_card(*, execution: dict[str, Any]) -> d
             "download_path": execution.get("download_path") or file_payload.get("download_path"),
             "mime_type": file_payload.get("mime_type"),
         },
+        "artifacts": generated_artifacts or [
+            {
+                "artifact_id": execution.get("artifact_id") or file_payload.get("artifact_id"),
+                "filename": execution.get("artifact_filename") or file_payload.get("filename"),
+                "download_path": execution.get("download_path") or file_payload.get("download_path"),
+                "mime_type": file_payload.get("mime_type"),
+            }
+        ],
         "actions": {
             "confirm_endpoint": "/automation/files/enterprise-wechat-send/confirm",
             "confirm_method": "POST",
@@ -544,6 +566,7 @@ def build_enterprise_wechat_confirmation_card(*, execution: dict[str, Any]) -> d
 def dispatch_enterprise_wechat_file_send_task(
     *,
     artifact_id: str,
+    artifact_ids: list[str] | None = None,
     recipient_candidate_id: str | None,
     recipient: dict[str, Any] | None,
     recipient_name: str,
@@ -578,12 +601,22 @@ def dispatch_enterprise_wechat_file_send_task(
             ],
         }
 
-    storage_reference = get_generated_file_storage_reference(artifact_id, current_user=current_user)
-    attachment = attachment_from_storage_reference(storage_reference)
+    normalized_artifact_ids = _normalize_artifact_ids(artifact_id, artifact_ids)
+    storage_references = [
+        get_generated_file_storage_reference(item, current_user=current_user)
+        for item in normalized_artifact_ids
+    ]
+    attachments = [attachment_from_storage_reference(item) for item in storage_references]
+    generated_artifacts = [
+        _generated_artifact_from_storage_reference(item, fallback_artifact_id=item_id)
+        for item, item_id in zip(storage_references, normalized_artifact_ids)
+    ]
+    primary_artifact = generated_artifacts[0]
+    filenames = "、".join(item["filename"] for item in generated_artifacts)
     try:
         send_result = send_enterprise_wechat_file(
             recipient=recipient_from_candidate(selected_recipient),
-            attachments=[attachment],
+            attachments=attachments,
             confirmed=True,
             sensitive_confirmed=sensitive_data_confirmed,
         )
@@ -599,9 +632,10 @@ def dispatch_enterprise_wechat_file_send_task(
             "recipient_name": recipient_name,
             "recipient": selected_recipient,
             "recipient_search": recipient_search or {},
-            "artifact_id": artifact_id,
-            "artifact_filename": attachment.filename,
-            "download_path": f"/files/{artifact_id}/download",
+            "artifact_id": primary_artifact["artifact_id"],
+            "artifact_filename": primary_artifact["filename"],
+            "download_path": primary_artifact["download_path"],
+            "generated_artifacts": generated_artifacts,
             "requires_recipient_confirmation": True,
             "requires_sensitive_confirmation": requires_sensitive_confirmation,
             "manual_final_send_required": False,
@@ -626,9 +660,10 @@ def dispatch_enterprise_wechat_file_send_task(
             "recipient_name": recipient_name,
             "recipient": selected_recipient,
             "recipient_search": recipient_search or {},
-            "artifact_id": artifact_id,
-            "artifact_filename": attachment.filename,
-            "download_path": f"/files/{artifact_id}/download",
+            "artifact_id": primary_artifact["artifact_id"],
+            "artifact_filename": primary_artifact["filename"],
+            "download_path": primary_artifact["download_path"],
+            "generated_artifacts": generated_artifacts,
             "requires_recipient_confirmation": True,
             "requires_sensitive_confirmation": requires_sensitive_confirmation,
             "manual_final_send_required": False,
@@ -650,9 +685,10 @@ def dispatch_enterprise_wechat_file_send_task(
         "recipient_name": recipient_name,
         "recipient": selected_recipient,
         "recipient_search": recipient_search or {},
-        "artifact_id": artifact_id,
-        "artifact_filename": attachment.filename,
-        "download_path": f"/files/{artifact_id}/download",
+        "artifact_id": primary_artifact["artifact_id"],
+        "artifact_filename": primary_artifact["filename"],
+        "download_path": primary_artifact["download_path"],
+        "generated_artifacts": generated_artifacts,
         "requires_recipient_confirmation": True,
         "requires_sensitive_confirmation": requires_sensitive_confirmation,
         "manual_final_send_required": False,
@@ -660,7 +696,7 @@ def dispatch_enterprise_wechat_file_send_task(
         "send_result": send_result,
         "logs": [
             {"level": "info", "message": "已完成接收对象和敏感数据确认。"},
-            {"level": "info", "message": str(send_result.get("message") or "企业微信文件发送流程已处理。")},
+            {"level": "info", "message": f"已处理企业微信文件发送：{filenames}。"},
         ],
         "screenshots": [],
     }
@@ -682,6 +718,76 @@ def _recipient_object_types_for_name(value: str) -> list[str]:
     if "部门" in text or text.endswith("部"):
         return ["department", "user"]
     return ["user", "group", "department"]
+
+
+def _normalize_confirmation_artifacts(
+    *,
+    artifact_id: str,
+    artifact_filename: str,
+    mime_type: str | None,
+    artifacts: list[dict[str, Any]] | None,
+) -> list[dict[str, Any]]:
+    normalized: list[dict[str, Any]] = []
+    for item in artifacts or []:
+        if not isinstance(item, dict):
+            continue
+        item_id = str(item.get("artifact_id") or item.get("id") or "").strip()
+        if not item_id:
+            continue
+        normalized.append(
+            {
+                "artifact_id": item_id,
+                "filename": str(item.get("filename") or item.get("name") or item_id),
+                "download_path": str(item.get("download_path") or f"/files/{item_id}/download"),
+                "mime_type": str(item.get("mime_type") or mime_type or "application/octet-stream"),
+            }
+        )
+    if not normalized:
+        normalized.append(
+            {
+                "artifact_id": artifact_id,
+                "filename": artifact_filename,
+                "download_path": f"/files/{artifact_id}/download",
+                "mime_type": mime_type or "application/octet-stream",
+            }
+        )
+    return _dedupe_artifacts(normalized)
+
+
+def _normalize_artifact_ids(artifact_id: str, artifact_ids: list[str] | None) -> list[str]:
+    values = [str(item or "").strip() for item in (artifact_ids or [])]
+    values.append(str(artifact_id or "").strip())
+    result: list[str] = []
+    for value in values:
+        if value and value not in result:
+            result.append(value)
+    return result
+
+
+def _generated_artifact_from_storage_reference(
+    item: dict[str, Any],
+    *,
+    fallback_artifact_id: str | None = None,
+) -> dict[str, Any]:
+    artifact_id = str(item.get("id") or item.get("artifact_id") or fallback_artifact_id or "")
+    return {
+        "artifact_id": artifact_id,
+        "filename": str(item.get("filename") or artifact_id),
+        "download_path": f"/files/{artifact_id}/download",
+        "mime_type": str(item.get("mime_type") or "application/octet-stream"),
+    }
+
+
+def _dedupe_artifacts(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    seen: set[str] = set()
+    result: list[dict[str, Any]] = []
+    for item in items:
+        item_id = str(item.get("artifact_id") or "").strip()
+        if not item_id or item_id in seen:
+            continue
+        seen.add(item_id)
+        result.append(item)
+    return result
 
 
 def _resolve_enterprise_wechat_recipient_for_send(
@@ -782,19 +888,6 @@ def _build_executor_payload(
 ) -> dict[str, Any]:
     original_payload = dispatch.get("payload") if isinstance(dispatch.get("payload"), dict) else {}
     artifact_download_path = f"/files/{artifact_id}/download" if artifact_id else None
-    if artifact_id:
-        try:
-            file_result = execute_managed_mcp_tool(
-                tool_id="file_center.get_generated_file_download_path",
-                arguments={"artifact_id": artifact_id},
-                current_user=current_user,
-                source="finance_salary_wechat_send",
-                trace_collector=mcp_tool_calls,
-            )
-            if isinstance(file_result, dict) and file_result.get("download_path"):
-                artifact_download_path = str(file_result["download_path"])
-        except Exception:
-            artifact_download_path = f"/files/{artifact_id}/download"
 
     selected_recipient = dispatch.get("recipient") if isinstance(dispatch.get("recipient"), dict) else None
     if selected_recipient is None and isinstance(original_payload.get("recipient"), dict):

@@ -4,7 +4,7 @@
 
 :root {
   color: #1f2329;
-  background: #f5f7fa;
+  background: #eef2f6;
   font-family:
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
     sans-serif;
@@ -20,7 +20,7 @@ body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
-  background: #f5f7fa;
+  background: #eef2f6;
 }
 
 button {
@@ -82,18 +82,24 @@ button {
 .ant-pro-sider .ant-layout-sider-children,
 .ant-pro-sider .ant-pro-sider-container,
 .ant-pro-sider .ant-pro-sider-menu {
-  background: #ffffff !important;
+  background: #eef2f6 !important;
 }
 
 .ant-pro-sider .ant-layout-sider-children {
   padding-inline: 0 !important;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
 }
 
 .ant-pro-sider .ant-menu {
+  flex: 1 1 auto;
   width: 100% !important;
-  padding: 12px 0 28px !important;
-  background: #ffffff !important;
+  min-height: 0;
+  padding: 10px 0 16px !important;
+  background: #eef2f6 !important;
   border-inline-end: 0 !important;
+  overflow-y: auto;
 }
 
 .ant-pro-sider .ant-menu,
@@ -124,8 +130,8 @@ button {
 
 .ant-pro-sider .ant-pro-base-menu-group + .ant-pro-base-menu-divider {
   width: auto;
-  margin: 20px 0 22px !important;
-  border-color: #e1e3e6 !important;
+  margin: 14px 0 16px !important;
+  border-color: #d7dfe8 !important;
 }
 
 .ant-pro-sider .ant-pro-base-menu-group:last-of-type + .ant-pro-base-menu-divider {
@@ -134,23 +140,23 @@ button {
 
 .ant-pro-sider .ant-menu-item-group-title {
   height: auto !important;
-  padding: 14px 16px 10px !important;
-  color: #4f5965 !important;
-  font-size: 14px !important;
+  padding: 10px 14px 8px !important;
+  color: #5f6b78 !important;
+  font-size: 13px !important;
   font-weight: 700 !important;
   line-height: 1.4 !important;
 }
 
 .ant-pro-sider .ant-menu-item,
 .ant-pro-sider .ant-menu-submenu-title {
-  height: 46px !important;
+  height: 42px !important;
   margin: 0 !important;
   width: 100% !important;
-  padding-inline: 22px 14px !important;
-  color: #66717f !important;
-  font-size: 14px !important;
+  padding-inline: 18px 12px !important;
+  color: #2f3338 !important;
+  font-size: 13px !important;
   font-weight: 600 !important;
-  line-height: 46px !important;
+  line-height: 42px !important;
   border-radius: 0 !important;
 }
 
@@ -196,14 +202,14 @@ button {
 
 .ant-pro-sider .ant-menu-sub .ant-menu-item,
 .ant-pro-sider .ant-menu-sub .ant-menu-submenu-title {
-  height: 44px !important;
+  height: 40px !important;
   margin: 0 !important;
   width: 100% !important;
-  padding-inline-start: 34px !important;
+  padding-inline-start: 30px !important;
   padding-inline-end: 14px !important;
-  font-size: 13px !important;
+  font-size: 12px !important;
   font-weight: 600 !important;
-  line-height: 44px !important;
+  line-height: 40px !important;
 }
 
 .ant-pro-sider .ant-menu-item::after {
@@ -211,7 +217,7 @@ button {
 }
 
 .ant-pro-sider .ant-menu-item-selected {
-  background: #edf3fb !important;
+  background: #dee8f5 !important;
   color: #006bd6 !important;
   font-weight: 700 !important;
 }
@@ -229,7 +235,7 @@ button {
 
 .ant-pro-sider .ant-menu-item:hover,
 .ant-pro-sider .ant-menu-submenu-title:hover {
-  background: #f4f7fc !important;
+  background: #e7eef7 !important;
   color: #006bd6 !important;
 }
 
@@ -328,6 +334,87 @@ button {
   color: #006bd6 !important;
 }
 
+.sidebarBrand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px 12px;
+  color: #1f2329;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.sidebarBrandCollapsed {
+  justify-content: center;
+  gap: 0;
+  padding-inline: 0;
+}
+
+.sidebarBrandIcon {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  color: #1677ff;
+  background: #e4ecfb;
+  border-radius: 8px;
+}
+
+.sidebarUserDock {
+  margin-top: auto;
+  padding: 10px 12px 12px;
+}
+
+.sidebarUserDock.compact {
+  padding-inline: 8px;
+}
+
+.userMenuButton.compact {
+  width: 100%;
+  max-width: none;
+  padding-inline: 0;
+  justify-content: center;
+}
+
+.userMenuButton.compact .ant-space {
+  justify-content: center;
+  gap: 0 !important;
+}
+
+.workspaceLayout,
+.workspaceLayout .ant-layout,
+.workspaceLayout .ant-pro-layout-bg-list,
+.workspaceLayout .ant-pro-layout-content {
+  background: #eef2f6 !important;
+}
+
+.workspacePageContainer .ant-pro-page-container-children-container,
+.workspacePageContainer .ant-pro-page-container-children-container-no-header {
+  padding: 0 !important;
+}
+
+.workspacePageContainer .ant-pro-page-container-warp-page-header {
+  padding: 0 !important;
+}
+
+.workspacePageContainer {
+  padding: 18px 20px 20px;
+  overflow: hidden;
+  background: #ffffff;
+  border-radius: 24px;
+  box-shadow: 0 16px 50px rgba(31, 35, 41, 0.08);
+}
+
+.workspacePageContainer .ant-pro-page-container-children-content {
+  padding: 0 !important;
+}
+
+.workspacePageContainer .pageStack {
+  gap: 14px !important;
+}
+
 .tableEllipsisText {
   display: block;
   max-width: 100%;
@@ -359,27 +446,33 @@ button {
 }
 
 .chatWorkspace {
-  height: calc(100vh - 176px);
-  min-height: 560px;
+  height: calc(100vh - 132px);
+  min-height: 620px;
   overflow: hidden;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
 }
 
 .chatWorkspace > .ant-pro-card-body {
   display: flex;
   flex-direction: column;
+  background: transparent;
 }
 
 .chatMessagesPane {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 32px clamp(18px, 5vw, 72px);
-  background: #fff;
+  overscroll-behavior: contain;
+  padding: 24px clamp(18px, 4vw, 56px) 16px;
+  background: transparent;
 }
 
 .chatComposerWrap {
-  padding: 10px clamp(18px, 5vw, 72px) 28px;
-  background: #fff;
+  padding: 0 clamp(18px, 4vw, 56px) 0;
+  background: transparent;
 }
 
 .chatThreadBar {
@@ -423,13 +516,25 @@ button {
 }
 
 .chatComposer {
-  max-width: 960px;
+  max-width: 980px;
   margin: 0 auto;
-  padding: 14px 16px 12px;
-  border: 1px solid #d9d9d9;
-  border-radius: 22px;
+  padding: 6px 16px 6px;
+  border: 1px solid #e2e8f0;
+  border-radius: 18px;
   background: #fff;
-  box-shadow: 0 10px 32px rgba(31, 35, 41, 0.12);
+  box-shadow: none;
+}
+
+.chatComposerInput {
+  min-height: 58px !important;
+  padding: 8px 10px !important;
+  color: #1f2329 !important;
+  font-size: 16px !important;
+  line-height: 1.7 !important;
+}
+
+.chatComposerInput::placeholder {
+  color: #a2adbd !important;
 }
 
 .chatComposerFooter {
@@ -437,15 +542,240 @@ button {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-top: 8px;
+  margin-top: 2px;
+  min-height: 24px;
+  position: relative;
+}
+
+.chatComposerTools,
+.chatComposerActions,
+.chatConversationDock {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.chatComposerTools button,
+.chatComposerActions button,
+.chatConversationDock button {
+  color: #7d899b;
+  border-radius: 8px;
+}
+
+.chatComposerTools button:hover,
+.chatComposerActions button:hover,
+.chatConversationDock button:hover {
+  color: #2563eb;
+  background: #eef4ff;
+}
+
+.chatComposerTools button {
+  width: 32px;
+  height: 32px;
+}
+
+.chatComposerActions {
+  justify-content: flex-end;
+}
+
+.chatPositionTag {
+  margin-inline-end: 4px;
+  color: #667085;
+  background: #f2f5f9;
+  border-color: #dbe3ee;
+}
+
+.chatConversationDock {
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  max-width: min(46%, 400px);
+  transform: translateX(-50%);
+  padding: 4px 8px 4px 12px;
+  border: 1px solid #e1e7ef;
+  border-radius: 999px;
+  background: #fff;
+}
+
+.chatConversationTitle {
+  max-width: 220px;
+  overflow: hidden;
+  padding: 4px 2px;
+  color: #667085;
+  border: 0;
+  background: transparent;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.chatConversationTitle:hover {
+  color: #2563eb;
+}
+
+.chatFileInput {
+  display: none;
+}
+
+.chatAttachmentStrip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 6px 8px 0;
+}
+
+.chatAttachmentChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 280px;
+  padding: 4px 6px 4px 8px;
+  color: #596579;
+  border: 1px solid #dce4ef;
+  border-radius: 7px;
+  background: #f7f9fc;
+  font-size: 12px;
+}
+
+.chatAttachmentChip span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chatAttachmentChip .ant-btn {
+  width: 22px;
+  height: 22px;
+  padding: 0;
 }
 
 .messageList {
   display: grid;
-  gap: 28px;
-  max-width: 960px;
+  gap: 22px;
+  max-width: 1040px;
   margin: 0 auto;
   width: 100%;
+}
+
+.desktopDownloadSummaryRow {
+  margin-bottom: 2px;
+}
+
+.desktopDownloadCard,
+.desktopDownloadChoice {
+  overflow: hidden;
+}
+
+.desktopDownloadCardInner,
+.desktopDownloadChoiceInner {
+  display: grid;
+  gap: 14px;
+}
+
+.desktopDownloadCardHeader,
+.desktopDownloadChoiceHeader {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-width: 0;
+}
+
+.desktopDownloadCardIcon,
+.desktopDownloadChoiceIcon {
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  color: #2563eb;
+  background: #eef4ff;
+  border: 1px solid #dbe8ff;
+  border-radius: 8px;
+  flex: 0 0 auto;
+}
+
+.desktopDownloadCardTitleWrap,
+.desktopDownloadChoiceTitleWrap {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.desktopDownloadCardTitle,
+.desktopDownloadChoiceTitle {
+  margin: 0 !important;
+  color: #1f2329 !important;
+}
+
+.desktopDownloadCardMeta,
+.desktopDownloadChoiceMeta {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px 10px;
+}
+
+.desktopDownloadCardMeta > div,
+.desktopDownloadChoiceMeta {
+  min-width: 0;
+}
+
+.desktopDownloadCardMeta > div {
+  display: grid;
+  gap: 2px;
+}
+
+.desktopDownloadCard .ant-card-body {
+  padding: 16px;
+}
+
+.desktopDownloadCard.available .desktopDownloadCardIcon,
+.desktopDownloadChoice.available .desktopDownloadChoiceIcon {
+  color: #1f7a3f;
+  background: #edf8f1;
+  border-color: #d3ebd9;
+}
+
+.desktopDownloadCard.unavailable .desktopDownloadCardIcon,
+.desktopDownloadChoice.unavailable .desktopDownloadChoiceIcon {
+  color: #7f8a99;
+  background: #f6f8fb;
+  border-color: #e3e8ef;
+}
+
+.desktopDownloadChoice {
+  width: 100%;
+  padding: 14px;
+  text-align: left;
+  border: 1px solid #dbe2ea;
+  border-radius: 8px;
+  background: #fff;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+}
+
+.desktopDownloadChoice:hover:not(:disabled) {
+  border-color: #9bbcfb;
+  background: #f7fbff;
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.05);
+}
+
+.desktopDownloadChoice:disabled {
+  cursor: not-allowed;
+  opacity: 0.72;
+}
+
+.desktopDownloadChoiceMeta {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+}
+
+.desktopDownloadModal .ant-modal-content {
+  border-radius: 10px;
+}
+
+.desktopDownloadModal .ant-modal-body {
+  padding-top: 6px;
 }
 
 .threadHistoryList {
@@ -505,33 +835,39 @@ button {
 
 .messageRow {
   display: flex;
+  align-items: flex-start;
+  gap: 10px;
 }
 
 .messageRow.user {
   justify-content: flex-end;
+  padding-left: 12%;
 }
 
 .messageRow.assistant,
 .messageRow.system,
 .messageRow.tool {
   justify-content: flex-start;
+  padding-right: 12%;
 }
 
 .messageBubble {
-  max-width: min(760px, 86%);
+  max-width: min(780px, 84%);
+  min-width: 0;
 }
 
 .messageBubble.user {
-  padding: 14px 18px;
-  border-radius: 22px;
-  background: #f1f2f4;
+  padding: 12px 16px;
+  border-radius: 12px 4px 12px 12px;
+  background: #eaf0f7;
 }
 
 .messageBubble.assistant,
 .messageBubble.system,
 .messageBubble.tool {
-  padding: 0;
-  background: transparent;
+  padding: 12px 16px 14px;
+  border-radius: 12px;
+  background: #fff;
 }
 
 .messageHeader {
@@ -543,7 +879,66 @@ button {
 }
 
 .messageBubble.user .messageHeader {
-  display: none;
+  display: flex;
+}
+
+.messageIdentity,
+.messageMetaRight {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  gap: 6px;
+}
+
+.messageRoleLabel {
+  color: #344054;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.messageMetaRight {
+  flex: 0 0 auto;
+  color: #8a96a8;
+  font-size: 12px;
+}
+
+.messageMetaRight .ant-btn {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  color: #7d899b;
+}
+
+.messageMetaRight .ant-btn:hover {
+  color: #2563eb;
+  background: #eef4ff;
+}
+
+.messageAvatar {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  margin-top: 2px;
+  color: #596579;
+  border: 1px solid #d9e2ee;
+  border-radius: 9px;
+  background: #fff;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.messageAvatar.assistant {
+  color: #4777db;
+  background: #edf3ff;
+  border-color: #d6e3ff;
+}
+
+.messageAvatar.user {
+  color: #4777db;
+  background: #edf3ff;
+  border-color: #cfe0ff;
 }
 
 .messageContent {
@@ -570,10 +965,18 @@ button {
   box-shadow: 0 0 0 4px rgba(47, 111, 235, 0.1);
 }
 
+.messageTags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
 .messageBubble.assistant .messageContent,
 .messageBubble.system .messageContent,
 .messageBubble.tool .messageContent {
-  font-size: 16px;
+  font-size: 15px;
+  line-height: 1.75;
 }
 
 .messageAttachmentList {
@@ -597,9 +1000,21 @@ button {
   gap: 12px;
   width: 100%;
   padding: 8px 10px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid #e5eaf1;
   border-radius: 8px;
-  background: #ffffff;
+  background: #fbfcfe;
+}
+
+.messageAttachmentItem .ant-btn {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  color: #7d899b;
+}
+
+.messageAttachmentItem .ant-btn:hover {
+  color: #2563eb;
+  background: #eef4ff;
 }
 
 .enterpriseWechatConfirmCard {
@@ -3423,6 +3838,101 @@ button {
   min-width: 176px;
 }
 
+.dashboardStatsRow {
+  align-items: stretch;
+}
+
+.dashboardStatCol {
+  display: flex;
+}
+
+.dashboardStatCard,
+.dashboardMetricCard {
+  width: 100%;
+  min-height: 132px;
+  border-color: rgba(15, 23, 42, 0.08);
+  background: #ffffff;
+}
+
+.dashboardStatCard > .ant-card-body,
+.dashboardMetricCard > .ant-card-body {
+  display: flex;
+  height: 100%;
+  min-height: 118px;
+  align-items: center;
+  justify-content: center;
+  padding: 18px 16px;
+}
+
+.dashboardMetricCardGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(178px, 1fr));
+  gap: 12px;
+  align-items: stretch;
+}
+
+.dashboardMetricCardGrid.compact {
+  grid-template-columns: repeat(auto-fit, minmax(142px, 1fr));
+  gap: 8px;
+}
+
+.dashboardMetricCardGrid.compact .dashboardMetricCard {
+  min-height: 112px;
+}
+
+.dashboardMetricCardGrid.compact .dashboardMetricCard > .ant-card-body {
+  min-height: 100px;
+  padding: 14px 12px;
+}
+
+.dashboardCenteredMetric {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  text-align: center;
+}
+
+.dashboardMetricTitle {
+  width: 100%;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.dashboardMetricValue {
+  display: flex;
+  max-width: 100%;
+  align-items: baseline;
+  justify-content: center;
+  gap: 4px;
+  margin: 0 !important;
+  color: #111827 !important;
+  line-height: 1.15 !important;
+  overflow-wrap: anywhere;
+  text-align: center;
+  word-break: break-word;
+}
+
+.dashboardMetricSuffix {
+  color: #6b7280;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.dashboardMetricDescription {
+  display: -webkit-box;
+  max-width: 100%;
+  overflow: hidden;
+  color: #6b7280;
+  font-size: 12px;
+  line-height: 1.5;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
 .dashboardStatsGroup .ant-pro-card,
 .dashboardMetricGroup .ant-pro-card {
   height: 100%;
@@ -3929,7 +4439,33 @@ button {
 }
 
 .ant-pro-layout .ant-pro-layout-bg-list {
-  background: #f5f7fa;
+  background: #eef2f6;
+}
+
+.chatStatusLine {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 0;
+  color: #667085;
+  font-size: 12px;
+  min-height: 18px;
+  text-align: center;
+}
+
+.topStatusText {
+  position: absolute;
+  left: 50%;
+  max-width: min(44vw, 520px);
+  overflow: hidden;
+  color: #667085;
+  font-size: 13px;
+  line-height: 1;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transform: translateX(-50%);
+  pointer-events: none;
 }
 
 @media (max-width: 768px) {
@@ -3951,6 +4487,10 @@ button {
   .ant-pro-layout .ant-pro-global-header-header-actions,
   .ant-pro-layout .ant-pro-global-header-header-actions-avatar {
     min-width: 0;
+  }
+
+  .topStatusText {
+    display: none;
   }
 
   .ant-pro-card-title,

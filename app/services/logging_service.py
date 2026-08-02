@@ -1,3 +1,4 @@
+import re
 from uuid import uuid4
 
 from app.config import settings
@@ -66,12 +67,13 @@ def list_chat_threads(
     search: str | None = None,
 ) -> list[dict]:
     limit = max(1, min(limit, 200))
-    conditions = ["t.updated_at >= now() - (%s || ' days')::interval"]
-    params: list[object] = [settings.chat_thread_retention_days]
+    conditions = [
+        "t.user_id = %s",
+        "t.updated_at >= now() - (%s || ' days')::interval",
+    ]
+    params: list[object] = [current_user["id"], settings.chat_thread_retention_days]
 
-    if current_user.get("role") != "admin":
-        conditions.append("t.user_id = %s")
-        params.append(current_user["id"])
+    if current_user.get("position"):
         conditions.append("COALESCE(t.position, u.position) = %s")
         params.append(current_user.get("position"))
 
@@ -106,6 +108,7 @@ def list_chat_threads(
             u.role,
             u.position,
             COALESCE(stats.message_count, 0) AS message_count,
+            first_user_message.content AS first_user_message_preview,
             last_message.content AS last_message_preview,
             last_message.role AS last_message_role
         FROM chat_threads t
@@ -115,6 +118,14 @@ def list_chat_threads(
             FROM chat_messages m
             WHERE m.thread_id = t.id
         ) stats ON true
+        LEFT JOIN LATERAL (
+            SELECT content
+            FROM chat_messages m
+            WHERE m.thread_id = t.id
+              AND m.role = 'user'
+            ORDER BY m.created_at ASC
+            LIMIT 1
+        ) first_user_message ON true
         LEFT JOIN LATERAL (
             SELECT role, content
             FROM chat_messages m
@@ -391,6 +402,25 @@ def get_thread(thread_id: str) -> dict | None:
     }
 
 
+def thread_belongs_to_user(thread: dict | None, current_user: dict) -> bool:
+    if thread is None:
+        return False
+    if str(thread.get("user_id") or "") != str(current_user.get("id") or ""):
+        return False
+    if (
+        current_user.get("role") != "admin"
+        and thread.get("position")
+        and thread.get("position") != current_user.get("position")
+    ):
+        return False
+    return True
+
+
+def get_thread_for_user(thread_id: str, current_user: dict) -> dict | None:
+    thread = get_thread(thread_id)
+    return thread if thread_belongs_to_user(thread, current_user) else None
+
+
 def _thread_from_row(row) -> dict:
     return {
         "id": row[0],
@@ -416,8 +446,9 @@ def _thread_list_item_from_row(row) -> dict:
         "display_name": row[8],
         "role": row[9],
         "message_count": int(row[11] or 0),
-        "last_message_preview": (row[12] or "")[:160],
-        "last_message_role": row[13],
+        "first_user_message_preview": (row[12] or "")[:160],
+        "last_message_preview": (row[13] or "")[:160],
+        "last_message_role": row[14],
     }
 
 
@@ -444,6 +475,12 @@ def list_thread_messages(thread_id: str) -> list[dict]:
         }
         for row in rows
     ]
+
+
+def list_thread_messages_for_user(thread_id: str, current_user: dict) -> list[dict] | None:
+    if get_thread_for_user(thread_id, current_user) is None:
+        return None
+    return list_thread_messages(thread_id)
 
 
 def list_audit_logs(

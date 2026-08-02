@@ -10,6 +10,7 @@ from app.config import settings
 from app.db import execute, fetch_all, fetch_one, transaction
 from app.json_utils import dumps_json
 from app.llm import chat_model
+from app.services.external_action_gateway_service import build_execution_context_from_result
 
 
 summary_prompt = ChatPromptTemplate.from_messages([
@@ -315,9 +316,17 @@ def update_context_after_turn(
     graph_result: dict,
 ) -> None:
     approval_id = _extract_approval_id(graph_result.get("approval_result"))
+    pending_external_action = _extract_pending_external_action(graph_result, user_message)
+    execution_context = build_execution_context_from_result(graph_result, user_message) or {
+        "active": False,
+        "source_message": user_message,
+        "status": "completed",
+    }
     slots = {
         "last_user_message": user_message,
         "last_answer": graph_result.get("answer"),
+        "pending_external_action": pending_external_action,
+        "execution_context": execution_context,
     }
 
     upsert_thread_state(
@@ -337,6 +346,43 @@ def update_context_after_turn(
         user_message=user_message,
         graph_result=graph_result,
     )
+
+
+def _extract_pending_external_action(graph_result: dict, user_message: str) -> dict:
+    automation = graph_result.get("automation") if isinstance(graph_result.get("automation"), dict) else {}
+    plan = automation.get("plan") if isinstance(automation.get("plan"), dict) else {}
+    approval_result = graph_result.get("approval_result") if isinstance(graph_result.get("approval_result"), dict) else {}
+    status = str(approval_result.get("status") or automation.get("status") or "").strip()
+    pending_statuses = {
+        "waiting_clarification",
+        "waiting_recipient_selection",
+        "waiting_wechat_confirmation",
+        "waiting_email_confirmation",
+        "waiting_confirmation",
+        "waiting_executor",
+    }
+    if plan.get("kind") == "external_action" and status in pending_statuses:
+        return {
+            "active": True,
+            "status": status,
+            "status_label": approval_result.get("status_label") or automation.get("status_label"),
+            "source_message": user_message,
+            "summary": plan.get("summary"),
+            "external_action_type": plan.get("external_action_type"),
+            "target_channel": plan.get("target_channel"),
+            "business_object": plan.get("business_object"),
+            "data_source": plan.get("data_source"),
+            "recipient_name": plan.get("recipient_name") or automation.get("recipient_name"),
+            "question": graph_result.get("answer"),
+        }
+    execution_context = build_execution_context_from_result(graph_result, user_message)
+    if execution_context and status in pending_statuses | {"failed"}:
+        return execution_context
+    return {
+        "active": False,
+        "source_message": user_message,
+        "status": status or "completed",
+    }
 
 
 def maybe_update_thread_summary(thread_id: str) -> None:

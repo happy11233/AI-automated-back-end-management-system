@@ -10,6 +10,13 @@ RUN set -eux; \
         apt-get update \
         && apt-get install -y --no-install-recommends \
             libmagic1 \
+            libxcb1 \
+            libgl1 \
+            libglib2.0-0 \
+            libsm6 \
+            libxext6 \
+            libxrender1 \
+            libgomp1 \
         && break; \
         rm -rf /var/lib/apt/lists/*; \
         sleep $((attempt * 5)); \

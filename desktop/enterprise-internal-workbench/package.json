@@ -1,0 +1,55 @@
+{
+  "name": "enterprise-internal-workbench",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "dev": "concurrently -k \"vite --host 127.0.0.1 --port 5174\" \"wait-on http://127.0.0.1:5174 && electron .\"",
+    "web:dev": "vite --host 127.0.0.1 --port 5174",
+    "electron": "electron .",
+    "build": "tsc -b && vite build",
+    "package:mac": "npm run build && electron-builder --mac zip --arm64",
+    "lint": "oxlint",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "lucide-react": "^1.27.0",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7"
+  },
+  "devDependencies": {
+    "@electron/get": "^5.1.0",
+    "@types/node": "^24.13.2",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.3",
+    "concurrently": "^10.0.4",
+    "electron": "^43.2.0",
+    "electron-builder": "^25.1.8",
+    "oxlint": "^1.71.0",
+    "typescript": "~6.0.2",
+    "vite": "^8.1.1",
+    "wait-on": "^9.1.0"
+  },
+  "build": {
+    "appId": "com.happy11233.enterpriseinternalworkbench",
+    "productName": "enterprise-internal-workbench",
+    "asar": true,
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**",
+      "electron/**",
+      "package.json"
+    ],
+    "mac": {
+      "target": [
+        "zip"
+      ],
+      "identity": null,
+      "artifactName": "${productName}-${platform}-${arch}.${ext}"
+    }
+  }
+}

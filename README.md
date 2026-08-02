@@ -102,6 +102,7 @@ ERPNext 未连接时，脚本会给出 warning，而不是直接失败。这样�
 - 运营自动化：Listing 上架准备、标题、五点描述、关键词、促销文案和竞品分析。
 - 财务自动化：财务报表分析、工资导出、Excel 整理、财务对账和生成文件下载。
 - RAG 知识库：文档上传、向量检索、BM25、混合召回、rerank、字段级和团队级权限控制。
+- PDF 解析增强：默认优先使用 MinerU 解析复杂 PDF，失败时自动回退到 PyPDFLoader；可通过 `RAG_PDF_PARSER` 切换为 `auto` / `mineru` / `pypdf`。
 - ERP 集成层：当前支持 ERPNext，并预留金蝶、用友 Provider 扩展入口。
 - 管理员治理：用户管理、AI 应用权限、流程配置、连接器中心、MCP 工具、监控中心、效果分析、AI 评测中心和审计日志。
 - 非技术岗位可视化：把 JSON、metadata、payload、运行步骤转成业务人员能理解的业务卡片、表格和时间线。
@@ -111,7 +112,7 @@ ERPNext 未连接时，脚本会给出 warning，而不是直接失败。这样�
 - 后端：FastAPI、Pydantic、psycopg、JWT
 - AI 编排：LangChain、LangGraph、ReAct 决策服务
 - 大模型：阿里百炼 / DashScope OpenAI compatible API
-- RAG：PostgreSQL + pgvector、BM25、jieba、rerank、LangChain Text Splitters
+- RAG：PostgreSQL + pgvector、BM25、jieba、rerank、LangChain Text Splitters、MinerU PDF 解析增强
 - 前端：React、Vite、TypeScript、Ant Design Pro
 - 自动化集成：Skill Executor、Webhook、外部执行器、MCP 工具层预留、企业微信发送能力
 - 部署：Docker Compose、PostgreSQL、pgvector、云服务器公网访问

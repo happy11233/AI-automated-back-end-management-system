@@ -54,6 +54,7 @@ def prepare_seller_central_listing(
     listing: dict[str, Any],
     target_marketplace: str = "US",
     sku: str | None = None,
+    category_path: str | None = None,
     assets: list[dict[str, Any]] | None = None,
     stop_before_publish: bool = True,
     upload_mode: str = "auto",
@@ -63,9 +64,12 @@ def prepare_seller_central_listing(
     normalized_listing = _normalize_listing(listing)
     normalized_assets = assets or []
     normalized_upload_mode = _normalize_upload_mode(upload_mode, normalized_assets)
+    if category_path and not normalized_listing.get("category_path"):
+        normalized_listing["category_path"] = str(category_path).strip()
+    selectors_ready = bool(_selector_profile(selector_profile))
     missing_fields = [
         key
-        for key in ("title", "bullet_points", "description", "keywords", "price", "inventory")
+        for key in ("title", "bullet_points", "description", "keywords", "category_path")
         if not normalized_listing.get(key)
     ]
     if missing_fields:
@@ -98,14 +102,30 @@ def prepare_seller_central_listing(
 
     user_data_dir = _browser_user_data_dir()
     if not user_data_dir:
-        return _waiting_executor(
-            normalized_listing=normalized_listing,
-            target_marketplace=target_marketplace,
-            sku=sku,
-            assets=normalized_assets,
-            upload_mode=normalized_upload_mode,
-            message="未配置浏览器用户目录。请先使用本机浏览器登录 Seller Central，再配置用户目录供 Playwright 复用。",
-        )
+        return {
+            "ok": False,
+            "status": "failed",
+            "message": "未检测到可用的 Seller Central 登录态，无法继续执行，请先登录后再重试。",
+            "target": "amazon_seller_central",
+            "target_marketplace": str(target_marketplace or "US").upper(),
+            "sku": str(sku or "").strip() or None,
+            "category_path": str(normalized_listing.get("category_path") or "").strip() or None,
+            "upload_mode": normalized_upload_mode,
+            "filled_fields": _field_labels(normalized_listing),
+            "failed_fields": [
+                {
+                    "field": "login_state",
+                    "label": "Seller Central 登录态",
+                    "reason": "未检测到可用的浏览器登录态，无法继续执行。",
+                }
+            ],
+            "current_url": _seller_central_url(),
+            "retry_attempted": False,
+            "manual_final_publish_required": True,
+            "auto_publish_allowed": False,
+            "uses_existing_browser_state": False,
+            "selector_profile_configured": selectors_ready,
+        }
 
     if not selectors:
         return _waiting_executor(
@@ -160,6 +180,8 @@ def _run_playwright_prepare(
     ).strip()
     failures: list[dict[str, Any]] = []
     filled_fields: list[str] = []
+    retry_state: dict[str, Any] = {"attempted": False}
+    current_url = url
     try:
         playwright = sync_playwright().start()
         try:
@@ -179,7 +201,7 @@ def _run_playwright_prepare(
         page.set_default_timeout(timeout_ms)
         page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
         if upload_mode == "batch_excel":
-            _upload_batch_template(page, selectors=selectors, assets=assets, failures=failures)
+            _upload_batch_template(page, selectors=selectors, assets=assets, failures=failures, retry_state=retry_state)
             if not failures:
                 filled_fields.append("批量 Excel 模板")
         else:
@@ -190,6 +212,7 @@ def _run_playwright_prepare(
                 assets=assets,
                 failures=failures,
                 filled_fields=filled_fields,
+                retry_state=retry_state,
             )
         publish_selector = _selector(selectors, "publish_button", "publish_button_selector", "submit_button")
         publish_button_detected = False
@@ -200,6 +223,7 @@ def _run_playwright_prepare(
             except (PlaywrightTimeoutError, PlaywrightError):
                 publish_button_detected = False
         screenshot_path = _save_screenshot(page, prefix="amazon-listing-failed" if failures else "amazon-listing-ready")
+        current_url = page.url
     except Exception as error:
         return {
             "ok": False,
@@ -208,7 +232,10 @@ def _run_playwright_prepare(
             "target": "amazon_seller_central",
             "target_marketplace": str(target_marketplace or "US").upper(),
             "sku": str(sku or "").strip() or None,
+            "category_path": str(normalized_listing.get("category_path") or "").strip() or None,
             "upload_mode": upload_mode,
+            "current_url": url,
+            "retry_attempted": bool(retry_state.get("attempted")),
             "manual_final_publish_required": True,
             "auto_publish_allowed": False,
         }
@@ -221,10 +248,13 @@ def _run_playwright_prepare(
             "target": "amazon_seller_central",
             "target_marketplace": str(target_marketplace or "US").upper(),
             "sku": str(sku or "").strip() or None,
+            "category_path": str(normalized_listing.get("category_path") or "").strip() or None,
             "upload_mode": upload_mode,
             "filled_fields": filled_fields,
             "failed_fields": failures,
             "screenshot_path": screenshot_path,
+            "current_url": current_url,
+            "retry_attempted": bool(retry_state.get("attempted")),
             "manual_final_publish_required": True,
             "auto_publish_allowed": False,
         }
@@ -236,12 +266,15 @@ def _run_playwright_prepare(
         "target": "amazon_seller_central",
         "target_marketplace": str(target_marketplace or "US").upper(),
         "seller_central_url": url,
+        "current_url": current_url,
         "sku": str(sku or "").strip() or None,
+        "category_path": str(normalized_listing.get("category_path") or "").strip() or None,
         "upload_mode": upload_mode,
         "filled_fields": filled_fields,
         "asset_count": len(assets),
         "publish_button_detected": publish_button_detected,
         "screenshot_path": screenshot_path,
+        "retry_attempted": bool(retry_state.get("attempted")),
         "manual_final_publish_required": True,
         "auto_publish_allowed": False,
         "uses_existing_browser_state": True,
@@ -257,30 +290,51 @@ def _fill_listing_form(
     assets: list[dict[str, Any]],
     failures: list[dict[str, Any]],
     filled_fields: list[str],
+    retry_state: dict[str, Any],
 ) -> None:
     fields = [
         ("title", "标题", listing.get("title")),
         ("description", "产品描述", listing.get("description")),
         ("keywords", "搜索关键词", listing.get("keywords")),
-        ("price", "价格", listing.get("price")),
-        ("inventory", "库存", listing.get("inventory")),
     ]
     for key, label, value in fields:
-        if _fill_text(page, selector=_selector(selectors, key, f"{key}_selector"), value=value):
+        if _fill_text(page, selector=_selector(selectors, key, f"{key}_selector"), value=value, retry_state=retry_state):
             filled_fields.append(label)
         else:
-            failures.append({"field": key, "label": label, "reason": "未找到字段或无法填写"})
+            failures.append({"field": key, "label": label, "reason": "未找到字段或无法填写", "retry_attempted": bool(retry_state.get("attempted"))})
+
+    for key, label, value in [
+        ("price", "价格", listing.get("price")),
+        ("inventory", "库存", listing.get("inventory")),
+    ]:
+        if value in (None, ""):
+            continue
+        if _fill_text(page, selector=_selector(selectors, key, f"{key}_selector"), value=value, retry_state=retry_state):
+            filled_fields.append(label)
+        else:
+            failures.append({"field": key, "label": label, "reason": "未找到字段或无法填写", "retry_attempted": bool(retry_state.get("attempted"))})
 
     bullet_selectors = _bullet_selectors(selectors)
     bullets = listing.get("bullet_points") if isinstance(listing.get("bullet_points"), list) else []
     if bullet_selectors and bullets:
         for index, value in enumerate(bullets[: min(len(bullet_selectors), 5)]):
-            if _fill_text(page, selector=bullet_selectors[index], value=value):
+            if _fill_text(page, selector=bullet_selectors[index], value=value, retry_state=retry_state):
                 filled_fields.append(f"五点描述 {index + 1}")
             else:
-                failures.append({"field": f"bullet_{index + 1}", "label": f"五点描述 {index + 1}", "reason": "未找到字段或无法填写"})
+                failures.append({"field": f"bullet_{index + 1}", "label": f"五点描述 {index + 1}", "reason": "未找到字段或无法填写", "retry_attempted": bool(retry_state.get("attempted"))})
     else:
-        failures.append({"field": "bullet_points", "label": "五点描述", "reason": "未配置五点字段选择器"})
+        failures.append({"field": "bullet_points", "label": "五点描述", "reason": "未配置五点字段选择器", "retry_attempted": bool(retry_state.get("attempted"))})
+
+    category_selector = _selector(selectors, "category_path", "category_path_selector", "browse_node", "browse_node_selector")
+    category_value = str(listing.get("category_path") or "").strip()
+    if category_value:
+        if category_selector:
+            if _fill_text(page, selector=category_selector, value=category_value, retry_state=retry_state):
+                filled_fields.append("类目")
+            else:
+                failures.append({"field": "category_path", "label": "类目", "reason": "未找到字段或无法填写", "retry_attempted": bool(retry_state.get("attempted"))})
+        else:
+            filled_fields.append("类目")
 
     image_selector = _selector(selectors, "image_upload", "image_upload_selector")
     image_files = _local_files(assets, allowed_types={"product_image"})
@@ -289,32 +343,48 @@ def _fill_listing_form(
             page.set_input_files(image_selector, image_files)
             filled_fields.append("产品图片")
         except Exception as error:
-            failures.append({"field": "image_upload", "label": "产品图片", "reason": str(error)[:200]})
+            retry_state["attempted"] = True
+            try:
+                page.set_input_files(image_selector, image_files)
+                filled_fields.append("产品图片")
+            except Exception as retry_error:
+                failures.append({"field": "image_upload", "label": "产品图片", "reason": str(retry_error)[:200], "retry_attempted": True})
 
 
-def _upload_batch_template(page: Any, *, selectors: dict[str, Any], assets: list[dict[str, Any]], failures: list[dict[str, Any]]) -> None:
+def _upload_batch_template(page: Any, *, selectors: dict[str, Any], assets: list[dict[str, Any]], failures: list[dict[str, Any]], retry_state: dict[str, Any]) -> None:
     selector = _selector(selectors, "bulk_template_upload", "bulk_template_upload_selector")
     files = _local_files(assets, allowed_types={"amazon_batch_template"})
     if not selector:
-        failures.append({"field": "bulk_template_upload", "label": "批量模板上传", "reason": "未配置批量模板上传控件选择器"})
+        failures.append({"field": "bulk_template_upload", "label": "批量模板上传", "reason": "未配置批量模板上传控件选择器", "retry_attempted": bool(retry_state.get("attempted"))})
         return
     if not files:
-        failures.append({"field": "bulk_template", "label": "批量 Excel 模板", "reason": "未找到可上传的批量模板文件"})
+        failures.append({"field": "bulk_template", "label": "批量 Excel 模板", "reason": "未找到可上传的批量模板文件", "retry_attempted": bool(retry_state.get("attempted"))})
         return
     try:
         page.set_input_files(selector, files[0])
     except Exception as error:
-        failures.append({"field": "bulk_template_upload", "label": "批量模板上传", "reason": str(error)[:200]})
+        retry_state["attempted"] = True
+        try:
+            page.set_input_files(selector, files[0])
+        except Exception as retry_error:
+            failures.append({"field": "bulk_template_upload", "label": "批量模板上传", "reason": str(retry_error)[:200], "retry_attempted": True})
 
 
-def _fill_text(page: Any, *, selector: str | None, value: Any) -> bool:
+def _fill_text(page: Any, *, selector: str | None, value: Any, retry_state: dict[str, Any]) -> bool:
     if not selector or value in (None, ""):
         return False
-    try:
-        page.locator(selector).first.fill(str(value))
-        return True
-    except Exception:
-        return False
+    for attempt in range(2):
+        try:
+            locator = page.locator(selector).first
+            locator.scroll_into_view_if_needed(timeout=1500)
+            locator.fill(str(value))
+            if attempt > 0:
+                retry_state["attempted"] = True
+            return True
+        except Exception:
+            retry_state["attempted"] = True
+            continue
+    return False
 
 
 def _launch_context(playwright: Any, *, user_data_dir: str):
@@ -362,6 +432,9 @@ def _normalize_listing(value: dict[str, Any]) -> dict[str, Any]:
         "price": value.get("price"),
         "inventory": value.get("inventory") or value.get("stock"),
     }
+    category_path = str(value.get("category_path") or value.get("category") or value.get("browse_node") or "").strip()
+    if category_path:
+        normalized["category_path"] = category_path[:500]
     if value.get("brand"):
         normalized["brand"] = str(value["brand"]).strip()
     if value.get("product_type"):

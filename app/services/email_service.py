@@ -2,12 +2,19 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from email.message import EmailMessage
+import re
 import smtplib
 import ssl
 from typing import Any
 from uuid import uuid4
 
 from app.config import settings
+
+
+EMAIL_ADDRESS_RE = re.compile(
+    r"^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$"
+)
+EMAIL_TOKEN_RE = re.compile(r"([A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+(?:@[A-Za-z0-9.-]+)+)")
 
 
 @dataclass
@@ -29,11 +36,23 @@ class EmailSendResult:
 def is_email_send_requested(message: str) -> bool:
     lowered = (message or "").lower()
     request_keywords = [
+        "通过邮箱",
+        "用邮箱",
+        "邮箱是",
+        "邮箱为",
+        "邮箱：",
+        "邮箱:",
         "发送到我的邮箱",
         "发到我的邮箱",
         "发我邮箱",
         "发邮箱",
+        "发到邮箱",
         "发送邮箱",
+        "发送到邮箱",
+        "发送至邮箱",
+        "邮箱发送",
+        "发送邮件",
+        "发邮件",
         "邮件发给我",
         "邮箱给我",
         "send to my email",
@@ -55,6 +74,29 @@ def is_email_send_requested(message: str) -> bool:
     return any(keyword in lowered for keyword in request_keywords)
 
 
+def resolve_email_recipient(message: str, fallback_email: str | None) -> tuple[str | None, str]:
+    requested_email = extract_requested_email(message)
+    if requested_email:
+        return requested_email, "message"
+    return (fallback_email or None), "profile" if fallback_email else "none"
+
+
+def extract_requested_email(message: str) -> str | None:
+    match = EMAIL_TOKEN_RE.search(message or "")
+    if not match:
+        return None
+    return match.group(1).strip().strip("<>\"'")
+
+
+def validate_email_address(email: str | None) -> str | None:
+    normalized = (email or "").strip()
+    if not normalized:
+        return "没有填写邮箱地址。"
+    if normalized.count("@") != 1 or not EMAIL_ADDRESS_RE.fullmatch(normalized):
+        return f"邮箱地址格式不正确：{normalized}。请检查是否多写了 @，例如 name@example.com。"
+    return None
+
+
 def send_email_with_attachments(
     *,
     to_email: str | None,
@@ -70,6 +112,15 @@ def send_email_with_attachments(
             message_id=None,
             provider="smtp",
             error="用户设置里没有邮箱，无法自动发送。",
+        )
+    validation_error = validate_email_address(normalized_to)
+    if validation_error:
+        return EmailSendResult(
+            sent=False,
+            recipient=normalized_to,
+            message_id=None,
+            provider="smtp",
+            error=validation_error,
         )
     if not _is_configured():
         return EmailSendResult(

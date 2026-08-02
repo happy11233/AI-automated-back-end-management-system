@@ -159,10 +159,11 @@ def generate_operations_listing_draft(
         "image_assets": image_assets,
         "erp_context": _public_erp_context(erp_context),
         "image_analysis": image_analysis,
+        "amazon_listing": draft_content.get("amazon_listing") or {},
         "amazon_upload_status": "waiting_confirmation",
         "amazon_upload_required": True,
         "review_required": True,
-        "publish_policy": "运营确认后只自动填写 Amazon 后台，最终发布必须人工点击。",
+        "publish_policy": "中文草稿仅供运营确认；Amazon 实际上传使用英文字段，最终发布必须人工点击。",
     })
     record_step(
         run_id=run_id,
@@ -231,9 +232,7 @@ def generate_operations_listing_draft(
         f"目标站点：{marketplace or 'US'}\n"
         f"上传方式：{upload_mode_label(upload_mode)}\n"
         f"草稿 ID：{platform_draft['id']}\n"
-        "下一步：运营确认标题、五点、描述、关键词、价格、库存和图片后，再点击确认上传 Amazon。"
-        "\n\n"
-        f"{answer}"
+        "下一步：运营先确认中文审核稿和类目，再到草稿卡片里手动继续 Amazon 填表。"
     )
     finish_run(
         run_id,
@@ -290,6 +289,7 @@ def confirm_and_prepare_amazon_listing_upload(
     confirmed: bool,
     upload_mode: str = "auto",
     target_marketplace: str | None = None,
+    category_path: str | None = None,
     price: float | None = None,
     inventory: int | None = None,
 ) -> dict[str, Any]:
@@ -310,6 +310,16 @@ def confirm_and_prepare_amazon_listing_upload(
     content = dict(draft.get("content") or {})
     upload_mode = normalize_upload_mode(upload_mode or content.get("upload_mode"))
     marketplace = target_marketplace or content.get("marketplace") or "US"
+    category_value = str(
+        category_path
+        or content.get("category_path")
+        or (content.get("amazon_listing") or {}).get("category_path")
+        or ""
+    ).strip()
+    if not category_value:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="请先手动选择 Amazon 类目后再继续。")
+    content["category_path"] = category_value
+    content["category_manual_required"] = True
     if price is not None:
         content["price"] = price
         content["price_source"] = "user_confirmation"
@@ -343,6 +353,7 @@ def confirm_and_prepare_amazon_listing_upload(
             "draft_id": draft_id,
             "sku": content.get("sku"),
             "marketplace": marketplace,
+            "category_path": category_value,
             "upload_mode": upload_mode,
             "manual_final_publish_required": True,
         },
@@ -376,6 +387,7 @@ def confirm_and_prepare_amazon_listing_upload(
                 "draft_id": draft_id,
                 "sku": content.get("sku"),
                 "marketplace": marketplace,
+                "category_path": category_value,
                 "business": "amazon_listing_batch_template",
             },
         )
@@ -398,6 +410,7 @@ def confirm_and_prepare_amazon_listing_upload(
             "listing": listing_payload,
             "target_marketplace": marketplace,
             "sku": content.get("sku"),
+            "category_path": category_value,
             "upload_mode": upload_mode,
             "asset_count": len(assets),
             "stop_before_publish": True,
@@ -415,6 +428,7 @@ def confirm_and_prepare_amazon_listing_upload(
                 "listing": listing_payload,
                 "target_marketplace": marketplace,
                 "sku": content.get("sku"),
+                "category_path": category_value,
                 "assets": assets,
                 "stop_before_publish": True,
                 "upload_mode": upload_mode,
@@ -527,6 +541,7 @@ def confirm_and_prepare_amazon_listing_upload(
             "draft_id": draft_id,
             "sku": content.get("sku"),
             "marketplace": marketplace,
+            "category_path": category_value,
             "upload_mode": upload_mode,
             "status": business_status,
             "manual_final_publish_required": True,
@@ -543,6 +558,7 @@ def confirm_and_prepare_amazon_listing_upload(
             "status_label": _amazon_status_label(business_status),
             "upload_mode": upload_mode,
             "target_marketplace": marketplace,
+            "category_path": category_value,
             "manual_final_publish_required": True,
             "auto_publish_allowed": False,
             "batch_template_artifact_id": batch_artifact_id,
@@ -635,14 +651,14 @@ def analyze_listing_images(attachments: list[dict[str, Any]]) -> dict[str, Any]:
     if not image_items:
         return {
             "image_count": 0,
-            "summary": "本次没有上传产品图片。可以先生成文字草稿，上传 Amazon 前需要运营确认图片。",
+            "summary": "本次没有上传产品图片。可以先生成文字草稿，但上传 Amazon 前需要补主图和少量辅图。",
             "used_multimodal_model": False,
             "items": [],
         }
 
     analyzed_items: list[dict[str, Any]] = []
     used_model = False
-    for item in image_items[:6]:
+    for item in image_items[:5]:
         filename = str(item.get("filename") or item.get("name") or "product_image")
         mime_type = str(item.get("mime_type") or item.get("content_type") or "image/png")
         content_base64 = item.get("content_base64")
@@ -674,7 +690,7 @@ def save_listing_image_assets(
 ) -> tuple[list[str], list[dict[str, Any]]]:
     artifact_ids: list[str] = []
     assets: list[dict[str, Any]] = []
-    for index, item in enumerate(attachments[:8], start=1):
+    for index, item in enumerate(attachments[:5], start=1):
         mime_type = str(item.get("mime_type") or item.get("content_type") or "").strip()
         if not mime_type.lower().startswith("image/"):
             continue
@@ -712,11 +728,13 @@ def save_listing_image_assets(
 
 
 def listing_payload_from_draft_content(content: dict[str, Any]) -> dict[str, Any]:
+    amazon_listing = content.get("amazon_listing") if isinstance(content.get("amazon_listing"), dict) else {}
     return {
-        "title": content.get("listing_title") or content.get("title"),
-        "bullet_points": content.get("five_bullets") or content.get("bullet_points") or [],
-        "description": content.get("product_description") or content.get("description") or content.get("full_listing_package"),
-        "keywords": content.get("backend_search_terms") or content.get("keywords"),
+        "title": amazon_listing.get("title") or content.get("listing_title") or content.get("title"),
+        "bullet_points": amazon_listing.get("bullet_points") or content.get("five_bullets") or content.get("bullet_points") or [],
+        "description": amazon_listing.get("description") or content.get("product_description") or content.get("description") or content.get("full_listing_package"),
+        "keywords": amazon_listing.get("keywords") or content.get("backend_search_terms") or content.get("keywords"),
+        "category_path": amazon_listing.get("category_path") or content.get("category_path"),
         "price": content.get("price"),
         "inventory": content.get("inventory"),
         "brand": content.get("brand"),
@@ -730,8 +748,7 @@ def missing_required_listing_fields(listing: dict[str, Any]) -> list[str]:
         "bullet_points": "五点描述",
         "description": "产品描述",
         "keywords": "关键词",
-        "price": "价格",
-        "inventory": "库存",
+        "category_path": "类目",
     }
     return [label for key, label in mapping.items() if not listing.get(key)]
 
@@ -743,6 +760,7 @@ def build_amazon_batch_template_bytes(*, content: dict[str, Any], listing: dict[
     headers = [
         "sku",
         "marketplace",
+        "category_path",
         "title",
         "bullet_point_1",
         "bullet_point_2",
@@ -761,6 +779,7 @@ def build_amazon_batch_template_bytes(*, content: dict[str, Any], listing: dict[
     sheet.append([
         content.get("sku"),
         content.get("marketplace") or "US",
+        listing.get("category_path"),
         listing.get("title"),
         *[(bullets[index] if index < len(bullets) else "") for index in range(5)],
         listing.get("description"),
@@ -869,12 +888,39 @@ def _build_listing_generation_prompt(
 ) -> str:
     return f"""你是跨境电商运营 Listing 专员，正在为 Amazon Seller Central 生成上架草稿。
 
-要求：
-1. 输出英文 Listing，附中文审核备注。
-2. 必须包含 Title (English)、5 条 Bullet Points、Product Description、Backend Search Terms、Promo Copy、Review Notes。
-3. 价格和库存只能使用用户输入或 ERPNext 查询结果，不能编造。
+请只输出 JSON，不要输出额外解释文字。
+JSON 结构如下：
+{{
+  "review": {{
+    "title_cn": "中文标题",
+    "bullet_points_cn": ["中文五点1", "中文五点2", "中文五点3", "中文五点4", "中文五点5"],
+    "description_cn": "中文描述",
+    "keywords_cn": ["中文关键词1", "中文关键词2"],
+    "promo_copy_cn": "中文促销文案",
+    "review_notes_cn": "给运营看的中文审核备注",
+    "category_manual_required": true,
+    "category_path_suggestion": "建议类目路径，可为空"
+  }},
+  "amazon": {{
+    "title_en": "English title",
+    "bullet_points_en": ["English bullet 1", "English bullet 2", "English bullet 3", "English bullet 4", "English bullet 5"],
+    "description_en": "English description",
+    "keywords_en": ["keyword1", "keyword2"],
+    "promo_copy_en": "English promo copy",
+    "category_path": "Manual category path required before upload",
+    "price": null,
+    "inventory": null
+  }}
+}}
+
+规则：
+1. 中文 review 只给运营审核。
+2. Amazon 字段只用于真正上传时的英文草稿。
+3. 价格和库存只能使用用户输入或 ERPNext 查询结果，不能编造；缺失时可以留空。
 4. 图片只能用于识别可见信息，不确定的材质、认证、容量、功效不能编造。
-5. 不要说已经发布或已经上传，系统会先保存草稿，等运营确认后再打开 Amazon 填表。
+5. 图片来源只允许用户上传，不要自己生成图片；第一版按一张主图加少量辅图处理。
+6. 类目必须人工选择，不能自己乱猜最终类目。
+7. 先保存中文审核草稿，后续由人工确认后再打开 Amazon 填表，最终发布必须人工点击。
 
 SKU：{sku or "未识别"}
 目标站点：{marketplace}

@@ -20,6 +20,136 @@ MAX_EXCEL_BYTES = 8 * 1024 * 1024
 MAX_OUTPUT_ROWS_PER_SHEET = 2000
 MAX_PROMPT_ROWS_PER_SHEET = 12
 
+READABLE_HEADER_KEYWORDS = (
+    "美化",
+    "美观",
+    "好看",
+    "排版",
+    "格式",
+    "可读",
+    "易读",
+    "中文",
+    "翻译",
+    "表头",
+    "字段名",
+    "字段名称",
+    "英文单词",
+    "不好读",
+)
+
+FINANCE_FIELD_LABELS = {
+    "name": "名称",
+    "id": "编号",
+    "title": "标题",
+    "status": "状态",
+    "company": "公司",
+    "customer": "客户",
+    "customer_name": "客户名称",
+    "supplier": "供应商",
+    "supplier_name": "供应商名称",
+    "employee": "员工",
+    "employee_name": "员工姓名",
+    "employee_id": "员工编号",
+    "department": "部门",
+    "designation": "职位",
+    "account": "会计科目",
+    "account_name": "会计科目名称",
+    "posting_date": "记账日期",
+    "transaction_date": "交易日期",
+    "creation": "创建时间",
+    "modified": "更新时间",
+    "start_date": "开始日期",
+    "end_date": "结束日期",
+    "due_date": "到期日期",
+    "invoice_date": "发票日期",
+    "invoice_number": "发票号码",
+    "voucher_type": "凭证类型",
+    "voucher_no": "凭证编号",
+    "party_type": "往来对象类型",
+    "party": "往来对象",
+    "remarks": "备注",
+    "description": "描述",
+    "currency": "币种",
+    "mode_of_payment": "付款方式",
+    "cost_center": "成本中心",
+    "project": "项目",
+    "debit": "借方金额",
+    "credit": "贷方金额",
+    "amount": "金额",
+    "total": "合计",
+    "net_total": "未税合计",
+    "grand_total": "含税合计",
+    "base_total": "本位币合计",
+    "base_net_total": "本位币未税合计",
+    "base_grand_total": "本位币含税合计",
+    "paid_amount": "已付金额",
+    "received_amount": "已收金额",
+    "outstanding_amount": "未结金额",
+    "gross_pay": "应发工资",
+    "net_pay": "实发工资",
+    "salary": "工资",
+    "salary_structure": "薪资结构",
+    "total_sales": "销售总额",
+    "total_expenses": "费用总额",
+    "total_qty": "总数量",
+    "quantity": "数量",
+    "qty": "数量",
+    "rate": "单价",
+    "price": "价格",
+    "tax": "税额",
+    "taxes": "税费",
+    "taxes_and_charges": "税费规则",
+    "base_total_taxes_and_charges": "本位币税费",
+    "exchange_rate": "汇率",
+}
+
+FINANCE_FIELD_PART_LABELS = {
+    "base": "本位币",
+    "total": "合计",
+    "net": "未税",
+    "grand": "含税",
+    "gross": "应发",
+    "net": "实发",
+    "pay": "工资",
+    "paid": "已付",
+    "received": "已收",
+    "outstanding": "未结",
+    "amount": "金额",
+    "date": "日期",
+    "time": "时间",
+    "number": "编号",
+    "no": "编号",
+    "type": "类型",
+    "code": "编码",
+    "id": "编号",
+    "name": "名称",
+    "status": "状态",
+    "account": "科目",
+    "party": "往来对象",
+    "employee": "员工",
+    "customer": "客户",
+    "supplier": "供应商",
+    "department": "部门",
+    "currency": "币种",
+    "description": "描述",
+    "remarks": "备注",
+    "quantity": "数量",
+    "qty": "数量",
+    "rate": "单价",
+    "price": "价格",
+    "tax": "税额",
+    "exchange": "汇率",
+    "creation": "创建",
+    "modified": "更新",
+    "start": "开始",
+    "end": "结束",
+    "due": "到期",
+    "invoice": "发票",
+    "voucher": "凭证",
+    "posting": "记账",
+    "transaction": "交易",
+}
+
 
 @dataclass
 class FinanceExcelTransformResult:
@@ -65,20 +195,26 @@ def transform_finance_excel(
         instruction.strip()
         or "请按财务复核要求整理表格，生成数值汇总，并指出需要人工复核的异常。"
     )
+    output_sheets, field_mappings = _prepare_output_sheets(
+        sheets,
+        instruction=normalized_instruction,
+    )
+    output_sheet_summaries = _build_sheet_summaries(output_sheets)
     ai_suggestion = _build_ai_suggestion(
         instruction=normalized_instruction,
         source_filename=normalized_source_filename,
-        sheets=sheets,
-        sheet_summaries=sheet_summaries,
+        sheets=output_sheets,
+        sheet_summaries=output_sheet_summaries,
         erp_context=normalized_erp_context,
     )
     workbook = _build_output_workbook(
         source_filename=normalized_source_filename,
         instruction=normalized_instruction,
-        sheets=sheets,
-        sheet_summaries=sheet_summaries,
+        sheets=output_sheets,
+        sheet_summaries=output_sheet_summaries,
         ai_suggestion=ai_suggestion,
         erp_context=normalized_erp_context,
+        field_mappings=field_mappings,
     )
 
     output = BytesIO()
@@ -110,6 +246,9 @@ def transform_finance_excel(
                 }
                 for item in normalized_erp_context
             ],
+            "readable_headers_applied": bool(field_mappings),
+            "field_mapping_count": len(field_mappings),
+            "field_mappings": field_mappings[:200],
             "instruction_preview": normalized_instruction[:500],
             "output_bytes": len(output_content),
         },
@@ -281,6 +420,7 @@ def _build_output_workbook(
     sheet_summaries: list[dict[str, Any]],
     ai_suggestion: str,
     erp_context: list[dict[str, Any]],
+    field_mappings: list[dict[str, str]] | None = None,
 ) -> Workbook:
     workbook = Workbook()
     summary_sheet = workbook.active
@@ -292,6 +432,8 @@ def _build_output_workbook(
         instruction=instruction,
         sheet_summaries=sheet_summaries,
     )
+    if field_mappings:
+        _write_field_mapping_sheet(workbook, field_mappings)
     _write_numeric_summary_sheet(workbook, sheet_summaries)
     _write_ai_suggestion_sheet(workbook, ai_suggestion)
 
@@ -498,6 +640,20 @@ def _write_ai_suggestion_sheet(workbook: Workbook, ai_suggestion: str) -> None:
             cell.alignment = Alignment(vertical="top", wrap_text=True)
 
 
+def _write_field_mapping_sheet(workbook: Workbook, field_mappings: list[dict[str, str]]) -> None:
+    sheet = workbook.create_sheet("字段说明")
+    sheet.append(["来源 Sheet", "原字段名", "业务显示名", "说明"])
+    for item in field_mappings:
+        original_name = item["original_name"]
+        display_name = item["display_name"]
+        note = "已转换为中文业务字段名" if display_name != original_name else "原字段已具备可读名称"
+        sheet.append([item["sheet_name"], original_name, display_name, note])
+
+    _style_sheet(sheet)
+    sheet.freeze_panes = "A2"
+    _auto_width(sheet, max_width=60)
+
+
 def _write_dataframe_sheet(sheet, frame: pd.DataFrame) -> None:
     headers = [str(column) if str(column) else f"Column {index}" for index, column in enumerate(frame.columns, start=1)]
     sheet.append(headers)
@@ -511,6 +667,71 @@ def _write_dataframe_sheet(sheet, frame: pd.DataFrame) -> None:
     _style_sheet(sheet)
     sheet.freeze_panes = "A2"
     _auto_width(sheet)
+
+
+def _prepare_output_sheets(
+    sheets: dict[str, pd.DataFrame],
+    *,
+    instruction: str,
+) -> tuple[dict[str, pd.DataFrame], list[dict[str, str]]]:
+    if not _requires_readable_headers(instruction):
+        return sheets, []
+
+    output_sheets: dict[str, pd.DataFrame] = {}
+    mappings: list[dict[str, str]] = []
+    for sheet_name, frame in sheets.items():
+        used_names: set[str] = set()
+        renamed_columns: list[str] = []
+        for column in frame.columns:
+            original_name = str(column)
+            display_name = _readable_field_name(original_name)
+            display_name = _unique_display_name(display_name, used_names)
+            used_names.add(display_name)
+            renamed_columns.append(display_name)
+            mappings.append(
+                {
+                    "sheet_name": str(sheet_name),
+                    "original_name": original_name,
+                    "display_name": display_name,
+                }
+            )
+        output_sheets[sheet_name] = frame.copy().set_axis(renamed_columns, axis="columns")
+    return output_sheets, mappings
+
+
+def _requires_readable_headers(instruction: str) -> bool:
+    lowered = str(instruction or "").lower()
+    return any(keyword in lowered for keyword in READABLE_HEADER_KEYWORDS)
+
+
+def _readable_field_name(value: str) -> str:
+    original = str(value or "").strip()
+    if not original:
+        return "未命名字段"
+    if re.search(r"[\u4e00-\u9fff]", original):
+        return original
+
+    normalized = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", original)
+    normalized = re.sub(r"[^a-zA-Z0-9]+", "_", normalized).strip("_").lower()
+    if not normalized:
+        return original
+    if normalized in FINANCE_FIELD_LABELS:
+        return FINANCE_FIELD_LABELS[normalized]
+
+    parts = [item for item in normalized.split("_") if item]
+    translated = [FINANCE_FIELD_PART_LABELS.get(item, item) for item in parts]
+    if translated and any(item != source for item, source in zip(translated, parts)):
+        return "".join(translated)
+    return f"字段：{normalized.replace('_', ' ')}"
+
+
+def _unique_display_name(value: str, used_names: set[str]) -> str:
+    if value not in used_names:
+        return value
+    suffix = 2
+    while f"{value}{suffix}" in used_names:
+        suffix += 1
+    return f"{value}{suffix}"
 
 
 def _flatten_record(record: dict[str, Any]) -> dict[str, Any]:

@@ -55,7 +55,7 @@ from app.services.finance_salary_wechat_service import (
 from app.services.generated_file_service import save_generated_file
 from app.services.generated_file_service import get_generated_file_storage_reference
 from app.services.logging_service import (
-    get_thread,
+    get_thread_for_user,
     save_chat_message,
     update_chat_message,
     update_latest_chat_message_by_artifact,
@@ -120,13 +120,15 @@ def _automation_business_error_message(error: Exception, current_user: dict) -> 
     raw_message = str(detail or error or "执行失败")
     lowered = raw_message.lower()
 
-    if "erpnext" in lowered or "erp" in lowered or "502" in lowered or "salary slip" in lowered:
+    if "没有查到" in raw_message:
+        message = raw_message
+    elif "没有识别到" in raw_message or "请说明" in raw_message:
+        message = raw_message
+    elif "erpnext" in lowered or "erp" in lowered or "502" in lowered or "salary slip" in lowered:
         message = "ERPNext 暂时不可用，请稍后重试或联系管理员。"
     elif "权限" in raw_message or "403" in raw_message or "forbidden" in lowered:
         message = "当前账号没有执行这个操作的权限，请联系管理员开通。"
     elif "联系人" in raw_message:
-        message = raw_message
-    elif "没有查到" in raw_message:
         message = raw_message
     else:
         message = "这次自动化没有执行成功，请稍后重试或联系管理员。"
@@ -207,6 +209,7 @@ class FinanceWechatAttachmentPrepareRequest(BaseModel):
 
 class FinanceEnterpriseWechatFileSendConfirmRequest(BaseModel):
     artifact_id: str = Field(min_length=1, max_length=80)
+    artifact_ids: list[str] = Field(default_factory=list)
     recipient_name: str = Field(min_length=1, max_length=64)
     recipient_candidate_id: str | None = Field(default=None, max_length=120)
     recipient: dict[str, Any] | None = None
@@ -1195,16 +1198,25 @@ def _confirm_enterprise_wechat_file_send(
             detail="请先确认企业微信接收对象。",
         )
 
-    storage_reference = get_generated_file_storage_reference(
-        request.artifact_id,
-        current_user=current_user,
-    )
-    filename = request.filename or storage_reference["filename"]
+    artifact_ids = _enterprise_wechat_confirm_artifact_ids(request)
+    storage_references = [
+        get_generated_file_storage_reference(item, current_user=current_user)
+        for item in artifact_ids
+    ]
+    storage_reference = storage_references[0]
+    generated_artifacts = [
+        _enterprise_wechat_generated_artifact_from_storage_reference(item)
+        for item in storage_references
+    ]
+    filename = request.filename or _enterprise_wechat_filename_summary(generated_artifacts)
     recipient_name = request.recipient_name.strip()
-    sensitive_required = _enterprise_wechat_file_requires_sensitive_confirmation(
-        filename=str(filename),
-        storage_reference=storage_reference,
-        source_workflow_id=request.source_workflow_id,
+    sensitive_required = any(
+        _enterprise_wechat_file_requires_sensitive_confirmation(
+            filename=str(item.get("filename") or filename),
+            storage_reference=item,
+            source_workflow_id=request.source_workflow_id,
+        )
+        for item in storage_references
     )
     if legacy_finance_endpoint or sensitive_required:
         _ensure_sensitive_enterprise_wechat_file_allowed(
@@ -1242,7 +1254,9 @@ def _confirm_enterprise_wechat_file_send(
         input_text=request.source_message or f"发送 {filename} 到企业微信 {recipient_name}",
         metadata={
             "artifact_id": request.artifact_id,
+            "artifact_ids": artifact_ids,
             "filename": filename,
+            "filenames": [item["filename"] for item in generated_artifacts],
             "recipient_name": recipient_name,
             "recipient_candidate_id": request.recipient_candidate_id,
             "source_workflow_id": request.source_workflow_id,
@@ -1269,6 +1283,7 @@ def _confirm_enterprise_wechat_file_send(
                 "recipient_name": recipient_name,
                 "recipient_candidate_id": request.recipient_candidate_id,
                 "artifact_id": request.artifact_id,
+                "artifact_ids": artifact_ids,
             },
             output_text="接收对象和敏感数据确认通过。",
             duration_ms=0,
@@ -1281,6 +1296,7 @@ def _confirm_enterprise_wechat_file_send(
         )
         execution = dispatch_enterprise_wechat_file_send_task(
             artifact_id=request.artifact_id,
+            artifact_ids=artifact_ids,
             recipient_candidate_id=request.recipient_candidate_id,
             recipient=request.recipient,
             recipient_name=recipient_name,
@@ -1298,6 +1314,7 @@ def _confirm_enterprise_wechat_file_send(
             resource_id=recipient_name,
             input_text={
                 "artifact_id": request.artifact_id,
+                "artifact_ids": artifact_ids,
                 "filename": filename,
                 "recipient_name": recipient_name,
                 "recipient_candidate_id": request.recipient_candidate_id,
@@ -1316,7 +1333,9 @@ def _confirm_enterprise_wechat_file_send(
                 "business_status": execution["status"],
                 "business_status_label": execution.get("status_label"),
                 "artifact_id": request.artifact_id,
+                "artifact_ids": artifact_ids,
                 "filename": filename,
+                "generated_artifacts": generated_artifacts,
                 "recipient_name": recipient_name,
                 "source_workflow_id": request.source_workflow_id,
                 "source_message_id": request.source_message_id,
@@ -1353,6 +1372,7 @@ def _confirm_enterprise_wechat_file_send(
             execution=execution,
             artifact_id=request.artifact_id,
             filename=str(filename),
+            generated_artifacts=generated_artifacts,
             source_workflow_id=request.source_workflow_id,
             sensitive_required=sensitive_required,
         )
@@ -1370,6 +1390,7 @@ def _confirm_enterprise_wechat_file_send(
             "recipient_name": recipient_name,
             "recipient_candidate_id": request.recipient_candidate_id,
             "artifact_id": request.artifact_id,
+            "artifact_ids": artifact_ids,
             "status": execution["status"],
             "source_workflow_id": request.source_workflow_id,
             "source_message_id": request.source_message_id,
@@ -1617,6 +1638,30 @@ def _enterprise_wechat_send_answer(
     return f"企业微信文件发送失败：{execution.get('message') or '请联系管理员查看运行记录。'}\n文件：{filename}"
 
 
+def _enterprise_wechat_confirm_artifact_ids(request: FinanceEnterpriseWechatFileSendConfirmRequest) -> list[str]:
+    values = [str(item or "").strip() for item in request.artifact_ids]
+    values.append(str(request.artifact_id or "").strip())
+    result: list[str] = []
+    for value in values:
+        if value and value not in result:
+            result.append(value)
+    return result
+
+
+def _enterprise_wechat_generated_artifact_from_storage_reference(item: dict[str, Any]) -> dict[str, Any]:
+    artifact_id = str(item["id"])
+    return {
+        "artifact_id": artifact_id,
+        "filename": str(item.get("filename") or artifact_id),
+        "download_path": f"/files/{artifact_id}/download",
+        "mime_type": str(item.get("mime_type") or "application/octet-stream"),
+    }
+
+
+def _enterprise_wechat_filename_summary(generated_artifacts: list[dict[str, Any]]) -> str:
+    return "、".join(str(item.get("filename") or item.get("artifact_id") or "文件") for item in generated_artifacts)
+
+
 def _enterprise_wechat_file_requires_sensitive_confirmation(
     *,
     filename: str,
@@ -1724,26 +1769,33 @@ def _update_enterprise_wechat_send_message(
     execution: dict[str, Any],
     artifact_id: str,
     filename: str,
+    generated_artifacts: list[dict[str, Any]] | None,
     source_workflow_id: str | None,
     sensitive_required: bool,
 ) -> None:
-    thread = get_thread(thread_id)
+    thread = get_thread_for_user(thread_id, current_user)
     if thread is None:
         return
-    if current_user.get("role") != "admin" and thread.get("user_id") != current_user.get("id"):
-        return
+    artifacts = generated_artifacts or [
+        {
+            "artifact_id": artifact_id,
+            "filename": filename,
+            "download_path": f"/files/{artifact_id}/download",
+        }
+    ]
     message_metadata = {
         "intent": "enterprise_wechat_file_send",
         "risk_level": "high" if sensitive_required else "medium",
         "attachments": [
             {
-                "type": _artifact_type_for_filename(filename),
-                "filename": filename,
+                "type": _artifact_type_for_filename(str(item.get("filename") or "")),
+                "filename": str(item.get("filename") or "文件"),
                 "metadata": {
-                    "artifact_id": artifact_id,
-                    "download_path": f"/files/{artifact_id}/download",
+                    "artifact_id": item.get("artifact_id"),
+                    "download_path": item.get("download_path") or f"/files/{item.get('artifact_id')}/download",
                 },
             }
+            for item in artifacts
         ],
         "approval_result": {
             "status": execution.get("status"),
@@ -1759,6 +1811,7 @@ def _update_enterprise_wechat_send_message(
             "artifact_id": artifact_id,
             "filename": filename,
             "download_path": f"/files/{artifact_id}/download",
+            "generated_artifacts": artifacts,
             "wechat_send": execution,
         },
     }
@@ -1793,10 +1846,8 @@ def _save_enterprise_wechat_send_message(
     artifact_id: str,
     filename: str,
 ) -> None:
-    thread = get_thread(thread_id)
+    thread = get_thread_for_user(thread_id, current_user)
     if thread is None:
-        return
-    if current_user.get("role") != "admin" and thread.get("user_id") != current_user.get("id"):
         return
     save_chat_message(
         thread_id=thread_id,

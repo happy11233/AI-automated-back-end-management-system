@@ -73,6 +73,8 @@ Thumbs.db
 .specify/
 .specs/
 specs/
+**/SPEC.md
+**/specs/
 .loop/
 .loop-engineering/
 loop-engineering/
@@ -88,3 +90,13 @@ docs/*
 # Generated evaluation outputs
 eval/*_report.json
 eval/reports/
+
+# Desktop app local build outputs and packaged installers
+desktop/**/node_modules/
+desktop/**/dist/
+desktop/**/dist-electron/
+desktop/**/release/
+desktop/**/*.zip
+desktop/**/*.blockmap
+desktop/**/*.tsbuildinfo
+desktop/**/.npm-cache/

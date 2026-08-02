@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 from typing import Any
 
@@ -299,6 +300,37 @@ def list_platform_drafts(
         tuple(params),
     )
     return [_map_draft_row(row) for row in rows]
+
+
+def get_latest_platform_draft_for_source_run(
+    *,
+    source_run_id: str,
+    current_user: dict,
+) -> dict[str, Any] | None:
+    conditions = ["source_run_id = %s"]
+    params: list[Any] = [source_run_id]
+
+    _apply_draft_owner_filter(
+        conditions=conditions,
+        params=params,
+        current_user=current_user,
+    )
+
+    row = fetch_one(
+        f"""
+        SELECT
+            id, draft_type, platform, external_target, title, status, position,
+            owner_user_id, source_run_id, source_resource_type, source_resource_id,
+            content, writeback_status, writeback_message, metadata,
+            created_at, updated_at
+        FROM platform_drafts
+        WHERE {" AND ".join(conditions)}
+        ORDER BY updated_at DESC, created_at DESC
+        LIMIT 1;
+        """,
+        tuple(params),
+    )
+    return _map_draft_row(row) if row else None
 
 
 def get_platform_draft(*, draft_id: str, current_user: dict) -> dict[str, Any] | None:
@@ -866,25 +898,133 @@ def _apply_task_owner_filter(
 
 
 def listing_content_from_answer(answer: str, input_text: str) -> dict[str, Any]:
-    title = _first_match(answer, [r"Title \(English\)\s*[:：]?\s*(.+)", r"标题\s*[:：]\s*(.+)"])
-    bullets = _extract_numbered_lines(answer, 5)
-    search_terms = _first_match(
-        answer,
-        [r"Backend Search Terms[^\n]*[:：]\s*(.+)", r"后台搜索词[^\n]*[:：]\s*(.+)"],
+    parsed = _parse_listing_generation_answer(answer)
+    review = parsed.get("review") if isinstance(parsed.get("review"), dict) else parsed
+    amazon = parsed.get("amazon") if isinstance(parsed.get("amazon"), dict) else {}
+
+    review_title_cn = _first_text(
+        review,
+        [
+            "title_cn",
+            "review_title_cn",
+            "listing_title_cn",
+            "listing_title",
+        ],
+    ) or _first_match(answer, [r"中文标题[^\n]*[:：]\s*(.+)", r"标题\s*[:：]\s*(.+)"])
+    review_bullets_cn = _list_text(
+        review.get("bullet_points_cn")
+        or review.get("five_bullets_cn")
+        or review.get("bullets_cn")
+        or review.get("bullet_points")
+        or review.get("five_bullets")
+    ) or _extract_numbered_lines(answer, 5)
+    review_description_cn = _first_text(
+        review,
+        [
+            "description_cn",
+            "product_description_cn",
+            "review_description_cn",
+        ],
+    ) or _first_match(answer, [r"中文描述[^\n]*[:：]\s*(.+)", r"产品描述\s*[:：]\s*(.+)"])
+    review_keywords_cn = _list_text(
+        review.get("keywords_cn")
+        or review.get("backend_search_terms_cn")
+        or review.get("keywords")
     )
-    promo_copy = _first_match(answer, [r"促销文案[^\n]*[:：]\s*(.+)", r"Promo[^\n]*[:：]\s*(.+)"])
+    review_promo_cn = _first_text(
+        review,
+        [
+            "promo_copy_cn",
+            "promotion_copy_cn",
+            "review_promo_copy_cn",
+        ],
+    ) or _first_match(answer, [r"中文促销文案[^\n]*[:：]\s*(.+)", r"促销文案[^\n]*[:：]\s*(.+)"])
+    review_notes_cn = _first_text(
+        review,
+        [
+            "review_notes_cn",
+            "notes_cn",
+            "optimization_notes_cn",
+        ],
+    ) or _first_match(answer, [r"中文备注[^\n]*[:：]\s*(.+)", r"审核备注[^\n]*[:：]\s*(.+)"])
+
+    amazon_title_en = _first_text(
+        amazon,
+        [
+            "title_en",
+            "listing_title_en",
+            "amazon_title_en",
+            "title",
+        ],
+    ) or _first_match(answer, [r"Title \(English\)\s*[:：]?\s*(.+)", r"英文标题[^\n]*[:：]\s*(.+)"])
+    amazon_bullets_en = _list_text(
+        amazon.get("bullet_points_en")
+        or amazon.get("five_bullets_en")
+        or amazon.get("bullets_en")
+        or amazon.get("bullet_points")
+    ) or _extract_numbered_lines(answer, 5)
+    amazon_description_en = _first_text(
+        amazon,
+        [
+            "description_en",
+            "product_description_en",
+            "amazon_description_en",
+            "description",
+        ],
+    ) or _first_match(answer, [r"Product Description[^\n]*[:：]\s*(.+)", r"英文描述[^\n]*[:：]\s*(.+)"])
+    amazon_keywords_en = _list_text(
+        amazon.get("keywords_en")
+        or amazon.get("backend_search_terms_en")
+        or amazon.get("search_terms_en")
+        or amazon.get("keywords")
+    )
+    amazon_promo_en = _first_text(
+        amazon,
+        [
+            "promo_copy_en",
+            "promotion_copy_en",
+            "amazon_promo_copy_en",
+            "promo_copy",
+        ],
+    ) or _first_match(answer, [r"Promo Copy[^\n]*[:：]\s*(.+)", r"English Promo[^\n]*[:：]\s*(.+)"])
+
+    category_manual_required = True
+    if isinstance(review.get("category_manual_required"), bool):
+        category_manual_required = review["category_manual_required"]
+    if isinstance(amazon.get("category_manual_required"), bool):
+        category_manual_required = amazon["category_manual_required"]
+
+    category_path_suggestion = _first_text(amazon, ["category_path", "category", "browse_node"])
+    if not category_path_suggestion:
+        category_path_suggestion = _first_match(answer, [r"类目路径[^\n]*[:：]\s*(.+)", r"Category Path[^\n]*[:：]\s*(.+)"])
+
+    amazon_listing = {
+        "title": amazon_title_en or "",
+        "bullet_points": amazon_bullets_en,
+        "description": amazon_description_en or "",
+        "keywords": amazon_keywords_en,
+        "promo_copy": amazon_promo_en or "",
+        "category_path_suggestion": category_path_suggestion or None,
+        "category_manual_required": category_manual_required,
+    }
 
     return {
         "sku": _extract_sku(input_text),
         "marketplace": _extract_marketplace(input_text),
-        "listing_title": title or "AI 生成 Listing 草稿",
-        "five_bullets": bullets,
-        "backend_search_terms": search_terms,
-        "promo_copy": promo_copy,
+        "listing_title": review_title_cn or "AI 生成 Listing 草稿",
+        "listing_title_cn": review_title_cn or "",
+        "five_bullets": review_bullets_cn,
+        "product_description": review_description_cn or "",
+        "backend_search_terms": review_keywords_cn or "待人工确认后再整理为英文关键词。",
+        "promo_copy": review_promo_cn or "",
+        "review_notes": review_notes_cn or "",
+        "category_manual_required": category_manual_required,
+        "category_path_suggestion": category_path_suggestion or None,
+        "amazon_listing": amazon_listing,
         "full_listing_package": answer,
         "source_input": input_text,
         "review_required": True,
-        "publish_policy": "AI 已保存草稿，必须由运营人工审核后发布。",
+        "publish_policy": "AI 已保存中文审核草稿；Amazon 实际上传时再转换为英文，类目必须运营人工手动选择，最终发布必须运营人工点击。",
     }
 
 
@@ -1016,3 +1156,47 @@ def _extract_numbered_lines(text: str, max_items: int) -> list[str]:
         if len(lines) >= max_items:
             break
     return lines
+
+
+def _parse_listing_generation_answer(answer: str) -> dict[str, Any]:
+    text = (answer or "").strip()
+    if not text:
+        return {}
+
+    candidates = [text]
+    if text.startswith("```"):
+        fenced = re.sub(r"^```(?:json)?\s*", "", text)
+        fenced = re.sub(r"\s*```$", "", fenced)
+        candidates.insert(0, fenced.strip())
+    if "{" in text and "}" in text:
+        start = text.find("{")
+        end = text.rfind("}")
+        if start < end:
+            candidates.insert(0, text[start : end + 1])
+
+    for candidate in candidates:
+        try:
+            parsed = json.loads(candidate)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(parsed, dict):
+            return parsed
+    return {}
+
+
+def _first_text(source: dict[str, Any], keys: list[str]) -> str | None:
+    for key in keys:
+        value = source.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()[:1000]
+    return None
+
+
+def _list_text(value: Any) -> list[str]:
+    if isinstance(value, list):
+        items = [str(item).strip() for item in value if str(item).strip()]
+        return items[:10]
+    if isinstance(value, str) and value.strip():
+        raw = [item.strip() for item in re.split(r"[，,;\n]+", value) if item.strip()]
+        return raw[:10]
+    return []

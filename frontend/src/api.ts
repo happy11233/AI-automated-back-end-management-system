@@ -420,6 +420,22 @@ export type GeneratedFilesResponse = {
   items: GeneratedFileItem[];
 };
 
+export type DesktopPlatform = "mac";
+
+export type DesktopDownloadItem = {
+  platform: DesktopPlatform;
+  label: string;
+  available: boolean;
+  filename: string | null;
+  download_path: string;
+  size_bytes: number | null;
+  updated_at: string | null;
+};
+
+export type DesktopDownloadsResponse = {
+  items: DesktopDownloadItem[];
+};
+
 export type GeneratedFileFilters = {
   search?: string;
   date_range?: "today" | "7d" | "30d" | "all";
@@ -1956,6 +1972,7 @@ export type ThreadListItem = {
   role?: "admin" | "employee" | null;
   position?: Position | null;
   message_count: number;
+  first_user_message_preview?: string | null;
   last_message_preview?: string | null;
   last_message_role?: string | null;
 };
@@ -2199,6 +2216,7 @@ export async function sendChatStream(
   threadId: string | undefined,
   handlers: ChatStreamHandlers,
   attachments: ChatAttachment[] = [],
+  signal?: AbortSignal,
 ) {
   const response = await fetch(`${API_BASE_URL}/chat/stream`, {
     method: "POST",
@@ -2206,6 +2224,7 @@ export async function sendChatStream(
       Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
     },
+    signal,
     body: JSON.stringify({
       message,
       thread_id: threadId || null,
@@ -2225,26 +2244,34 @@ export async function sendChatStream(
   const decoder = new TextDecoder("utf-8");
   let buffer = "";
 
-  while (true) {
-    const { done, value } = await reader.read();
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
 
-    if (done) {
-      break;
+      if (done) {
+        break;
+      }
+
+      buffer += decoder.decode(value, { stream: true });
+      const blocks = buffer.split("\n\n");
+      buffer = blocks.pop() ?? "";
+
+      for (const block of blocks) {
+        dispatchStreamEvent(block, handlers);
+      }
     }
 
-    buffer += decoder.decode(value, { stream: true });
-    const blocks = buffer.split("\n\n");
-    buffer = blocks.pop() ?? "";
+    buffer += decoder.decode();
 
-    for (const block of blocks) {
-      dispatchStreamEvent(block, handlers);
+    if (buffer.trim()) {
+      dispatchStreamEvent(buffer, handlers);
     }
-  }
-
-  buffer += decoder.decode();
-
-  if (buffer.trim()) {
-    dispatchStreamEvent(buffer, handlers);
+  } finally {
+    try {
+      await reader.cancel();
+    } catch {
+      // ignore cancellation cleanup errors
+    }
   }
 }
 
@@ -3423,6 +3450,29 @@ export async function downloadGeneratedFile(token: string, artifactId: string) {
   return {
     blob,
     filename: parseDownloadFilename(disposition) || "generated_file",
+  };
+}
+
+export async function listDesktopDownloads(token: string) {
+  return requestJson<DesktopDownloadsResponse>("/desktop-downloads", {}, token);
+}
+
+export async function downloadDesktopRelease(token: string, platform: DesktopPlatform) {
+  const response = await fetch(`${API_BASE_URL}/desktop-downloads/${encodeURIComponent(platform)}/download`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  if (!response.ok) {
+    throw await buildRequestError(response, true);
+  }
+
+  const blob = await response.blob();
+  const disposition = response.headers.get("content-disposition") || "";
+  return {
+    blob,
+    filename: parseDownloadFilename(disposition) || `enterprise-internal-workbench-${platform}`,
   };
 }
 

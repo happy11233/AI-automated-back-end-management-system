@@ -23,3 +23,4 @@ pandas
 unstructured[xlsx]
 rank-bm25
 jieba
+mineru

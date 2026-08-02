@@ -1,15 +1,18 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   ApiOutlined,
   AppstoreOutlined,
   AuditOutlined,
   BellOutlined,
+  AppleOutlined,
   CheckCircleOutlined,
   CloudUploadOutlined,
   CommentOutlined,
+  CopyOutlined,
   DatabaseOutlined,
   DeleteOutlined,
+  DesktopOutlined,
   DownloadOutlined,
   EditOutlined,
   LoginOutlined,
@@ -75,9 +78,9 @@ import {
 import "./styles.css";
 import {
 	  login,
-	  checkPlatformActionExecutorHealth,
-	  checkMcpToolHealth,
-	  completeFeedback,
+  checkPlatformActionExecutorHealth,
+  checkMcpToolHealth,
+  completeFeedback,
   confirmEnterpriseWechatFileSend,
   createThread,
   createFeedback,
@@ -100,6 +103,7 @@ import {
   getAutomationFlowVersion,
   approveAutomationFlowVersion,
   analyzeFinanceReport,
+  downloadDesktopRelease,
   downloadGeneratedFile,
   generateAutomation,
   createAutomationFlowVersion,
@@ -112,6 +116,7 @@ import {
   createRagTeam,
   listCustomerServiceMessages,
   listDocumentGrants,
+  listDesktopDownloads,
   reconcileFinanceFiles,
   transformFinanceExcel,
   getDocumentAccess,
@@ -209,6 +214,8 @@ import {
   type EvaluationCenterResponse,
   type MonitoringCenterResponse,
   type AutomationTaskItem,
+  type DesktopDownloadItem,
+  type DesktopPlatform,
   type GeneratedFileFilters,
   type GeneratedFileItem,
   type EnterpriseWechatFileSendConfirmPayload,
@@ -292,6 +299,7 @@ type View =
   | "notifications"
   | "feedback_improvement"
   | "feedback_center"
+  | "desktop_downloads"
   | "file_downloads"
   | "run_records"
   | "effect_analytics"
@@ -1022,6 +1030,7 @@ const navItems: NavItem[] = [
     { path: "/audit", id: "audit", name: "审计日志", icon: <AuditOutlined />, roles: ["admin"] },
   ]),
   navGroup("other", "其他", [
+    { path: "/desktop-downloads", id: "desktop_downloads", name: "桌面端下载", icon: <DownloadOutlined />, roles: ["admin", "employee"] },
     { path: "/feedback", id: "feedback_improvement", name: "反馈改进", icon: <CommentOutlined />, roles: ["employee"] },
     { path: "/feedback-center", id: "feedback_center", name: "反馈中心", icon: <CommentOutlined />, roles: ["admin"] },
   ]),
@@ -1429,8 +1438,10 @@ function App() {
     },
   ]);
   const [isPublicLLMLoading, setIsPublicLLMLoading] = useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
   const [messageInput, setMessageInput] = useState("");
+  const [chatAttachments, setChatAttachments] = useState<ChatAttachment[]>([]);
   const [activeThreadId, setActiveThreadId] = useState("");
   const [chatThreads, setChatThreads] = useState<ThreadListItem[]>([]);
   const [threadSearch, setThreadSearch] = useState("");
@@ -1440,6 +1451,7 @@ function App() {
   const [isRenamingThread, setIsRenamingThread] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isChatLoading, setIsChatLoading] = useState(false);
+  const chatAbortControllerRef = useRef<AbortController | null>(null);
 
   const [approvals, setApprovals] = useState<Approval[]>([]);
   const [refunds, setRefunds] = useState<Refund[]>([]);
@@ -1469,6 +1481,11 @@ function App() {
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [isSavingPassword, setIsSavingPassword] = useState(false);
   const [downloadingFileId, setDownloadingFileId] = useState("");
+  const [desktopDownloads, setDesktopDownloads] = useState<DesktopDownloadItem[]>([]);
+  const [isDesktopDownloadsLoading, setIsDesktopDownloadsLoading] = useState(false);
+  const [isDesktopDownloadModalOpen, setIsDesktopDownloadModalOpen] = useState(false);
+  const [downloadingDesktopPlatform, setDownloadingDesktopPlatform] = useState<DesktopPlatform | "">("");
+  const desktopDownloadAutoOpenRef = useRef(false);
   const [confirmingEnterpriseWechatKey, setConfirmingEnterpriseWechatKey] = useState("");
   const [runRecordFilters, setRunRecordFilters] = useState<RunRecordFilterState>({
     status: "all",
@@ -1758,6 +1775,24 @@ function App() {
   }, [safeActiveView, statusMessage]);
 
   useEffect(() => {
+    if (safeActiveView === "desktop_downloads") {
+      void refreshDesktopDownloads();
+    }
+  }, [safeActiveView, token]);
+
+  useEffect(() => {
+    if (safeActiveView !== "desktop_downloads") {
+      desktopDownloadAutoOpenRef.current = false;
+      return;
+    }
+
+    if (!desktopDownloadAutoOpenRef.current) {
+      desktopDownloadAutoOpenRef.current = true;
+      setIsDesktopDownloadModalOpen(true);
+    }
+  }, [safeActiveView]);
+
+  useEffect(() => {
     if (!token) {
       return;
     }
@@ -1984,6 +2019,7 @@ function App() {
     setAllowedAiAppIds(null);
     setLastForbiddenPath("");
     setMessages([]);
+    setChatAttachments([]);
     setActiveThreadId("");
     setChatThreads([]);
     setThreadSearch("");
@@ -1998,6 +2034,11 @@ function App() {
     setPasswordForm({ oldPassword: "", newPassword: "", confirmPassword: "" });
     setGeneratedFileFilters({ search: "", dateRange: "30d", fileType: "all" });
     setDownloadingFileId("");
+    setDesktopDownloads([]);
+    setIsDesktopDownloadsLoading(false);
+    setIsDesktopDownloadModalOpen(false);
+    setDownloadingDesktopPlatform("");
+    desktopDownloadAutoOpenRef.current = false;
     setRunRecordDetail(null);
     setIsRunRecordDetailOpen(false);
     setEffectAnalytics(null);
@@ -2213,6 +2254,30 @@ function App() {
     }
   }
 
+  async function refreshDesktopDownloads(activeToken = token) {
+    if (!activeToken) {
+      setDesktopDownloads([]);
+      setIsDesktopDownloadsLoading(false);
+      return;
+    }
+
+    setIsDesktopDownloadsLoading(true);
+    try {
+      const result = await listDesktopDownloads(activeToken);
+      setDesktopDownloads(result.items);
+      setStatusMessage("桌面端下载列表已刷新");
+    } catch (error) {
+      if (isAuthExpiredError(error)) {
+        return;
+      }
+      const text = error instanceof Error ? error.message : "桌面端下载列表加载失败";
+      setStatusMessage(text);
+      message.error(text);
+    } finally {
+      setIsDesktopDownloadsLoading(false);
+    }
+  }
+
   async function handleDownloadGeneratedFile(file: GeneratedFileItem) {
     if (!token) {
       setStatusMessage("请先登录");
@@ -2271,6 +2336,34 @@ function App() {
       return false;
     } finally {
       setDownloadingFileId("");
+    }
+  }
+
+  async function handleDownloadDesktopRelease(platform: DesktopPlatform) {
+    if (!token) {
+      setStatusMessage("请先登录");
+      message.warning("请先登录");
+      return;
+    }
+
+    const item = desktopDownloads.find((entry) => entry.platform === platform) || null;
+    setDownloadingDesktopPlatform(platform);
+    try {
+      const result = await downloadDesktopRelease(token, platform);
+      const downloadName = result.filename || item?.filename || `enterprise-internal-workbench-${platform}.zip`;
+      downloadBlob(result.blob, downloadName);
+      setStatusMessage(`已开始下载：${item?.label || downloadName}`);
+      message.success(item?.label || "桌面端安装包已开始下载");
+      setIsDesktopDownloadModalOpen(false);
+    } catch (error) {
+      if (isAuthExpiredError(error)) {
+        return;
+      }
+      const text = error instanceof Error ? error.message : "桌面端安装包下载失败";
+      setStatusMessage(text);
+      message.error(text);
+    } finally {
+      setDownloadingDesktopPlatform("");
     }
   }
 
@@ -4348,9 +4441,10 @@ function App() {
 
   async function openChatThread(
     threadId: string,
-    options: { activeToken?: string; replacePath?: boolean; silent?: boolean } = {},
+    options: { activeToken?: string; replacePath?: boolean; silent?: boolean; navigate?: boolean } = {},
   ) {
     const activeToken = options.activeToken || token;
+    const shouldNavigate = options.navigate !== false;
     if (!activeToken) {
       setStatusMessage("请先登录");
       message.warning("请先登录");
@@ -4372,7 +4466,9 @@ function App() {
       setMessages(result.messages.map(mapThreadMessage));
       setThreadSummary(String(result.summary.summary || ""));
       setThreadState(recordFromUnknown(result.state));
-      navigateToPath(`/chat/${encodeURIComponent(threadId)}`, { replace: options.replacePath });
+      if (shouldNavigate) {
+        navigateToPath(`/chat/${encodeURIComponent(threadId)}`, { replace: options.replacePath });
+      }
       setStatusMessage("会话已加载");
       if (!options.silent) {
         message.success("会话已加载");
@@ -4491,6 +4587,7 @@ function App() {
       role: "user",
       content: messageText,
       createdAt: "刚刚",
+      attachments: chatAttachments,
     };
     const assistantMessageId = `assistant-${Date.now()}`;
     const assistantMessage: ChatMessage = {
@@ -4500,6 +4597,9 @@ function App() {
       content: "",
       createdAt: "正在生成",
     };
+
+    const abortController = new AbortController();
+    chatAbortControllerRef.current = abortController;
 
     setMessages((current) => [...current, userMessage, assistantMessage]);
     setMessageInput("");
@@ -4592,8 +4692,9 @@ function App() {
         onError: (payload) => {
           throw new Error(payload.message || "流式聊天失败");
         },
-      });
+      }, chatAttachments, abortController.signal);
 
+      setChatAttachments([]);
       setStatusMessage("聊天完成");
       void refreshChatThreads(token, { silent: true });
       void refreshBusinessActionLoop(token);
@@ -4606,24 +4707,51 @@ function App() {
       if (isAuthExpiredError(error)) {
         return;
       }
+      const isAborted = error instanceof DOMException && error.name === "AbortError";
+      if (isAborted) {
+        setMessages((current) =>
+          current.map((item) =>
+            item.id === assistantMessageId
+              ? {
+                  ...item,
+                  content: item.content || "已终止",
+                  createdAt: "已终止",
+                  businessProgress: null,
+                }
+              : item,
+          ),
+        );
+        setStatusMessage("已终止当前回答");
+        message.info("已终止当前回答");
+        return;
+      }
+      const text = error instanceof Error ? error.message : "发送失败";
       setMessages((current) =>
         current.map((item) =>
-          item.id === assistantMessageId && !item.content
+          item.id === assistantMessageId
             ? {
                 ...item,
-                content: "生成失败，请稍后重试。",
+                content: item.content
+                  ? `${item.content}\n\n执行没有完成：${text}`
+                  : `执行没有完成：${text}`,
                 createdAt: "刚刚",
                 businessProgress: null,
               }
             : item,
         ),
       );
-      const text = error instanceof Error ? error.message : "发送失败";
       setStatusMessage(text);
       message.error(text);
     } finally {
+      if (chatAbortControllerRef.current === abortController) {
+        chatAbortControllerRef.current = null;
+      }
       setIsChatLoading(false);
     }
+  }
+
+  function stopMessage() {
+    chatAbortControllerRef.current?.abort();
   }
 
   async function sendPublicLLMMessage() {
@@ -4838,14 +4966,49 @@ function App() {
       <ProConfigProvider hashed={false}>
         <AntApp>
           <ProLayout
-            title="企业内部后台管理系统"
-            logo={<SafetyCertificateOutlined />}
+            className="workspaceLayout"
+            title={false}
+            logo={false}
             route={route}
             location={{ pathname: currentPath }}
-            layout="mix"
+            layout="side"
+            headerRender={false}
             splitMenus={false}
-            siderWidth={224}
+            siderWidth={236}
+            collapsed={isSidebarCollapsed}
+            onCollapse={(nextCollapsed) => setIsSidebarCollapsed(nextCollapsed)}
+            contentStyle={{ background: "#eef2f6", padding: 18 }}
             siderMenuType="group"
+            menuHeaderRender={() =>
+              isSidebarCollapsed ? (
+                <div className="sidebarBrand sidebarBrandCollapsed">
+                  <div className="sidebarBrandIcon">
+                    <SafetyCertificateOutlined />
+                  </div>
+                </div>
+              ) : (
+                <div className="sidebarBrand">
+                  <div className="sidebarBrandIcon">
+                    <SafetyCertificateOutlined />
+                  </div>
+                  <span>企业内部工作台</span>
+                </div>
+              )
+            }
+            menuFooterRender={() => (
+              <div className={isSidebarCollapsed ? "sidebarUserDock compact" : "sidebarUserDock"}>
+                <UserMenu
+                  username={username}
+                  displayName={displayName}
+                  role={role}
+                  position={position}
+                  token={token}
+                  collapsed={isSidebarCollapsed}
+                  openLogin={() => setIsLoginModalOpen(true)}
+                  logout={handleLogout}
+                />
+              </div>
+            )}
             menuProps={{
               motion: {
                 motionAppear: false,
@@ -4871,6 +5034,11 @@ function App() {
                     void openChatThread(matched.threadId);
                     return;
                   }
+                  if (matched?.id === "desktop_downloads") {
+                    navigateToView("desktop_downloads");
+                    setIsDesktopDownloadModalOpen(true);
+                    return;
+                  }
                   if (matched) {
                     navigateToView(resolveNavTargetView(matched, role, position));
                   }
@@ -4879,47 +5047,18 @@ function App() {
                 {dom}
               </button>
             )}
-            actionsRender={() =>
-              role === "admin"
-                ? [
-                    <Button key="refresh" icon={<ReloadOutlined />} onClick={() => refreshAdminData()}>
-                      刷新
-                    </Button>,
-                  ]
-                : []
-            }
-            avatarProps={{
-              src: undefined,
-              title: token ? username : "未登录",
-              render: () => (
-                <UserMenu
-                  username={username}
-                  displayName={displayName}
-                  role={role}
-                  position={position}
-                  token={token}
-                  openLogin={() => setIsLoginModalOpen(true)}
-                  logout={handleLogout}
-                />
-              ),
-            }}
             token={{
-              header: {
-                colorBgHeader: "#ffffff",
-              },
               sider: {
-                colorMenuBackground: "#ffffff",
+                colorMenuBackground: "#eef2f6",
               },
             }}
           >
             <PageContainer
-              title={titleForView(safeActiveView)}
-              subTitle={pageSubtitle(role, position)}
-              extra={[
-                <Text key="status" type="secondary">
-                  {statusMessage}
-                </Text>,
-              ]}
+              className="workspacePageContainer"
+              title={safeActiveView === "chat" ? false : titleForView(safeActiveView)}
+              subTitle={safeActiveView === "chat" ? false : pageSubtitle(role, position)}
+              style={{ minHeight: "calc(100vh - 36px)" }}
+              childrenContentStyle={{ padding: 0 }}
             >
               <Space direction="vertical" size={16} className="pageStack">
                 {safeActiveView === "dashboard" && (
@@ -4972,6 +5111,13 @@ function App() {
                     downloadingFileId={downloadingFileId}
                     refreshFiles={() => refreshGeneratedFiles()}
                     downloadFile={handleDownloadGeneratedFile}
+                  />
+                )}
+                {safeActiveView === "desktop_downloads" && (
+                  <DesktopDownloadsPanel
+                    downloads={desktopDownloads}
+                    loading={isDesktopDownloadsLoading}
+                    openSelector={() => setIsDesktopDownloadModalOpen(true)}
                   />
                 )}
                 {safeActiveView === "effect_analytics" && role === "admin" && (
@@ -5252,13 +5398,18 @@ function App() {
                   <ChatPanel
                     messageInput={messageInput}
                     setMessageInput={setMessageInput}
+                    attachments={chatAttachments}
+                    setAttachments={setChatAttachments}
+                    openSupportedApps={() => navigateToView("ai_apps")}
                     activeThread={chatThreads.find((item) => item.id === activeThreadId) || null}
                     activeThreadId={activeThreadId}
                     createThread={handleCreateChatThread}
                     renameThread={handleRenameChatThread}
                     sendMessage={sendMessage}
+                    stopMessage={stopMessage}
                     messages={messages}
                     isLoading={isChatLoading}
+                    statusMessage={statusMessage}
                     isCreatingThread={isCreatingThread}
                     isRenamingThread={isRenamingThread}
                     position={position}
@@ -5350,7 +5501,7 @@ function App() {
                     threadSearch={threadSearch}
                     setThreadSearch={setThreadSearch}
                     refreshThreads={() => refreshChatThreads()}
-                    openThread={(threadId) => openChatThread(threadId)}
+                    openThread={(threadId, options) => openChatThread(threadId, options)}
                     messages={messages}
                     summary={threadSummary}
                     state={threadState}
@@ -5361,6 +5512,14 @@ function App() {
                 )}
               </Space>
             </PageContainer>
+            <DesktopDownloadSelectionModal
+              open={isDesktopDownloadModalOpen}
+              downloads={desktopDownloads}
+              loading={isDesktopDownloadsLoading}
+              downloadingPlatform={downloadingDesktopPlatform}
+              onCancel={() => setIsDesktopDownloadModalOpen(false)}
+              onSelectPlatform={(platform) => void handleDownloadDesktopRelease(platform)}
+            />
             <LoginModal
               open={isLoginModalOpen}
               username={username}
@@ -5532,6 +5691,7 @@ function UserMenu(props: {
   role: Role;
   position: Position | null;
   token: string;
+  collapsed?: boolean;
   openLogin: () => void;
   logout: () => void;
 }) {
@@ -5558,16 +5718,22 @@ function UserMenu(props: {
       }}
       trigger={["click"]}
     >
-      <Button type="text" className="userMenuButton">
-        <Space size={8}>
+      <Button type="text" className={props.collapsed ? "userMenuButton compact" : "userMenuButton"}>
+        {props.collapsed ? (
           <Avatar size="small" style={{ backgroundColor: "#1677ff" }}>
             {label.slice(0, 1).toUpperCase()}
           </Avatar>
-          <Text>{label}</Text>
-          <Tag color={props.role === "admin" ? "blue" : "green"}>{roleLabel(props.role)}</Tag>
-          {props.position ? <Tag color="purple">{positionLabel(props.position)}</Tag> : null}
-          <DownOutlined />
-        </Space>
+        ) : (
+          <Space size={8}>
+            <Avatar size="small" style={{ backgroundColor: "#1677ff" }}>
+              {label.slice(0, 1).toUpperCase()}
+            </Avatar>
+            <Text>{label}</Text>
+            <Tag color={props.role === "admin" ? "blue" : "green"}>{roleLabel(props.role)}</Tag>
+            {props.position ? <Tag color="purple">{positionLabel(props.position)}</Tag> : null}
+            <DownOutlined />
+          </Space>
+        )}
       </Button>
     </Dropdown>
   );
@@ -5708,18 +5874,21 @@ function Dashboard({
           onOpenRecordDetail={onOpenRecordDetail}
         />
       ) : (
-        <StatisticCard.Group direction="row" className="dashboardStatsGroup">
+        <Row gutter={[12, 12]} className="dashboardStatsRow">
           {visibleStats.map((item) => (
-            <StatisticCard
-              key={item.title}
-              statistic={{
-                title: item.title,
-                value: item.value,
-                suffix: item.suffix,
-              }}
-            />
+            <Col xs={24} sm={8} key={item.title} className="dashboardStatCol">
+              <Card size="small" className="contextCard dashboardStatCard">
+                <div className="dashboardCenteredMetric">
+                  <Text type="secondary" className="dashboardMetricTitle">{item.title}</Text>
+                  <Title level={3} className="dashboardMetricValue">
+                    {item.value}
+                    <span className="dashboardMetricSuffix">{item.suffix}</span>
+                  </Title>
+                </div>
+              </Card>
+            </Col>
           ))}
-        </StatisticCard.Group>
+        </Row>
       )}
 
       <ProCard
@@ -5862,23 +6031,26 @@ function DashboardOverviewSection({
             </Space>
           </div>
 
-          <StatisticCard.Group
-            direction="row"
-            className={isEmployee ? "dashboardMetricGroup compact" : "dashboardMetricGroup"}
-          >
+          <div className={isEmployee ? "dashboardMetricCardGrid compact" : "dashboardMetricCardGrid"}>
             {erpOverview.metrics.map((item) => (
-              <StatisticCard
+              <Card
                 key={item.title}
-                statistic={{
-                  title: item.title,
-                  value: item.value,
-                  suffix: item.suffix,
-                  status: metricStatus(item.status),
-                  description: role === "admin" ? item.description : undefined,
-                }}
-              />
+                size="small"
+                className={`contextCard dashboardMetricCard status-${metricStatus(item.status)}`}
+              >
+                <div className="dashboardCenteredMetric">
+                  <Text type="secondary" className="dashboardMetricTitle">{item.title}</Text>
+                  <Title level={3} className="dashboardMetricValue">
+                    {item.value}
+                    {item.suffix ? <span className="dashboardMetricSuffix">{item.suffix}</span> : null}
+                  </Title>
+                  {role === "admin" && item.description ? (
+                    <Text type="secondary" className="dashboardMetricDescription">{item.description}</Text>
+                  ) : null}
+                </div>
+              </Card>
             ))}
-          </StatisticCard.Group>
+          </div>
 
           {erpOverview.sections.length ? (
             <Row gutter={[12, 12]}>
@@ -5969,16 +6141,236 @@ function dashboardMarketSelectOptions(
   }));
 }
 
+function fileToChatAttachment(file: File): Promise<ChatAttachment> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = String(reader.result || "");
+      const contentBase64 = result.includes(",") ? result.slice(result.indexOf(",") + 1) : result;
+      resolve({
+        filename: file.name,
+        mime_type: file.type || "application/octet-stream",
+        size_bytes: file.size,
+        content_base64: contentBase64,
+      });
+    };
+    reader.onerror = () => reject(new Error(`无法读取文件：${file.name}`));
+    reader.readAsDataURL(file);
+  });
+}
+
+function DesktopDownloadsPanel({
+  downloads,
+  loading,
+  openSelector,
+}: {
+  downloads: DesktopDownloadItem[];
+  loading: boolean;
+  openSelector: () => void;
+}) {
+  const fallbackDownloads: DesktopDownloadItem[] = [
+    {
+      platform: "mac",
+      label: "macOS 版",
+      available: false,
+      filename: null,
+      download_path: "/desktop-downloads/mac/download",
+      size_bytes: null,
+      updated_at: null,
+    },
+  ];
+  const resolvedDownloads = fallbackDownloads.map((fallback) => (
+    downloads.find((item) => item.platform === fallback.platform) || fallback
+  ));
+  const availableCount = resolvedDownloads.filter((item) => item.available).length;
+
+  return (
+    <Space direction="vertical" size={16} className="pageStack">
+      <ProCard
+        title="桌面端下载"
+        subTitle="先选择平台，再直接下载对应安装包"
+        bordered
+        extra={
+          <Button type="primary" icon={<DownloadOutlined />} onClick={openSelector}>
+            选择平台
+          </Button>
+        }
+      >
+        <Row gutter={[12, 12]}>
+          <Col xs={24} md={8}>
+            <Card size="small" className="contextCard dashboardStatCard">
+              <div className="dashboardCenteredMetric">
+                <Text type="secondary" className="dashboardMetricTitle">可下载平台</Text>
+                <Title level={3} className="dashboardMetricValue">{availableCount}</Title>
+                <Text type="secondary">已准备好下载的版本</Text>
+              </div>
+            </Card>
+          </Col>
+          <Col xs={24} md={8}>
+            <Card size="small" className="contextCard dashboardStatCard">
+              <div className="dashboardCenteredMetric">
+                <Text type="secondary" className="dashboardMetricTitle">平台总数</Text>
+                <Title level={3} className="dashboardMetricValue">{resolvedDownloads.length}</Title>
+                <Text type="secondary">当前仅显示 macOS</Text>
+              </div>
+            </Card>
+          </Col>
+          <Col xs={24} md={8}>
+            <Card size="small" className="contextCard dashboardStatCard">
+              <div className="dashboardCenteredMetric">
+                <Text type="secondary" className="dashboardMetricTitle">下载方式</Text>
+                <Title level={3} className="dashboardMetricValue">弹窗选择</Title>
+                <Text type="secondary">选完平台后直接触发下载</Text>
+              </div>
+            </Card>
+          </Col>
+        </Row>
+      </ProCard>
+
+      <ProCard title="平台列表" bordered loading={loading}>
+        <Row gutter={[12, 12]}>
+          {resolvedDownloads.map((item) => (
+            <Col xs={24} md={12} key={item.platform}>
+              <Card size="small" className={`contextCard desktopDownloadCard ${item.available ? "available" : "unavailable"}`}>
+                <div className="desktopDownloadCardInner">
+                  <div className="desktopDownloadCardHeader">
+                    <div className="desktopDownloadCardIcon">
+                      {item.platform === "mac" ? <AppleOutlined /> : <DesktopOutlined />}
+                    </div>
+                    <div className="desktopDownloadCardTitleWrap">
+                      <Title level={4} className="desktopDownloadCardTitle">{item.label}</Title>
+                      <Text type="secondary">
+                        {item.available ? "已准备好安装包" : "暂未找到对应安装包"}
+                      </Text>
+                    </div>
+                  </div>
+                  <div className="desktopDownloadCardMeta">
+                    <div>
+                      <Text type="secondary">文件名</Text>
+                      <Text strong>{item.filename || "等待上传"}</Text>
+                    </div>
+                    <div>
+                      <Text type="secondary">大小</Text>
+                      <Text strong>{formatBytes(item.size_bytes)}</Text>
+                    </div>
+                    <div>
+                      <Text type="secondary">更新时间</Text>
+                      <Text strong>{formatDateTime(item.updated_at)}</Text>
+                    </div>
+                  </div>
+                  <Button
+                    type="primary"
+                    icon={<DownloadOutlined />}
+                    disabled={!item.available}
+                    onClick={openSelector}
+                  >
+                    选择后下载
+                  </Button>
+                </div>
+              </Card>
+            </Col>
+          ))}
+        </Row>
+      </ProCard>
+    </Space>
+  );
+}
+
+function DesktopDownloadSelectionModal({
+  open,
+  downloads,
+  loading,
+  downloadingPlatform,
+  onCancel,
+  onSelectPlatform,
+}: {
+  open: boolean;
+  downloads: DesktopDownloadItem[];
+  loading: boolean;
+  downloadingPlatform: DesktopPlatform | "";
+  onCancel: () => void;
+  onSelectPlatform: (platform: DesktopPlatform) => void;
+}) {
+  const fallbackDownloads: DesktopDownloadItem[] = [
+    {
+      platform: "mac",
+      label: "macOS 版",
+      available: false,
+      filename: null,
+      download_path: "/desktop-downloads/mac/download",
+      size_bytes: null,
+      updated_at: null,
+    },
+  ];
+  const resolvedDownloads = fallbackDownloads.map((fallback) => (
+    downloads.find((item) => item.platform === fallback.platform) || fallback
+  ));
+
+  return (
+    <Modal
+      open={open}
+      title="选择桌面端版本"
+      onCancel={onCancel}
+      footer={null}
+      width={720}
+      centered
+      destroyOnHidden
+      className="desktopDownloadModal"
+    >
+      <Space direction="vertical" size={14} style={{ width: "100%" }}>
+        <Text type="secondary">先选择 macOS，再直接下载对应安装包。</Text>
+        <Row gutter={[12, 12]}>
+          {resolvedDownloads.map((item) => (
+            <Col xs={24} md={12} key={item.platform}>
+              <button
+                type="button"
+                className={`desktopDownloadChoice ${item.available ? "available" : "unavailable"}`}
+                disabled={!item.available || loading || downloadingPlatform === item.platform}
+                onClick={() => onSelectPlatform(item.platform)}
+              >
+                <div className="desktopDownloadChoiceInner">
+                  <div className="desktopDownloadChoiceHeader">
+                    <div className="desktopDownloadChoiceIcon">
+                      {item.platform === "mac" ? <AppleOutlined /> : <DesktopOutlined />}
+                    </div>
+                    <div className="desktopDownloadChoiceTitleWrap">
+                      <Title level={4} className="desktopDownloadChoiceTitle">{item.label}</Title>
+                      <Text type="secondary">
+                        {item.available ? "点击后直接下载" : "当前没有可用安装包"}
+                      </Text>
+                    </div>
+                  </div>
+                  <div className="desktopDownloadChoiceMeta">
+                    <Tag color={item.available ? "green" : "default"}>
+                      {item.available ? "可下载" : "未发布"}
+                    </Tag>
+                    <Text type="secondary">{item.filename || "等待上传"}</Text>
+                  </div>
+                </div>
+              </button>
+            </Col>
+          ))}
+        </Row>
+      </Space>
+    </Modal>
+  );
+}
+
 function ChatPanel(props: {
   messageInput: string;
   setMessageInput: (value: string) => void;
+  attachments: ChatAttachment[];
+  setAttachments: (value: ChatAttachment[]) => void;
+  openSupportedApps: () => void;
   activeThread: ThreadListItem | null;
   activeThreadId: string;
   createThread: () => void;
   renameThread: (title: string) => Promise<boolean>;
   sendMessage: () => void;
+  stopMessage: () => void;
   messages: ChatMessage[];
   isLoading: boolean;
+  statusMessage: string;
   isCreatingThread: boolean;
   isRenamingThread: boolean;
   position: Position | null;
@@ -5990,15 +6382,32 @@ function ChatPanel(props: {
   const title = props.activeThread
     ? threadDisplayTitle(props.activeThread, "employee")
     : props.activeThreadId ? shortThreadId(props.activeThreadId) : "新会话";
-  const titleDraftSource = props.activeThread?.title?.trim() || title;
+  const titleDraftSource = props.activeThread ? threadEditableTitle(props.activeThread) : title;
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState(titleDraftSource);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const isComposingRef = useRef(false);
+  const chatMessagesPaneRef = useRef<HTMLDivElement | null>(null);
+  const shouldStickToBottomRef = useRef(true);
 
   useEffect(() => {
     if (!isEditingTitle) {
       setTitleDraft(titleDraftSource);
     }
   }, [isEditingTitle, titleDraftSource]);
+
+  useEffect(() => {
+    shouldStickToBottomRef.current = true;
+  }, [props.activeThreadId]);
+
+  useEffect(() => {
+    const pane = chatMessagesPaneRef.current;
+    if (!pane || !props.messages.length || !shouldStickToBottomRef.current) {
+      return;
+    }
+
+    pane.scrollTop = pane.scrollHeight;
+  }, [props.messages, props.activeThreadId]);
 
   async function saveTitle() {
     const ok = await props.renameThread(titleDraft);
@@ -6007,9 +6416,41 @@ function ChatPanel(props: {
     }
   }
 
+  async function handleFilesSelected(event: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(event.target.files || []);
+    event.target.value = "";
+    if (!files.length) {
+      return;
+    }
+
+    const oversized = files.find((file) => file.size > 12 * 1024 * 1024);
+    if (oversized) {
+      message.warning(`文件过大：${oversized.name}，单个文件不能超过 12MB`);
+      return;
+    }
+
+    try {
+      const nextAttachments = await Promise.all(files.map(fileToChatAttachment));
+      props.setAttachments([...props.attachments, ...nextAttachments]);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : "附件读取失败");
+    }
+  }
+
   return (
     <ProCard bordered className="chatWorkspace" bodyStyle={{ padding: 0, height: "100%" }}>
-      <div className="chatMessagesPane">
+      <div
+        className="chatMessagesPane"
+        ref={chatMessagesPaneRef}
+        onScroll={() => {
+          const pane = chatMessagesPaneRef.current;
+          if (!pane) {
+            return;
+          }
+          const distanceToBottom = pane.scrollHeight - pane.scrollTop - pane.clientHeight;
+          shouldStickToBottomRef.current = distanceToBottom < 72;
+        }}
+      >
         <MessageList
           messages={props.messages}
           confirmingEnterpriseWechatKey={props.confirmingEnterpriseWechatKey}
@@ -6020,113 +6461,164 @@ function ChatPanel(props: {
       </div>
 
       <div className="chatComposerWrap">
-        <div className="chatThreadBar">
-          <Space size={8} className="chatThreadInfo">
-            <MessageOutlined />
-            <span className="chatThreadTitleGroup">
-              {isEditingTitle ? (
-                <Input
-                  size="small"
-                  className="chatThreadTitleInput"
-                  value={titleDraft}
-                  maxLength={120}
-                  autoFocus
-                  onChange={(event) => setTitleDraft(event.target.value)}
-                  onPressEnter={() => void saveTitle()}
-                />
-              ) : (
-                <Text strong className="chatThreadTitle">{title}</Text>
-              )}
-              {props.activeThreadId ? (
-                isEditingTitle ? (
-                  <>
-                    <Button
-                      size="small"
-                      type="primary"
-                      aria-label="保存会话标题"
-                      loading={props.isRenamingThread}
-                      disabled={!titleDraft.trim()}
-                      onClick={() => void saveTitle()}
-                    >
-                      保存
-                    </Button>
-                    <Button
-                      size="small"
-                      aria-label="取消修改会话标题"
-                      disabled={props.isRenamingThread}
-                      onClick={() => {
-                        setTitleDraft(titleDraftSource);
-                        setIsEditingTitle(false);
-                      }}
-                    >
-                      取消
-                    </Button>
-                  </>
-                ) : (
-                  <Tooltip title="修改会话标题">
-                    <Button
-                      size="small"
-                      aria-label="修改会话标题"
-                      icon={<EditOutlined />}
-                      onClick={() => {
-                        setTitleDraft(titleDraftSource);
-                        setIsEditingTitle(true);
-                      }}
-                    />
-                  </Tooltip>
-                )
-              ) : null}
-            </span>
-            <Tag color={props.activeThreadId ? "blue" : "default"}>
-              {props.activeThreadId ? "已保存" : "待创建"}
-            </Tag>
-          </Space>
-          <Space size={8} className="chatThreadActions">
-            {props.activeThreadId ? (
-              <Tooltip title={props.activeThreadId}>
-                <Text type="secondary" className="chatThreadReadonlyId">
-                  {shortThreadId(props.activeThreadId)}
-                </Text>
-              </Tooltip>
-            ) : null}
-            <Button
-              size="small"
-              icon={<CommentOutlined />}
-              loading={props.isCreatingThread}
-              onClick={props.createThread}
-            >
-              新会话
-            </Button>
-          </Space>
-        </div>
         <div className="chatComposer">
           <TextArea
             variant="borderless"
-            placeholder="输入当前岗位权限内的问题，按按钮发送到后端"
+            className="chatComposerInput"
+            placeholder="输入你要处理的问题或自动化指令"
             value={props.messageInput}
             onChange={(event) => props.setMessageInput(event.target.value)}
-            autoSize={{ minRows: 3, maxRows: 8 }}
+            onCompositionStart={() => {
+              isComposingRef.current = true;
+            }}
+            onCompositionEnd={() => {
+              isComposingRef.current = false;
+            }}
+            autoSize={{ minRows: 2, maxRows: 6 }}
             onPressEnter={(event) => {
-              if (!event.shiftKey) {
+              const nativeEvent = event.nativeEvent as KeyboardEvent & { isComposing?: boolean };
+              if (!event.shiftKey && !nativeEvent.isComposing && !isComposingRef.current) {
                 event.preventDefault();
                 props.sendMessage();
               }
             }}
           />
+          {props.attachments.length ? (
+            <div className="chatAttachmentStrip">
+              {props.attachments.map((attachment, index) => (
+                <div className="chatAttachmentChip" key={`${attachment.filename}-${index}`}>
+                  <TableOutlined />
+                  <span>{attachment.filename}</span>
+                  <Button
+                    type="text"
+                    size="small"
+                    aria-label={`移除附件 ${attachment.filename}`}
+                    icon={<DeleteOutlined />}
+                    onClick={() => props.setAttachments(props.attachments.filter((_, itemIndex) => itemIndex !== index))}
+                  />
+                </div>
+              ))}
+            </div>
+          ) : null}
           <div className="chatComposerFooter">
-            <Space size={8}>
-              <Tag color="blue">SSE 流式</Tag>
-              <Tag color="green">LangGraph</Tag>
-              {props.position ? <Tag color="purple">{positionLabel(props.position)}</Tag> : null}
-            </Space>
-            <Button
-              type="primary"
-              shape="circle"
-              icon={<CommentOutlined />}
-              loading={props.isLoading}
-              onClick={props.sendMessage}
-            />
+            <div className="chatComposerTools">
+              <Tooltip title="上传附件">
+                <Button
+                  type="text"
+                  aria-label="上传附件"
+                  icon={<CloudUploadOutlined />}
+                  onClick={() => fileInputRef.current?.click()}
+                />
+              </Tooltip>
+              <input
+                ref={fileInputRef}
+                className="chatFileInput"
+                type="file"
+                multiple
+                onChange={(event) => void handleFilesSelected(event)}
+              />
+              <Tooltip title="当前支持应用">
+                <Button
+                  type="text"
+                  aria-label="当前支持应用"
+                  icon={<AppstoreOutlined />}
+                  onClick={props.openSupportedApps}
+                />
+              </Tooltip>
+            </div>
+            <div className="chatConversationDock">
+              {isEditingTitle ? (
+                <>
+                  <Input
+                    size="small"
+                    className="chatThreadTitleInput"
+                    value={titleDraft}
+                    maxLength={120}
+                    autoFocus
+                    onChange={(event) => setTitleDraft(event.target.value)}
+                    onPressEnter={() => void saveTitle()}
+                  />
+                  <Button
+                    size="small"
+                    type="primary"
+                    aria-label="保存会话标题"
+                    loading={props.isRenamingThread}
+                    disabled={!titleDraft.trim()}
+                    onClick={() => void saveTitle()}
+                  >
+                    保存
+                  </Button>
+                  <Button
+                    size="small"
+                    aria-label="取消修改会话标题"
+                    disabled={props.isRenamingThread}
+                    onClick={() => {
+                      setTitleDraft(titleDraftSource);
+                      setIsEditingTitle(false);
+                    }}
+                  >
+                    取消
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <Tooltip title={props.activeThreadId ? `会话 ID：${props.activeThreadId}` : "待创建会话"}>
+                    <button
+                      type="button"
+                      className="chatConversationTitle"
+                      onClick={() => {
+                        if (props.activeThreadId) {
+                          setTitleDraft(titleDraftSource);
+                          setIsEditingTitle(true);
+                        }
+                      }}
+                    >
+                      {title}
+                    </button>
+                  </Tooltip>
+                  {props.activeThreadId ? (
+                    <Tooltip title="重命名会话">
+                      <Button
+                        type="text"
+                        size="small"
+                        aria-label="重命名会话"
+                        icon={<EditOutlined />}
+                        onClick={() => {
+                          setTitleDraft(titleDraftSource);
+                          setIsEditingTitle(true);
+                        }}
+                      />
+                    </Tooltip>
+                  ) : null}
+                  <Tooltip title="新建会话">
+                    <Button
+                      type="text"
+                      size="small"
+                      aria-label="新建会话"
+                      loading={props.isCreatingThread}
+                      icon={<PlusOutlined />}
+                      onClick={props.createThread}
+                    />
+                  </Tooltip>
+                </>
+              )}
+            </div>
+            <div className="chatComposerActions">
+              {props.position ? <Tag className="chatPositionTag">{positionLabel(props.position)}</Tag> : null}
+              <Tooltip title={props.isLoading ? "终止" : "发送"}>
+                <Button
+                  type="primary"
+                  shape="circle"
+                  aria-label={props.isLoading ? "终止" : "发送"}
+                  icon={props.isLoading ? <StopOutlined /> : <SendOutlined />}
+                  onClick={props.isLoading ? props.stopMessage : props.sendMessage}
+                />
+              </Tooltip>
+            </div>
           </div>
+        </div>
+        <div className="chatStatusLine" title={props.statusMessage}>
+          {props.statusMessage}
         </div>
       </div>
     </ProCard>
@@ -17756,7 +18248,7 @@ function ThreadsPanel({
   threadSearch: string;
   setThreadSearch: (value: string) => void;
   refreshThreads: () => void;
-  openThread: (threadId: string) => void;
+  openThread: (threadId: string, options?: { navigate?: boolean; replacePath?: boolean; silent?: boolean }) => void;
   messages: ChatMessage[];
   summary: string;
   state: Record<string, unknown> | null;
@@ -17795,7 +18287,7 @@ function ThreadsPanel({
                     key={thread.id}
                     type="button"
                     className={`threadHistoryItem ${thread.id === activeThreadId ? "active" : ""}`}
-                    onClick={() => openThread(thread.id)}
+                    onClick={() => openThread(thread.id, { navigate: false })}
                   >
                     <div className="threadHistoryTitleRow">
                       <Text strong className="threadHistoryTitle">
@@ -17825,7 +18317,19 @@ function ThreadsPanel({
           title={activeThread ? threadDisplayTitle(activeThread, role) : "消息记录"}
           bordered
           className="splitCard"
-          extra={activeThreadId ? <Tag color="blue">{shortThreadId(activeThreadId)}</Tag> : null}
+          extra={activeThreadId ? (
+            <Space size={8} align="center">
+              <Button
+                size="small"
+                type="primary"
+                icon={<MessageOutlined />}
+                onClick={() => openThread(activeThreadId)}
+              >
+                跳转到对话
+              </Button>
+              <Tag color="blue">{shortThreadId(activeThreadId)}</Tag>
+            </Space>
+          ) : null}
         >
           <Space direction="vertical" size={14} className="pageStack">
             <MessageList messages={messages} />
@@ -18051,20 +18555,73 @@ function MessageList({
     );
   }
 
+  async function copyMessageContent(content: string) {
+    if (!content.trim()) {
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(content);
+      message.success("已复制回答");
+    } catch {
+      message.error("复制失败，请检查浏览器权限");
+    }
+  }
+
   return (
     <div className="messageList">
       {messages.map((item) => {
         const confirmationCard = enterpriseWechatConfirmationCardFromMessage(item);
+        const downloadableAttachment = item.attachments?.find((attachment) => (
+          Boolean(chatAttachmentArtifactId(attachment) || attachment.content_base64)
+        ));
+        const downloadableArtifactId = downloadableAttachment
+          ? chatAttachmentArtifactId(downloadableAttachment)
+          : "";
 
         return (
           <div key={item.id} className={`messageRow ${item.role}`}>
+            {item.role !== "user" ? (
+              <div className="messageAvatar assistant" aria-hidden="true">
+                <RobotOutlined />
+              </div>
+            ) : null}
             <div className={`messageBubble ${item.role}`}>
-              <div className="messageHeader">
-                <Space size={8}>
-                  <Tag color={roleColor(item.role)}>{roleLabelForMessage(item.role)}</Tag>
-                  {item.route ? <Tag color={routeColor(item.route)}>{labelForRoute(item.route)}</Tag> : null}
-                </Space>
-                <Text type="secondary">{item.createdAt}</Text>
+                <div className="messageHeader">
+                  <div className="messageIdentity">
+                  <span className="messageRoleLabel">{roleLabelForMessage(item.role)}</span>
+                  </div>
+                <div className="messageMetaRight">
+                  {item.role !== "user" && item.content ? (
+                    <Tooltip title="复制回答">
+                      <Button
+                        type="text"
+                        size="small"
+                        aria-label="复制回答"
+                        icon={<CopyOutlined />}
+                        onClick={() => void copyMessageContent(item.content)}
+                      />
+                    </Tooltip>
+                  ) : null}
+                  {item.role !== "user" && downloadableAttachment ? (
+                    <Tooltip title="下载文件">
+                      <Button
+                        type="text"
+                        size="small"
+                        aria-label="下载文件"
+                        icon={<DownloadOutlined />}
+                        loading={Boolean(downloadableArtifactId && downloadingArtifactId === downloadableArtifactId)}
+                        onClick={() => {
+                          if (downloadableArtifactId && onDownloadGeneratedArtifact) {
+                            void onDownloadGeneratedArtifact(downloadableArtifactId, downloadableAttachment.filename);
+                            return;
+                          }
+                          downloadBase64Attachment(downloadableAttachment);
+                        }}
+                      />
+                    </Tooltip>
+                  ) : null}
+                  <Text type="secondary">{item.createdAt}</Text>
+                </div>
               </div>
               {item.businessProgress ? (
                 <div className="messageBusinessProgress">
@@ -18101,7 +18658,7 @@ function MessageList({
                         </Space>
                         <Button
                           size="small"
-                          type="primary"
+                          type="text"
                           icon={<DownloadOutlined />}
                           loading={Boolean(artifactId && downloadingArtifactId === artifactId)}
                           disabled={!canDownloadArtifact && !canDownloadBase64}
@@ -18112,9 +18669,8 @@ function MessageList({
                             }
                             downloadBase64Attachment(attachment);
                           }}
-                        >
-                          下载文件
-                        </Button>
+                          aria-label={`下载文件 ${attachment.filename}`}
+                        />
                       </div>
                     );
                   })}
@@ -18136,6 +18692,11 @@ function MessageList({
                 </div>
               ) : null}
             </div>
+            {item.role === "user" ? (
+              <div className="messageAvatar user" aria-hidden="true">
+                我
+              </div>
+            ) : null}
           </div>
         );
       })}
@@ -20029,6 +20590,25 @@ function formatTime(value: string | null) {
   return formatDate(value);
 }
 
+function formatDateTime(value?: string | null) {
+  if (!value) {
+    return "-";
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return date.toLocaleString("zh-CN", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 function shortThreadId(threadId: string) {
   if (!threadId) {
     return "";
@@ -20037,8 +20617,30 @@ function shortThreadId(threadId: string) {
   return threadId.length > 18 ? `${threadId.slice(0, 14)}...` : threadId;
 }
 
+function threadTitleSource(thread: ThreadListItem) {
+  const explicitTitle = thread.title?.trim();
+  if (explicitTitle && explicitTitle !== "新会话") {
+    return explicitTitle;
+  }
+
+  const firstUserMessage = thread.first_user_message_preview?.trim();
+  if (firstUserMessage) {
+    return firstUserMessage;
+  }
+
+  if (explicitTitle) {
+    return explicitTitle;
+  }
+
+  return shortThreadId(thread.id) || "未命名会话";
+}
+
+function threadEditableTitle(thread: ThreadListItem) {
+  return threadTitleSource(thread).trim();
+}
+
 function threadDisplayTitle(thread: ThreadListItem, role: Role) {
-  const baseTitle = (thread.title || thread.last_message_preview || shortThreadId(thread.id) || "未命名会话").trim();
+  const baseTitle = threadTitleSource(thread).trim();
   const cleanTitle = baseTitle.length > 28 ? `${baseTitle.slice(0, 28)}...` : baseTitle;
 
   if (role !== "admin") {

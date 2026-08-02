@@ -9,7 +9,6 @@ from fastapi import HTTPException, status
 
 from app.config import settings
 from app.db import execute, fetch_all, fetch_one
-from app.json_utils import dumps_json
 from app.services.run_record_service import isoformat, preview_text, record_artifact, sanitize_metadata
 
 
@@ -244,6 +243,22 @@ def get_latest_generated_file_for_thread(
     current_user: dict,
     allowed_types: set[str] | None = None,
 ) -> dict[str, Any] | None:
+    files = list_recent_generated_files_for_thread(
+        thread_id=thread_id,
+        current_user=current_user,
+        allowed_types=allowed_types,
+        limit=10,
+    )
+    return files[0] if files else None
+
+
+def list_recent_generated_files_for_thread(
+    *,
+    thread_id: str,
+    current_user: dict,
+    allowed_types: set[str] | None = None,
+    limit: int = 5,
+) -> list[dict[str, Any]]:
     cleanup_expired_generated_files()
     types = allowed_types or DOWNLOADABLE_ARTIFACT_TYPES
     rows = fetch_all(
@@ -261,17 +276,18 @@ def get_latest_generated_file_for_thread(
           AND (a.expires_at IS NULL OR a.expires_at > now())
           AND a.artifact_type = ANY(%s)
         ORDER BY a.created_at DESC
-        LIMIT 10;
+        LIMIT %s;
         """,
-        (thread_id, list(types)),
+        (thread_id, list(types), max(1, min(limit, 20))),
     )
 
+    files: list[dict[str, Any]] = []
     for row in rows:
         try:
-            return get_generated_file_storage_reference(str(row[0]), current_user=current_user)
+            files.append(get_generated_file_storage_reference(str(row[0]), current_user=current_user))
         except HTTPException:
             continue
-    return None
+    return files
 
 
 def cleanup_expired_generated_files() -> int:

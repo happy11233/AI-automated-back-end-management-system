@@ -6,6 +6,7 @@ from datetime import date
 from io import BytesIO
 from typing import Any, Callable
 
+from app.services.run_record_service import list_runs
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
@@ -16,6 +17,11 @@ from app.erp.providers import get_active_provider
 from app.erp.resources import provider_fields_for, provider_resource_for
 from app.permissions import ensure_erp_resource_allowed, is_valid_position
 from app.services.automation_flow_version_service import resolve_flow_execution_reference
+from app.services.external_action_gateway_service import (
+    recognize_external_action_intent,
+    resolve_external_action_followup_intent,
+    resolve_external_action_message,
+)
 from app.services.finance_salary_service import FinanceSalaryExportResult, recognize_salary_export_intent
 from app.services.finance_salary_wechat_service import (
     FINANCE_WECHAT_STATUS_LABELS,
@@ -34,6 +40,8 @@ from app.skills.executor import execute_skill
 
 PLAN_EXECUTE_WORKFLOW_ID = "finance_monthly_package_wechat_send"
 PLAN_EXECUTE_APP_ID = "agent-plan-execute-finance-package"
+CHAT_PLAN_EXECUTE_WORKFLOW_ID = "chat_plan_execute"
+CHAT_PLAN_EXECUTE_APP_ID = "agent-chat-plan-execute"
 EXCEL_MIME_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 
@@ -46,6 +54,8 @@ class AgentTaskRoute:
     confidence: float
     estimated_step_count: int
     requires_plan_execute: bool
+    complex_kind: str | None = None
+    resume_run_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -68,8 +78,41 @@ class FinanceReportWorkbookResult:
 ProgressCallback = Callable[[dict[str, Any]], None]
 
 
-def classify_agent_task(message: str, current_user: dict) -> AgentTaskRoute:
-    text = " ".join((message or "").strip().split())
+def classify_agent_task(
+    message: str,
+    current_user: dict,
+    thread_id: str | None = None,
+    attachments: list[dict[str, Any]] | None = None,
+) -> AgentTaskRoute:
+    raw_text = " ".join((message or "").strip().split())
+    text, pending_external_action = resolve_external_action_message(raw_text, thread_id)
+    if pending_external_action and pending_external_action.get("active"):
+        pending_plan = resolve_external_action_followup_intent(raw_text, thread_id, attachments or [])
+        if pending_plan is not None:
+            return AgentTaskRoute(
+                mode="plan_execute",
+                workflow_id=CHAT_PLAN_EXECUTE_WORKFLOW_ID,
+                intent="external_action_gateway",
+                reason=pending_plan.reason,
+                confidence=pending_plan.confidence,
+                estimated_step_count=5,
+                requires_plan_execute=True,
+                complex_kind="external_action",
+            )
+
+    external_action = recognize_external_action_intent(text, attachments or [])
+    if external_action is not None:
+        return AgentTaskRoute(
+            mode="plan_execute",
+            workflow_id=CHAT_PLAN_EXECUTE_WORKFLOW_ID,
+            intent="external_action_gateway",
+            reason=external_action.reason,
+            confidence=external_action.confidence,
+            estimated_step_count=5,
+            requires_plan_execute=True,
+            complex_kind="external_action",
+        )
+
     if _looks_like_finance_monthly_package_wechat(text, current_user):
         return AgentTaskRoute(
             mode="plan_execute",
@@ -79,6 +122,33 @@ def classify_agent_task(message: str, current_user: dict) -> AgentTaskRoute:
             confidence=0.96,
             estimated_step_count=len(build_finance_monthly_package_plan(message)),
             requires_plan_execute=True,
+            complex_kind="finance_monthly_package",
+        )
+
+    if _looks_like_resume_request(text):
+        return AgentTaskRoute(
+            mode="plan_execute",
+            workflow_id=CHAT_PLAN_EXECUTE_WORKFLOW_ID,
+            intent="chat_plan_execute_resume",
+            reason="用户要求继续上一轮复杂任务。",
+            confidence=0.95,
+            estimated_step_count=3,
+            requires_plan_execute=True,
+            complex_kind="general_complex_task",
+            resume_run_id=_find_resume_run_id(thread_id=thread_id, current_user=current_user) if thread_id else None,
+        )
+
+    generic_complex = _looks_like_generic_complex_task(text, attachments or [])
+    if generic_complex:
+        return AgentTaskRoute(
+            mode="plan_execute",
+            workflow_id=CHAT_PLAN_EXECUTE_WORKFLOW_ID,
+            intent="chat_plan_execute",
+            reason="用户发起了需要多步骤、多工具协作的复杂任务。",
+            confidence=float(generic_complex["confidence"]),
+            estimated_step_count=int(generic_complex["estimated_step_count"]),
+            requires_plan_execute=True,
+            complex_kind=str(generic_complex["complex_kind"]),
         )
 
     return AgentTaskRoute(
@@ -675,6 +745,76 @@ def _looks_like_finance_monthly_package_wechat(text: str, current_user: dict) ->
     return has_salary and has_report and has_send and has_wechat and has_merge_or_multi
 
 
+def _looks_like_resume_request(text: str) -> bool:
+    lowered = text.lower()
+    return any(keyword in lowered for keyword in ["继续上一次计划", "继续上次计划", "继续", "恢复上一次计划", "重试上一次计划"])
+
+
+def _looks_like_generic_complex_task(text: str, attachments: list[dict[str, Any]]) -> dict[str, Any] | None:
+    lowered = text.lower()
+    complex_markers = [
+        "然后",
+        "再",
+        "并且",
+        "同时",
+        "最后",
+        "先",
+        "接着",
+        "合并",
+        "整理后",
+        "整理成",
+        "写入",
+        "填入",
+        "打开",
+        "搜索",
+        "生成",
+        "发送",
+        "发给",
+        "上传",
+        "下载",
+        "确认",
+    ]
+    send_markers = ["微信", "企业微信", "邮箱", "email", "mail", "amazon", "seller central", "亚马逊"]
+    file_markers = ["excel", "xlsx", "word", "docx", "pdf", "图片", "附件", "文档", "表格"]
+    action_score = sum(1 for keyword in complex_markers if keyword in lowered)
+    send_score = sum(1 for keyword in send_markers if keyword in lowered)
+    file_score = sum(1 for keyword in file_markers if keyword in lowered)
+    attachment_score = len([item for item in attachments if isinstance(item, dict)])
+    if action_score < 3 and send_score == 0 and file_score + attachment_score < 2:
+        return None
+
+    kind = "generic_complex_task"
+    if send_score > 0 and file_score > 0:
+        kind = "generic_file_send_task"
+    elif any(keyword in lowered for keyword in ["amazon", "seller central", "listing"]):
+        kind = "generic_amazon_task"
+    elif any(keyword in lowered for keyword in ["工资", "财务", "报表"]):
+        kind = "generic_finance_task"
+
+    estimated_step_count = max(5, action_score + send_score + file_score + attachment_score)
+    return {
+        "complex_kind": kind,
+        "confidence": round(min(0.98, 0.72 + action_score * 0.05 + send_score * 0.06 + file_score * 0.04), 2),
+        "estimated_step_count": estimated_step_count,
+    }
+
+
+def _find_resume_run_id(*, thread_id: str, current_user: dict) -> str | None:
+    runs = list_runs(
+        current_user=current_user,
+        resource_type="thread",
+        resource_id=thread_id,
+        limit=20,
+    )
+    for run in runs:
+        if str(run.get("status") or "") not in {"failed", "blocked", "running"}:
+            continue
+        metadata = run.get("metadata") if isinstance(run.get("metadata"), dict) else {}
+        if metadata.get("workflow_id") or metadata.get("complex_kind") or metadata.get("mode") == "plan_execute":
+            return str(run.get("id"))
+    return None
+
+
 def _resolve_optional_flow_reference(
     *,
     flow_key: str,
@@ -1024,6 +1164,7 @@ def _finance_package_answer(
         f"财务报表读取：{report_counts or '暂无可统计数据'}。\n"
         f"当前状态：{wechat_execution.get('status_label') or wechat_execution.get('status')}。\n"
         "工资和财务数据属于敏感内容，发送前需要你在聊天窗口确认接收对象和敏感数据。"
+        "如果系统没有识别到唯一接收对象，可以直接手动输入企业微信 userid / chat_id / department_id 后继续。"
     )
 
 

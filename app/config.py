@@ -14,6 +14,12 @@ class Settings(BaseSettings):
     rag_multi_query_count: int = 3
     rag_final_top_k: int = 5
     rag_min_score: float = 0.05
+    rag_pdf_parser: str = "auto"
+    rag_mineru_command: str = "mineru"
+    rag_mineru_backend: str = "pipeline"
+    rag_mineru_timeout_seconds: int = 180
+    rag_mineru_model_source: str | None = None
+    desktop_release_dir: str = "data/desktop-releases"
     rag_enable_llm_query_rewrite: bool = False
     rag_rerank_vector_weight: float = 0.5
     rag_rerank_keyword_weight: float = 0.35
@@ -88,6 +94,11 @@ class Settings(BaseSettings):
     finance_wechat_executor_timeout_seconds: int = 12
     finance_wechat_mac_rpa_enabled: bool = False
     finance_wechat_mac_app_name: str = "WeChat"
+    desktop_agent_secret: str | None = None
+    desktop_agent_mac_automation_enabled: bool = False
+    desktop_agent_enterprise_wechat_app_name: str = "企业微信"
+    desktop_agent_music_app_name: str = "Music"
+    desktop_agent_allow_auto_send: bool = False
     amazon_playwright_enabled: bool = False
     amazon_seller_central_url: str = "https://sellercentral.amazon.com/"
     amazon_playwright_user_data_dir: str | None = None

@@ -12,6 +12,8 @@ from langchain_community.document_loaders import (
 )
 from langchain_core.documents import Document
 
+from app.rag.mineru_loader import MinerUPDFLoader, MinerUParseError, MinerUUnavailableError
+
 
 SUPPORTED_DOCUMENT_EXTENSIONS = {".txt", ".md", ".pdf", ".docx", ".xlsx", ".xls", ".csv"}
 
@@ -55,7 +57,7 @@ def _build_loader(file_path: str, suffix: str):
         return TextLoader(file_path, encoding="utf-8", autodetect_encoding=True)
 
     if suffix == ".pdf":
-        return PyPDFLoader(file_path)
+        return PdfLoaderWithMinerUFallback(file_path)
 
     if suffix == ".docx":
         return DocxTextLoader(file_path)
@@ -67,6 +69,69 @@ def _build_loader(file_path: str, suffix: str):
         return UnstructuredExcelLoader(file_path, mode="elements")
 
     raise UnsupportedDocumentTypeError(f"不支持的文件类型：{suffix}")
+
+
+class PdfLoaderWithMinerUFallback:
+    def __init__(self, file_path: str):
+        self.file_path = file_path
+
+    def load(self) -> list[Document]:
+        from app.config import settings
+
+        parser_mode = (settings.rag_pdf_parser or "auto").strip().lower()
+
+        if parser_mode == "mineru":
+            try:
+                documents = MinerUPDFLoader(
+                    self.file_path,
+                    command=settings.rag_mineru_command,
+                    backend=settings.rag_mineru_backend,
+                    timeout_seconds=settings.rag_mineru_timeout_seconds,
+                    model_source=settings.rag_mineru_model_source,
+                ).load()
+                return _tag_documents(documents, parser="mineru")
+            except (MinerUUnavailableError, MinerUParseError, OSError, ValueError):
+                raise
+
+        if parser_mode == "auto":
+            try:
+                documents = MinerUPDFLoader(
+                    self.file_path,
+                    command=settings.rag_mineru_command,
+                    backend=settings.rag_mineru_backend,
+                    timeout_seconds=settings.rag_mineru_timeout_seconds,
+                    model_source=settings.rag_mineru_model_source,
+                ).load()
+                return _tag_documents(documents, parser="mineru")
+            except (MinerUUnavailableError, MinerUParseError, OSError, ValueError):
+                return _tag_documents(
+                    PyPDFLoader(self.file_path).load(),
+                    parser="pypdf",
+                    parser_fallback="mineru",
+                )
+
+        return _tag_documents(PyPDFLoader(self.file_path).load(), parser="pypdf")
+
+
+def _tag_documents(
+    documents: list[Document],
+    *,
+    parser: str,
+    parser_fallback: str | None = None,
+) -> list[Document]:
+    tagged: list[Document] = []
+    for document in documents:
+        metadata = dict(document.metadata or {})
+        metadata.setdefault("parser", parser)
+        if parser_fallback:
+            metadata.setdefault("parser_fallback", parser_fallback)
+        tagged.append(
+            Document(
+                page_content=document.page_content,
+                metadata=metadata,
+            )
+        )
+    return tagged
 
 
 class DocxTextLoader:

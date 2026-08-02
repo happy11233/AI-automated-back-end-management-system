@@ -86,8 +86,10 @@ def export_salary_workbook_from_erp(
     current_user: dict,
     today: date | None = None,
     intent: SalaryExportIntent | None = None,
+    fallback_to_previous_month: bool = False,
 ) -> FinanceSalaryExportResult:
-    intent = intent or recognize_salary_export_intent(message, today=today)
+    current_day = today or date.today()
+    intent = intent or recognize_salary_export_intent(message, today=current_day)
     if intent.intent != "finance_salary_export":
         raise ValueError("没有识别到工资表导出意图，请说明要导出哪个月份的员工工资表。")
 
@@ -96,26 +98,26 @@ def export_salary_workbook_from_erp(
     if provider_resource is None:
         raise ValueError(f"{provider.provider_label} 暂未映射工资单资源。")
 
-    filters = [
-        ["start_date", ">=", intent.start_date.isoformat()],
-        ["end_date", "<=", intent.end_date.isoformat()],
-    ]
-    try:
-        result = provider.query_resource(
-            resource="Salary Slip",
-            provider_resource=provider_resource,
-            query=None,
-            filters=filters,
-            fields=provider_fields_for("Salary Slip", provider.provider_id),
-            limit=MAX_SALARY_ROWS,
-        )
-    except ERPProviderError as error:
-        raise ValueError(error.message) from error
-    items = result.get("items") if isinstance(result.get("items"), list) else []
-    if not result.get("ok"):
-        raise ValueError(str(result.get("message") or "ERP 工资单查询失败。"))
+    items, _result = _query_salary_slips(
+        provider=provider,
+        provider_resource=provider_resource,
+        intent=intent,
+    )
+    fallback_from_label: str | None = None
     if not items:
-        raise ValueError(f"没有查到 {intent.period_label} 的员工工资单。")
+        if fallback_to_previous_month and _should_fallback_to_previous_month(message, intent, current_day):
+            fallback_from_label = intent.period_label
+            intent = previous_month_salary_intent(intent, current_day)
+            items, _result = _query_salary_slips(
+                provider=provider,
+                provider_resource=provider_resource,
+                intent=intent,
+            )
+    if not items:
+        raise ValueError(
+            f"{provider.provider_label} 里没有查到 {intent.period_label} 的员工工资单。"
+            "请确认月份是否正确，或改成明确月份后再试，例如“生成上个月工资表”。"
+        )
 
     sorted_items = sorted(items, key=lambda item: str(item.get("employee") or item.get("employee_name") or ""))
     workbook = _build_salary_workbook(
@@ -152,6 +154,9 @@ def export_salary_workbook_from_erp(
             "matched_keywords": intent.matched_keywords,
             "output_bytes": len(content),
             "input_preview": message[:500],
+            "period_fallback_applied": bool(fallback_from_label),
+            "period_fallback_from": fallback_from_label,
+            "period_fallback_to": intent.period_label if fallback_from_label else None,
         },
         intent=intent,
         items=sorted_items,
@@ -197,6 +202,58 @@ def _month_range(year: int, month: int) -> tuple[date, date, str]:
     start_date = date(year, month, 1)
     end_date = date(year, month, last_day)
     return start_date, end_date, f"{year}年{month:02d}月"
+
+
+def previous_month_salary_intent(intent: SalaryExportIntent, today: date | None = None) -> SalaryExportIntent:
+    current_day = today or date.today()
+    year = current_day.year
+    month = current_day.month - 1
+    if month == 0:
+        year -= 1
+        month = 12
+    start_date, end_date, period_label = _month_range(year, month)
+    return SalaryExportIntent(
+        intent=intent.intent,
+        period_label=period_label,
+        start_date=start_date,
+        end_date=end_date,
+        output_format=intent.output_format,
+        confidence=intent.confidence,
+        matched_keywords=_dedupe([*intent.matched_keywords, "自动回退上个月"]),
+    )
+
+
+def _query_salary_slips(*, provider, provider_resource: str, intent: SalaryExportIntent) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    filters = [
+        ["start_date", ">=", intent.start_date.isoformat()],
+        ["end_date", "<=", intent.end_date.isoformat()],
+    ]
+    try:
+        result = provider.query_resource(
+            resource="Salary Slip",
+            provider_resource=provider_resource,
+            query=None,
+            filters=filters,
+            fields=provider_fields_for("Salary Slip", provider.provider_id),
+            limit=MAX_SALARY_ROWS,
+        )
+    except ERPProviderError as error:
+        raise ValueError(error.message) from error
+    items = result.get("items") if isinstance(result.get("items"), list) else []
+    if not result.get("ok"):
+        raise ValueError(str(result.get("message") or "ERP 工资单查询失败。"))
+    return items, result
+
+
+def _should_fallback_to_previous_month(message: str, intent: SalaryExportIntent, today: date) -> bool:
+    text = " ".join((message or "").strip().split())
+    if re.search(r"20\d{2}[-年/\.](0?[1-9]|1[0-2])", text):
+        return False
+    if re.search(r"(?<![上下本这当前])(?:0?[1-9]|1[0-2])月", text):
+        return False
+    if any(keyword in text for keyword in ["上个月", "上月", "下个月", "下月", "last month", "next month"]):
+        return False
+    return intent.start_date.year == today.year and intent.start_date.month == today.month
 
 
 def _build_salary_workbook(
@@ -335,6 +392,18 @@ def _auto_width(sheet) -> None:
 
 def _money_sum(items: list[dict[str, Any]], key: str) -> float:
     return round(sum(_clean_money(item.get(key)) for item in items), 2)
+
+
+def _dedupe(values: list[str]) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        text = str(value or "").strip()
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        result.append(text)
+    return result
 
 
 def _clean_money(value: Any) -> float:

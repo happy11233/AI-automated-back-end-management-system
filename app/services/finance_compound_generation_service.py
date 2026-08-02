@@ -15,7 +15,12 @@ from app.services.agent_execution_service import (
     FinanceReportWorkbookResult,
     build_monthly_finance_report_workbook,
 )
-from app.services.email_service import EmailAttachment, email_result_metadata, send_email_with_attachments
+from app.services.email_service import (
+    EmailAttachment,
+    email_result_metadata,
+    resolve_email_recipient,
+    send_email_with_attachments,
+)
 from app.services.finance_compound_intent_service import (
     FINANCE_COMPOUND_INTENT,
     FINANCE_REPORT_OUTPUT,
@@ -288,13 +293,20 @@ def execute_finance_compound_generation(
 
     email_metadata = {"email_requested": intent.email_requested, "email_sent": False}
     if intent.email_requested:
+        email_recipient, email_recipient_source = resolve_email_recipient(
+            message,
+            current_user.get("email"),
+        )
         email_result = send_email_with_attachments(
-            to_email=current_user.get("email"),
+            to_email=email_recipient,
             subject=f"{intent.period_label}财务资料",
             body=_email_body(current_user=current_user, intent=intent, attachments=attachments),
             attachments=[item.to_email_attachment() for item in attachments],
         )
-        email_metadata = email_result_metadata(email_result)
+        email_metadata = {
+            **email_result_metadata(email_result),
+            "email_recipient_source": email_recipient_source,
+        }
         _record_step(
             run_id,
             step_name="finance_compound_email_delivery",
@@ -460,7 +472,7 @@ def _build_answer(
         else:
             lines.append(f"你要求发送到邮箱，但邮件未发送成功：{email_metadata.get('error') or '未配置邮箱地址'}")
     elif intent.wechat_requested:
-        lines.append("你提到了微信发送，敏感财务资料发送需要单独确认联系人和审批，本次先生成可下载附件。")
+        lines.append("你提到了微信发送，本次会在聊天窗口展示企业微信发送确认卡，确认后由后端发送文件。")
     else:
         lines.append("你没有要求发送邮箱或微信，本次只在对话中输出并生成可下载附件。")
 

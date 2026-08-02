@@ -8,11 +8,12 @@ from app.services.context_service import (
     get_thread_summary,
     list_user_memories,
 )
-from app.services.logging_service import get_thread, list_thread_messages
 from app.services.logging_service import (
     create_chat_thread,
+    get_thread_for_user,
     list_chat_threads,
     get_latest_thread_for_user,
+    list_thread_messages_for_user,
     update_chat_thread_title,
 )
 
@@ -70,10 +71,6 @@ def create_thread(
 def get_latest_thread(
     current_user: dict = Depends(get_current_user),
 ):
-    if current_user["role"] == "admin":
-        items = list_chat_threads(current_user=current_user, limit=1)
-        return {"item": items[0] if items else None}
-
     return {
         "item": get_latest_thread_for_user(current_user["id"], current_user.get("position")),
     }
@@ -85,28 +82,12 @@ def update_thread(
     request: ThreadUpdateRequest,
     current_user: dict = Depends(get_current_user),
 ):
-    thread = get_thread(thread_id)
+    thread = get_thread_for_user(thread_id, current_user)
 
     if thread is None:
         raise HTTPException(
             status_code=404,
-            detail="会话不存在",
-        )
-
-    if current_user["role"] != "admin" and thread["user_id"] != current_user["id"]:
-        raise HTTPException(
-            status_code=403,
-            detail="没有权限修改该会话",
-        )
-
-    if (
-        current_user["role"] != "admin"
-        and thread.get("position")
-        and thread.get("position") != current_user.get("position")
-    ):
-        raise HTTPException(
-            status_code=403,
-            detail="没有权限修改其他岗位的会话",
+            detail="会话不存在或无权访问",
         )
 
     title = request.title.strip()
@@ -126,36 +107,20 @@ def get_messages(
     thread_id: str,
     current_user: dict = Depends(get_current_user),
 ):
-    thread = get_thread(thread_id)
+    thread = get_thread_for_user(thread_id, current_user)
 
     if thread is None:
         raise HTTPException(
             status_code=404,
-            detail="会话不存在",
+            detail="会话不存在或无权访问",
         )
 
-    if current_user["role"] != "admin" and thread["user_id"] != current_user["id"]:
-        raise HTTPException(
-            status_code=403,
-            detail="没有权限查看该会话",
-        )
-
-    if (
-        current_user["role"] != "admin"
-        and thread.get("position")
-        and thread.get("position") != current_user.get("position")
-    ):
-        raise HTTPException(
-            status_code=403,
-            detail="没有权限查看其他岗位的会话",
-        )
-
-    memory_user_id = thread["user_id"] or current_user["id"]
+    messages = list_thread_messages_for_user(thread_id, current_user)
 
     return {
         "thread": thread,
         "summary": get_thread_summary(thread_id),
         "state": get_thread_state(thread_id),
-        "memories": list_user_memories(memory_user_id, limit=20),
-        "messages": list_thread_messages(thread_id),
+        "memories": list_user_memories(current_user["id"], limit=20),
+        "messages": messages or [],
     }

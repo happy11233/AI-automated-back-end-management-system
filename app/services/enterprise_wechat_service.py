@@ -361,15 +361,16 @@ def search_enterprise_wechat_recipients(
         for item in items
         if item["name"] == normalized_query or normalized_query in item.get("aliases", [])
     ]
-    selected_item = exact_items[0] if len(exact_items) == 1 and len(items) == 1 else None
+    selected_item = exact_items[0] if len(exact_items) == 1 else None
+    needs_selection = not bool(selected_item) and len(items) != 1
 
     return {
         "query": normalized_query,
         "items": items,
         "matched_count": len(items),
-        "needs_selection": len(items) != 1,
+        "needs_selection": needs_selection,
         "selected_item": selected_item,
-        "message": _candidate_message(normalized_query, items),
+        "message": _candidate_message(normalized_query, items, selected_item=selected_item, needs_selection=needs_selection),
         "source": "enterprise_wechat_contacts" if rows else "users_fallback",
         "display_fields": ["头像", "姓名", "对象类型", "部门", "手机号后四位"],
         "llm_direct_execution_allowed": False,
@@ -1026,12 +1027,20 @@ def _contact_row_to_public(row) -> dict[str, Any]:
     }
 
 
-def _candidate_message(query: str, items: list[dict[str, Any]]) -> str:
+def _candidate_message(
+    query: str,
+    items: list[dict[str, Any]],
+    *,
+    selected_item: dict[str, Any] | None = None,
+    needs_selection: bool = True,
+) -> str:
     if not items:
-        return f"没有在企业微信通讯录中找到“{query}”。"
+        return f"没有在企业微信通讯录中找到“{query}”。你可以直接手动输入 userid / chat_id / department_id 后继续。"
+    if selected_item and not needs_selection:
+        return f"已找到最匹配的企业微信接收对象：{selected_item['name']}。发送前仍需要你确认。"
     if len(items) == 1:
         return f"已找到 1 个企业微信接收对象，发送前仍需要你确认。"
-    return f"找到 {len(items)} 个可能的接收对象，请先选择正确的人、群聊或部门。"
+    return f"找到 {len(items)} 个可能的接收对象，请先选择正确的人、群聊或部门。若都不对，可手动输入 userid / chat_id / department_id。"
 
 
 def _send_target_for_contact(

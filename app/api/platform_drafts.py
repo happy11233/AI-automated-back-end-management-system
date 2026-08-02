@@ -116,6 +116,7 @@ class AmazonListingUploadRequest(BaseModel):
     confirmed: bool = False
     upload_mode: Literal["auto", "web_form", "batch_excel"] = "auto"
     target_marketplace: str | None = Field(default=None, max_length=20)
+    category_path: str | None = Field(default=None, max_length=500)
     price: float | None = None
     inventory: int | None = None
 
@@ -218,6 +219,7 @@ def prepare_amazon_listing_upload(
         confirmed=request.confirmed,
         upload_mode=request.upload_mode,
         target_marketplace=request.target_marketplace,
+        category_path=request.category_path,
         price=request.price,
         inventory=request.inventory,
     )
