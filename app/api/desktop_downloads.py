@@ -42,12 +42,11 @@ def list_desktop_downloads(current_user: dict = Depends(get_current_user)):
     return {"items": [_build_release_item(platform, release_file)]}
 
 
+@router.head("/{platform}/download", include_in_schema=False)
 @router.get("/{platform}/download")
 def download_desktop_release(
     platform: DesktopPlatform,
-    current_user: dict = Depends(get_current_user),
 ):
-    del current_user
     release_file = _find_latest_release_file(platform)
     if release_file is None:
         raise HTTPException(

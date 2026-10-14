@@ -20,6 +20,8 @@ services:
   api:
     build: .
     container_name: company-rag-api
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     env_file:
       - .env
     environment:

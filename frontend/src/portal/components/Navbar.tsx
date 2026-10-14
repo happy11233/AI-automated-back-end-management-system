@@ -1,4 +1,4 @@
-import { Bot, ExternalLink, Languages, LogIn, MapPin } from "lucide-react";
+import { Bot, ExternalLink, Languages, MapPin } from "lucide-react";
 import { motion } from "framer-motion";
 import type { Language } from "../data/content";
 import { content } from "../data/content";
@@ -6,11 +6,10 @@ import { content } from "../data/content";
 interface NavbarProps {
   language: Language;
   onLanguageChange: () => void;
-  onLoginClick: () => void;
   onLLMClick: () => void;
 }
 
-export function Navbar({ language, onLanguageChange, onLoginClick, onLLMClick }: NavbarProps) {
+export function Navbar({ language, onLanguageChange, onLLMClick }: NavbarProps) {
   return (
     <motion.header
       initial={{ opacity: 0, y: -18 }}
@@ -40,14 +39,6 @@ export function Navbar({ language, onLanguageChange, onLoginClick, onLLMClick }:
             <MapPin size={13} strokeWidth={2.2}/>
             {content.location[language]}
           </span>
-          <button
-              type="button"
-              onClick={onLoginClick}
-              className="inline-flex h-9 items-center gap-1.5 rounded-full border border-black/[0.08] bg-white px-3 text-black/[0.78] shadow-sm transition hover:bg-black/[0.07] hover:text-black"
-          >
-            <LogIn size={14} strokeWidth={2.2}/>
-            {language === "zh" ? "登录" : "Login"}
-          </button>
           <button
               type="button"
               onClick={onLLMClick}

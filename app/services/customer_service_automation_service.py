@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -10,7 +11,8 @@ from fastapi import HTTPException, status
 from app.db import execute, fetch_all, fetch_one
 from app.graph.extractors import extract_order_no_from_text
 from app.json_utils import dumps_json
-from app.llm import chat
+from app.config import settings
+from app.llm import chat_fast
 from app.permissions import POSITION_LABELS, is_valid_position
 from app.rag.qa import answer_question
 from app.services.erp_service import query_erp_for_current_user, summarize_erp_items
@@ -375,8 +377,11 @@ def process_customer_message(*, message_id: str, current_user: dict) -> dict[str
             duration_ms=elapsed_ms(intent_started_ms),
         )
 
-        erp_started_ms = now_ms()
-        erp_result = _query_customer_erp(item=item, classification=classification, current_user=current_user)
+        erp_result, erp_duration_ms, rag_result, rag_duration_ms = _fetch_customer_context(
+            item=item,
+            classification=classification,
+            current_user=current_user,
+        )
         erp_summary = _erp_summary_from_result(erp_result)
         _record_loop_step(
             steps=steps,
@@ -386,7 +391,7 @@ def process_customer_message(*, message_id: str, current_user: dict) -> dict[str
             status_value="succeeded" if erp_result.get("ok") else "blocked",
             input_text=_erp_query_text(item, classification),
             output_text=erp_summary or erp_result.get("message"),
-            duration_ms=elapsed_ms(erp_started_ms),
+            duration_ms=erp_duration_ms,
             metadata={
                 "resource": erp_result.get("resource"),
                 "status": erp_result.get("status"),
@@ -394,15 +399,6 @@ def process_customer_message(*, message_id: str, current_user: dict) -> dict[str
             },
         )
 
-        rag_started_ms = now_ms()
-        rag_result = answer_question(
-            question=_rag_question(item, classification),
-            role="employee",
-            user_id=current_user.get("id"),
-            department="客服部",
-            position="customer_service",
-            top_k=5,
-        )
         rag_summary = str(rag_result.get("answer") or "")
         _record_loop_step(
             steps=steps,
@@ -412,7 +408,7 @@ def process_customer_message(*, message_id: str, current_user: dict) -> dict[str
             status_value="succeeded",
             input_text=_rag_question(item, classification),
             output_text=rag_summary,
-            duration_ms=elapsed_ms(rag_started_ms),
+            duration_ms=rag_duration_ms,
             metadata={"citation_count": len(rag_result.get("citations") or [])},
         )
 
@@ -437,12 +433,14 @@ def process_customer_message(*, message_id: str, current_user: dict) -> dict[str
             )
 
         llm_started_ms = now_ms()
+        llm_metrics: dict[str, Any] = {}
         reply_draft = generate_customer_reply(
             item=item,
             classification=classification,
             erp_summary=erp_summary,
             rag_summary=rag_summary,
             decision=decision,
+            metrics=llm_metrics,
         )
         _record_loop_step(
             steps=steps,
@@ -453,6 +451,7 @@ def process_customer_message(*, message_id: str, current_user: dict) -> dict[str
             input_text=item["message"],
             output_text=reply_draft,
             duration_ms=elapsed_ms(llm_started_ms),
+            metadata=llm_metrics,
         )
 
         final_item = _finish_message_processing(
@@ -748,6 +747,7 @@ def generate_customer_reply(
     erp_summary: str,
     rag_summary: str,
     decision: dict[str, str],
+    metrics: dict[str, Any] | None = None,
 ) -> str:
     target_language = classification.get("language") or "English"
     prompt = f"""你是跨境电商企业内部的客服自动化助手。
@@ -779,7 +779,7 @@ ERP 查询摘要：
 2. 客服内部处理建议
 3. 是否需要人工介入
 """
-    return chat(prompt)
+    return chat_fast(prompt, metrics=metrics)
 
 
 def detect_customer_language(text: str) -> str:
@@ -841,6 +841,44 @@ def _external_execution_user(service_user: dict) -> dict[str, Any]:
         "department": service_user.get("department") or "客服部",
         "username": service_user.get("username") or "external_customer_service_webhook",
     }
+
+
+def _fetch_customer_context(
+    *,
+    item: dict[str, Any],
+    classification: dict[str, str],
+    current_user: dict,
+) -> tuple[dict[str, Any], int, dict[str, Any], int]:
+    def fetch_erp() -> tuple[dict[str, Any], int]:
+        started_ms = now_ms()
+        result = _query_customer_erp(item=item, classification=classification, current_user=current_user)
+        return result, elapsed_ms(started_ms)
+
+    def fetch_rag() -> tuple[dict[str, Any], int]:
+        started_ms = now_ms()
+        result = answer_question(
+            question=_rag_question(item, classification),
+            role="employee",
+            user_id=current_user.get("id"),
+            department="客服部",
+            position="customer_service",
+            top_k=5,
+            generate_answer=False,
+            multi_query_count=settings.rag_customer_multi_query_count,
+        )
+        return result, elapsed_ms(started_ms)
+
+    if settings.customer_context_parallel_enabled:
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            erp_future = executor.submit(fetch_erp)
+            rag_future = executor.submit(fetch_rag)
+            erp_result, erp_duration_ms = erp_future.result()
+            rag_result, rag_duration_ms = rag_future.result()
+    else:
+        erp_result, erp_duration_ms = fetch_erp()
+        rag_result, rag_duration_ms = fetch_rag()
+
+    return erp_result, erp_duration_ms, rag_result, rag_duration_ms
 
 
 def _query_customer_erp(

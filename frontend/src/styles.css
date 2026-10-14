@@ -2527,6 +2527,61 @@ button {
   display: flex;
 }
 
+.aiopsLiveHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.aiopsLiveGrid .ant-col {
+  display: flex;
+}
+
+.aiopsLiveGrid .ant-card {
+  width: 100%;
+  border-radius: 6px;
+}
+
+.aiopsLiveGrid .ant-card-head-wrapper {
+  flex-wrap: wrap;
+  gap: 2px 8px;
+}
+
+.aiopsLiveGrid .ant-card-body {
+  display: grid;
+  gap: 10px;
+  min-height: 190px;
+}
+
+.aiopsResourceMeter {
+  min-width: 0;
+}
+
+.aiopsResourceLabel {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.aiopsResourceMeter .ant-progress {
+  margin: 0;
+}
+
+.aiopsResourceDetail {
+  display: block;
+  font-size: 12px;
+}
+
+.aiopsServiceSignals {
+  display: flex;
+  gap: 4px 16px;
+  flex-wrap: wrap;
+  color: #4b5563;
+  font-size: 12px;
+}
+
 .monitoringMetricCard,
 .monitoringPanelCard {
   width: 100%;

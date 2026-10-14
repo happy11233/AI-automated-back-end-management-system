@@ -30,13 +30,14 @@ def load_request_matcher():
 def main() -> None:
     fake_llm = types.ModuleType("app.llm")
     fake_llm.chat = lambda _prompt: "固定测试建议：请复核金额汇总。"
+    fake_llm.chat_fast = fake_llm.chat
     sys.modules["app.llm"] = fake_llm
 
     import app.services.finance_excel_service as finance_excel_service
 
     readable_field_name = finance_excel_service._readable_field_name
     transform_finance_excel = finance_excel_service.transform_finance_excel
-    finance_excel_service.chat = lambda _prompt: "固定测试建议：请复核金额汇总。"
+    finance_excel_service.chat_fast = lambda _prompt: "固定测试建议：请复核金额汇总。"
     looks_like_transform_request = load_request_matcher()
 
     beautify_request = "将财务报表里面的内容给美化一下，每个字段都是英文单词不好读"

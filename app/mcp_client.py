@@ -8,6 +8,7 @@ from typing import Any
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
+from app.config import settings
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
@@ -43,8 +44,9 @@ async def call_mcp_tool_async(server_name: str, tool_name: str, arguments: dict[
 
     async with stdio_client(server_params) as (read_stream, write_stream):
         async with ClientSession(read_stream, write_stream) as session:
-            await session.initialize()
-            result = await session.call_tool(tool_name, arguments)
+            async with asyncio.timeout(settings.mcp_tool_timeout_seconds):
+                await session.initialize()
+                result = await session.call_tool(tool_name, arguments)
             return _extract_tool_result(result)
 
 

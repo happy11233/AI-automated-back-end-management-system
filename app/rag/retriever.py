@@ -156,6 +156,7 @@ def retrieve_chunks(
     query: str,
     role: str,
     top_k: int = 5,
+    multi_query_count: int | None = None,
     user_id: str | None = None,
     department: str | None = None,
     position: str | None = None,
@@ -173,7 +174,7 @@ def retrieve_chunks(
     )
     query_variants = build_query_variants(
         question=query,
-        count=settings.rag_multi_query_count,
+        count=multi_query_count or settings.rag_multi_query_count,
     )
 
     vector_chunks = _retrieve_vector_candidates(

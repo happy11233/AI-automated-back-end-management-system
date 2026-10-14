@@ -12,13 +12,17 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill, Side, Border
 from openpyxl.utils import get_column_letter
 
-from app.llm import chat
+from app.llm import chat_fast
 
 
 ALLOWED_EXCEL_EXTENSIONS = {".xlsx", ".xls"}
 MAX_EXCEL_BYTES = 8 * 1024 * 1024
 MAX_OUTPUT_ROWS_PER_SHEET = 2000
-MAX_PROMPT_ROWS_PER_SHEET = 12
+MAX_PROMPT_ROWS_PER_SHEET = 6
+MAX_ERP_PROMPT_ROWS = 3
+MAX_PROMPT_COLUMNS = 32
+MAX_PROMPT_CELL_CHARS = 400
+MAX_AI_PROMPT_CHARS = 18000
 
 READABLE_HEADER_KEYWORDS = (
     "美化",
@@ -200,7 +204,7 @@ def transform_finance_excel(
         instruction=normalized_instruction,
     )
     output_sheet_summaries = _build_sheet_summaries(output_sheets)
-    ai_suggestion = _build_ai_suggestion(
+    ai_suggestion, ai_suggestion_source = _build_ai_suggestion(
         instruction=normalized_instruction,
         source_filename=normalized_source_filename,
         sheets=output_sheets,
@@ -250,6 +254,7 @@ def transform_finance_excel(
             "field_mapping_count": len(field_mappings),
             "field_mappings": field_mappings[:200],
             "instruction_preview": normalized_instruction[:500],
+            "ai_suggestion_source": ai_suggestion_source,
             "output_bytes": len(output_content),
         },
     )
@@ -337,7 +342,10 @@ def _build_ai_suggestion(
     sheets: dict[str, pd.DataFrame],
     sheet_summaries: list[dict[str, Any]],
     erp_context: list[dict[str, Any]],
-) -> str:
+) -> tuple[str, str]:
+    if not _requires_ai_suggestion(instruction):
+        return _build_rule_based_suggestion(instruction), "rules"
+
     prompt = _build_ai_prompt(
         instruction=instruction,
         source_filename=source_filename,
@@ -347,13 +355,45 @@ def _build_ai_suggestion(
     )
 
     try:
-        return str(chat(prompt)).strip()
+        return str(chat_fast(prompt)).strip(), "model"
     except Exception as error:
         return (
             "AI 建议生成失败，已先输出程序整理结果。\n"
             f"失败原因：{error}\n"
             "人工复核建议：检查数值列总额、空值行、重复单号、异常负数、币种和期间是否符合本次处理要求。"
+        ), "fallback"
+
+
+def _requires_ai_suggestion(instruction: str) -> bool:
+    text = instruction.lower()
+    return any(
+        keyword in text
+        for keyword in (
+            "建议",
+            "异常",
+            "核对",
+            "分析",
+            "复核",
+            "对比",
+            "合并",
+            "利润",
+            "费用",
+            "应收",
+            "应付",
+            "现金流",
+            "风险",
+            "reconcile",
+            "analy",
+            "exception",
         )
+    )
+
+
+def _build_rule_based_suggestion(instruction: str) -> str:
+    return (
+        "本次请求属于程序化 Excel 排版/字段可读性处理，已完成表头、列宽、冻结窗格和数值格式整理。\n"
+        "人工复核建议：检查金额汇总、日期范围、空值行和字段翻译是否符合业务要求。"
+    )
 
 
 def _build_ai_prompt(
@@ -366,10 +406,17 @@ def _build_ai_prompt(
 ) -> str:
     samples: list[str] = []
     for sheet_name, frame in sheets.items():
-        sample_rows = frame.head(MAX_PROMPT_ROWS_PER_SHEET).astype(str).to_dict("records")
+        columns = [str(column)[:MAX_PROMPT_CELL_CHARS] for column in frame.columns[:MAX_PROMPT_COLUMNS]]
+        sample_rows = [
+            {
+                str(key)[:MAX_PROMPT_CELL_CHARS]: str(value)[:MAX_PROMPT_CELL_CHARS]
+                for key, value in row.items()
+            }
+            for row in frame.iloc[:MAX_PROMPT_ROWS_PER_SHEET, :MAX_PROMPT_COLUMNS].astype(str).to_dict("records")
+        ]
         samples.append(
             f"Sheet: {sheet_name}\n"
-            f"Columns: {', '.join(str(column) for column in frame.columns)}\n"
+            f"Columns: {', '.join(columns)}\n"
             f"Sample rows: {sample_rows}"
         )
 
@@ -382,12 +429,19 @@ def _build_ai_prompt(
             "ok": bool(item.get("ok")),
             "message": str(item.get("message") or "")[:300],
             "result_count": len(item.get("items") or []),
-            "sample_rows": (item.get("items") or [])[:5],
+            "sample_rows": [
+                {
+                    str(key)[:MAX_PROMPT_CELL_CHARS]: str(value)[:MAX_PROMPT_CELL_CHARS]
+                    for key, value in row.items()
+                }
+                for row in (item.get("items") or [])[:MAX_ERP_PROMPT_ROWS]
+                if isinstance(row, dict)
+            ],
         }
         for item in erp_context
     ]
 
-    return f"""你是跨境电商企业内部财务 AI 助手。
+    prompt = f"""你是跨境电商企业内部财务 AI 助手。
 请只围绕财务岗位可见数据做表格整理建议，不要输出越权内容。
 
 源文件：{source_filename}
@@ -410,6 +464,7 @@ def _build_ai_prompt(
 4. 可能的异常和复核点
 5. 如果要继续生成工资/利润/费用分析表，下一步需要补充哪些字段
 """
+    return prompt[:MAX_AI_PROMPT_CHARS]
 
 
 def _build_output_workbook(

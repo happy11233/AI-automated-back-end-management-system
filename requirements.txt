@@ -4,6 +4,7 @@ python-dotenv
 pydantic
 pydantic-settings
 psycopg[binary,pool]
+psutil
 langgraph
 langchain-openai
 langchain-core
@@ -14,7 +15,7 @@ python-multipart
 pyjwt
 pwdlib[argon2]
 langchain
-mcp
+mcp>=1.12,<2
 playwright
 pypdf
 openpyxl

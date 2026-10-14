@@ -91,6 +91,12 @@ async function runMonitoringCase({ label, account, viewport, screenshot, visible
   }
 
   await checkMonitoringTab(page, "总览", ["服务健康", "基础资产", "运行趋势", "ERP 与 AI 评测"]);
+  const liveResponse = page.waitForResponse(
+    (response) => response.url().includes("/api/monitoring-center/live-metrics") && response.status() === 200,
+    { timeout: 30000 },
+  );
+  await checkMonitoringTab(page, "AIOps 运维", ["实时资源", "服务器资源", "平台 API 容器", "功能调用指标"]);
+  await liveResponse;
   await checkMonitoringTab(page, "运行问题", ["最近问题", "慢任务 Top"]);
   await checkMonitoringTab(page, "分布分析", ["岗位运行分布", "自动化类型分布"]);
   await checkMonitoringTab(page, "连接审计", ["连接器状态", "审计动作 Top"]);

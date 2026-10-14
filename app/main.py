@@ -29,6 +29,7 @@ from app.api.effect_analytics import router as effect_analytics_router
 from app.api.evaluation_center import router as evaluation_center_router
 from app.api.feedback import router as feedback_router
 from app.api.files import router as files_router
+from app.api.internal_aiops import router as internal_aiops_router
 from app.api.monitoring_center import router as monitoring_center_router
 from app.api.mcp_tools import router as mcp_tools_router
 from app.api.notifications import router as notifications_router
@@ -49,6 +50,7 @@ from app.api.run_records import router as run_records_router
 from app.api.threads import router as threads_router
 from app.api.users import router as users_router
 from app.permissions import POSITION_LABELS, ensure_chat_allowed_for_position, is_valid_position
+from app.services.live_metrics_service import record_request
 from app.rag.ingest import (
     ALLOWED_FIELD_SCOPES,
     ALLOWED_MARKET_SCOPES,
@@ -223,6 +225,20 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def collect_feature_metrics(request, call_next):
+    started = time.monotonic()
+    status_code = 500
+    try:
+        response = await call_next(request)
+        status_code = response.status_code
+        return response
+    finally:
+        record_request(request.url.path, (time.monotonic() - started) * 1000, status_code)
+
+
 app.include_router(auth_router)
 app.include_router(ai_workflows_router)
 app.include_router(approvals_router)
@@ -237,6 +253,7 @@ app.include_router(effect_analytics_router)
 app.include_router(evaluation_center_router)
 app.include_router(feedback_router)
 app.include_router(files_router)
+app.include_router(internal_aiops_router)
 app.include_router(monitoring_center_router)
 app.include_router(mcp_tools_router)
 app.include_router(notifications_router)

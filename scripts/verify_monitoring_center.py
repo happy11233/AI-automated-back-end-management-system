@@ -23,6 +23,8 @@ def main() -> None:
     assert payload["scope"]["date_range"] == "all", payload["scope"]
     assert payload["database"]["status"] == "ok", payload["database"]
     assert payload["run_summary"]["total_runs"] >= 1, payload["run_summary"]
+    assert isinstance(payload["step_summary"], list) and payload["step_summary"], "missing step latency summary"
+    assert all("p95_duration_ms" in item and item.get("stage_type") for item in payload["step_summary"]), payload["step_summary"]
     assert isinstance(payload["service_health"], list) and payload["service_health"], "missing service health"
     assert any(item["id"] == "database" for item in payload["service_health"]), payload["service_health"]
     assert payload["connectors"]["summary"]["total"] >= 1, payload["connectors"]["summary"]
@@ -31,12 +33,27 @@ def main() -> None:
     assert payload["users"]["total_users"] >= 1, payload["users"]
     assert "detail" not in payload["erp_health"], payload["erp_health"]
 
+    live = get_json(admin_token, "/monitoring-center/live-metrics")
+    assert 0 <= live["host"]["cpu_percent"] <= 100, live["host"]
+    assert 0 <= live["host"]["memory_percent"] <= 100, live["host"]
+    assert live["host"]["memory_total_bytes"] > 0, live["host"]
+    assert live["api_container"]["memory_used_bytes"] > 0, live["api_container"]
+    assert live["database"]["status"] == "ok", live["database"]
+    assert any(item["key"] == "chat" for item in live["features"]), live["features"]
+    assert next(item for item in live["features"] if item["key"] == "auth")["requests_1m"] >= 2, live["features"]
+
     employee_forbidden = requests.get(
         f"{API_BASE_URL}/monitoring-center?date_range=all",
         headers=auth_headers(operations_token),
         timeout=30,
     )
     assert employee_forbidden.status_code == 403, employee_forbidden.text
+    live_forbidden = requests.get(
+        f"{API_BASE_URL}/monitoring-center/live-metrics",
+        headers=auth_headers(operations_token),
+        timeout=30,
+    )
+    assert live_forbidden.status_code == 403, live_forbidden.text
 
     raw_payload = json.dumps(payload, ensure_ascii=False)
     for sensitive_text in [
@@ -65,6 +82,8 @@ def main() -> None:
         "connectors": payload["connectors"]["summary"]["total"],
         "evaluation_cases": payload["evaluation"]["summary"]["total_cases"],
         "employee_forbidden": employee_forbidden.status_code,
+        "live_metrics": live["checked_at"],
+        "live_metrics_employee_forbidden": live_forbidden.status_code,
         "note": "real API, real auth, real DB/ERP/connector/evaluation aggregation; no mock/stub/fake",
     }, ensure_ascii=False))
 

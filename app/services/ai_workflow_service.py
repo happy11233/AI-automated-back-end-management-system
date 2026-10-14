@@ -5,7 +5,7 @@ from typing import Any
 
 from fastapi import HTTPException, status
 
-from app.llm import chat
+from app.llm import chat, chat_fast
 from app.permissions import POSITION_LABELS, is_valid_position
 from app.services.automation_service import build_automation_prompt
 from app.services.erp_service import query_erp_for_current_user, summarize_erp_items
@@ -403,7 +403,7 @@ def run_ai_workflow(
             input_text=safe_input,
             erp_summary=erp_summary,
         )
-        answer = chat(prompt)
+        answer = chat_fast(prompt) if workflow["execution_mode"] == "listing_draft_writeback" else chat(prompt)
         steps.append(_record_workflow_step(
             run_id=run_id,
             order=len(steps) + 1,

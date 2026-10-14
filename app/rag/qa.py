@@ -1,6 +1,7 @@
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 
+from app.config import settings
 from app.llm import chat_model
 from app.rag.retriever import retrieve_chunks
 
@@ -33,14 +34,19 @@ rag_chain = rag_prompt | chat_model | StrOutputParser()
 
 def format_context(chunks: list[dict]) -> str:
     context_parts = []
+    remaining = max(1000, settings.rag_context_max_chars)
 
     for index, chunk in enumerate(chunks, start=1):
+        if remaining <= 0:
+            break
+        content = str(chunk.get("content") or "")[: max(200, settings.rag_chunk_max_chars)]
         context_parts.append(
             f"[资料{index}]\n"
             f"标题：{chunk['title']}\n"
             f"来源：{chunk['source']}\n"
-            f"内容：{chunk['content']}"
+            f"内容：{content}"
         )
+        remaining -= len(context_parts[-1])
 
     return "\n\n".join(context_parts)
 
@@ -78,6 +84,8 @@ def answer_question(
     question: str,
     role: str,
     top_k: int = 5,
+    multi_query_count: int | None = None,
+    generate_answer: bool = True,
     user_id: str | None = None,
     department: str | None = None,
     position: str | None = None,
@@ -90,6 +98,7 @@ def answer_question(
         question,
         role=role,
         top_k=top_k,
+        multi_query_count=multi_query_count,
         user_id=user_id,
         department=department,
         position=position,
@@ -108,10 +117,16 @@ def answer_question(
 
     context = format_context(chunks)
 
-    answer = rag_chain.invoke({
-        "context": context,
-        "question": question,
-    })
+    if generate_answer:
+        answer = rag_chain.invoke({
+            "context": context,
+            "question": question,
+        })
+    else:
+        # The caller can pass the retrieved context to a downstream response
+        # model. This avoids a second model call for workflows that already
+        # generate a final answer from the same policy snippets.
+        answer = context
 
     citations = build_citations(chunks)
 
@@ -121,6 +136,8 @@ def answer_question(
         "chunks": chunks,
         "retrieval": {
             "top_k": top_k,
+            "multi_query_count": multi_query_count,
+            "answer_generated": generate_answer,
             "department": department,
             "position": position,
             "market_scope": market_scope,

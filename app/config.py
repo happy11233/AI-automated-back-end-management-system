@@ -7,12 +7,22 @@ class Settings(BaseSettings):
     dashscope_api_key: str
     bailian_base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
     bailian_chat_model: str = "qwen-plus"
+    bailian_fast_chat_model: str | None = None
+    bailian_fast_chat_max_tokens: int = 512
+    bailian_request_timeout_seconds: int = 60
+    bailian_max_retries: int = 1
     bailian_embedding_model: str = "text-embedding-v4"
     bailian_embedding_dimensions: int = 1024
+    rag_embedding_cache_ttl_seconds: int = 300
+    rag_embedding_cache_max_entries: int = 512
     rag_vector_candidate_k: int = 20
     rag_keyword_candidate_k: int = 20
     rag_multi_query_count: int = 3
+    rag_customer_multi_query_count: int = 1
+    customer_context_parallel_enabled: bool = True
     rag_final_top_k: int = 5
+    rag_context_max_chars: int = 12000
+    rag_chunk_max_chars: int = 3000
     rag_min_score: float = 0.05
     rag_pdf_parser: str = "auto"
     rag_mineru_command: str = "mineru"
@@ -55,6 +65,7 @@ class Settings(BaseSettings):
     erp_api_key: str | None = None
     erp_api_secret: str | None = None
     erp_timeout_seconds: int = 8
+    mcp_tool_timeout_seconds: int = 15
     erp_kingdee_base_url: str | None = None
     erp_kingdee_account_id: str | None = None
     erp_kingdee_app_id: str | None = None
@@ -88,6 +99,10 @@ class Settings(BaseSettings):
     platform_action_execution_callback_timestamp_header: str = "X-Platform-Callback-Timestamp"
     platform_action_execution_callback_nonce_header: str = "X-Platform-Callback-Nonce"
     platform_action_execution_callback_tolerance_seconds: int = 300
+    aiops_service_url: str = "http://127.0.0.1:9900"
+    aiops_service_timeout_seconds: int = 8
+    aiops_monitoring_poll_interval_seconds: int = 300
+    aiops_probe_secret: str | None = None
     finance_wechat_executor_mode: str = "manual_final_click"
     finance_wechat_n8n_webhook_url: str | None = None
     finance_wechat_n8n_api_key: str | None = None

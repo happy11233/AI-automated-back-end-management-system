@@ -43,6 +43,7 @@ export interface Project {
   year: string;
   description: LocalizedText;
   tags: string[];
+  target: "automation" | "aiops" | "gateway";
 }
 
 export interface ContactMethod {
@@ -173,33 +174,36 @@ export const content: LanguageContent = {
     items: [
       {
         number: "01",
-        title: { zh: "音乐共享管理系统", en: "Music Sharing Management System" },
-        year: "2025",
+        title: { zh: "AI 自动化后台管理系统", en: "AI Automation Management System" },
+        year: "2026",
         description: {
-          zh: "面向音乐资源上传、共享、检索和用户管理的管理系统，使用的前后端技术，强调清晰权限与稳定接口。",
-          en: "A full-stack system for uploading, sharing, searching and managing music resources with clear permissions and stable APIs."
+          zh: "面向客服、运营、财务岗位的企业级 AI 工作台，整合 RAG、ERP、审批、运行记录和可审计的业务自动化闭环。",
+          en: "An enterprise AI workbench for customer service, operations and finance, combining RAG, ERP, approvals and auditable automation workflows."
         },
-        tags: ["VUE", "Bootstrap", "SQL", "JAVA"]
+        tags: ["Python", "FastAPI", "LangGraph", "PostgreSQL"],
+        target: "automation"
       },
       {
         number: "02",
-        title: { zh: "个人介绍网站", en: "Personal Introduction Website" },
+        title: { zh: "AI 网关", en: "AI Gateway" },
         year: "2026",
         description: {
-          zh: "以极简视觉和响应式布局呈现个人经历、项目与联系方式，已通过腾讯云服务器部署到公网。",
-          en: "A minimalist responsive website for personal story, projects and contact details, ready for public or private deployment."
+          zh: "统一模型目录、API Key、模型授权、RPM 限流、额度预留、主备路由、用量结算和告警的 OpenAI 兼容 API 网关。",
+          en: "An OpenAI-compatible API gateway for model catalogs, API keys, authorization, rate limits, routing, usage accounting and alerts."
         },
-        tags: ["React", "TypeScript", "Motion", "Tailwind"]
+        tags: ["React", "FastAPI", "MySQL", "Docker"],
+        target: "gateway"
       },
       {
         number: "03",
-        title: { zh: "RAG 知识库系统", en: "RAG Knowledge Base System" },
+        title: { zh: "AIOps 运维中心", en: "AIOps Operations Center" },
         year: "2026",
         description: {
-          zh: "构建可检索、可溯源、可迭代的私域知识问答链路，整合 LLM、Embedding 与文档处理。",
-          en: "A retrieval-augmented private knowledge QA flow integrating LLMs, embeddings and document processing."
+          zh: "围绕请求量、延迟、错误率和异常事件的监控与诊断中心，支持问题详情、修复动作和运行指标追踪。",
+          en: "A monitoring and diagnosis center for traffic, latency, error rates and incidents, with repair actions and live operational metrics."
         },
-        tags: ["Python", "LLM", "RAG", "AI Agent"]
+        tags: ["AIOps", "Observability", "FastAPI", "React"],
+        target: "aiops"
       }
     ]
   },

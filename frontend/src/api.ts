@@ -1,5 +1,10 @@
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "/api";
 
+export function buildApiUrl(path: string) {
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  return `${API_BASE_URL}${normalizedPath}`;
+}
+
 export type LoginResponse = {
   access_token: string;
   token_type: string;
@@ -1717,7 +1722,10 @@ export type MonitoringRunSummary = {
   failure_rate: number;
   blocked_rate: number;
   avg_duration_ms: number;
+  p50_duration_ms: number;
   p95_duration_ms: number;
+  p99_duration_ms: number;
+  duration_samples: number;
   latest_run_at: string | null;
   active_users: number;
 };
@@ -1752,7 +1760,27 @@ export type MonitoringRunTypeSummary = {
   blocked_runs: number;
   success_rate: number;
   avg_duration_ms: number;
+  p50_duration_ms: number;
+  p95_duration_ms: number;
+  p99_duration_ms: number;
+  duration_samples: number;
   latest_run_at: string | null;
+};
+
+export type MonitoringStepSummary = {
+  step_name: string;
+  provider: string;
+  stage_type: string;
+  total_steps: number;
+  succeeded_steps: number;
+  failed_steps: number;
+  blocked_steps: number;
+  avg_duration_ms: number;
+  p50_duration_ms: number;
+  p95_duration_ms: number;
+  p99_duration_ms: number;
+  duration_samples: number;
+  latest_step_at: string | null;
 };
 
 export type MonitoringRunEvent = {
@@ -1858,6 +1886,132 @@ export type MonitoringServiceHealthItem = {
   metric: string;
 };
 
+export type MonitoringAiopsHealth = {
+  status: string;
+  message: string;
+  checked_at: string | null;
+  base_url: string | null;
+};
+
+export type MonitoringAiopsSummary = {
+  service_target_count: number;
+  enabled_service_target_count: number;
+  incident_count: number;
+  open_incident_count: number;
+  critical_open_incident_count: number;
+  action_required_count: number;
+  remediating_count: number;
+  resolved_count: number;
+  failed_count: number;
+  last_incident_at: string | null;
+  scheduler_enabled: boolean;
+  default_inspection_interval_seconds: number;
+  storage_backend: string;
+  poll_interval_seconds: number;
+  repairable_count: number;
+};
+
+export type MonitoringAiopsIncidentItem = {
+  incident_id: string;
+  title: string;
+  service: string;
+  environment: string;
+  namespace: string;
+  severity: string;
+  severity_label: string;
+  status: string;
+  status_label: string;
+  alert_type: string;
+  alert_type_label: string;
+  summary: string;
+  current_stage: string;
+  current_stage_label: string;
+  root_cause: string | null;
+  impact: string | null;
+  recommendation: string | null;
+  service_target_id: string | null;
+  runtime_type: string | null;
+  evidence_count: number;
+  action_count: number;
+  repair_available: boolean;
+  repair_reason: string | null;
+  latest_verification_status: string | null;
+  latest_verification_summary: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+  detail_api: string;
+  repair_api: string;
+};
+
+export type MonitoringAiopsIntegration = {
+  configured: boolean;
+  reachable: boolean;
+  status: string;
+  message: string;
+  base_url: string | null;
+  health: MonitoringAiopsHealth;
+  summary: MonitoringAiopsSummary;
+  incidents: MonitoringAiopsIncidentItem[];
+};
+
+export type MonitoringLiveMetrics = {
+  checked_at: string;
+  interval_seconds: number;
+  host: {
+    source: string;
+    cpu_percent: number | null;
+    memory_percent: number | null;
+    memory_used_bytes: number;
+    memory_total_bytes: number;
+    disk_percent: number | null;
+    disk_used_bytes: number;
+    disk_total_bytes: number;
+  };
+  api_container: {
+    source: string;
+    cpu_percent: number | null;
+    memory_percent: number | null;
+    memory_used_bytes: number;
+    memory_total_bytes: number | null;
+  };
+  database: {
+    status: string;
+    latency_ms: number | null;
+    connections: number | null;
+    size_bytes: number | null;
+  };
+  aiops: { status: string; latency_ms: number | null };
+  features: {
+    key: string;
+    label: string;
+    requests_1m: number;
+    errors_1m: number;
+    avg_latency_ms: number | null;
+    p95_latency_ms: number | null;
+  }[];
+};
+
+export type MonitoringAiopsIncidentDetailResponse = {
+  card: MonitoringAiopsIncidentItem;
+  incident: Record<string, unknown>;
+  diagnosis: Record<string, unknown> | null;
+  evidence: Record<string, unknown>[];
+  agent_steps: Record<string, unknown>[];
+  remediation_actions: Record<string, unknown>[];
+  approvals: Record<string, unknown>[];
+  executions: Record<string, unknown>[];
+  verifications: Record<string, unknown>[];
+  notifications: Record<string, unknown>[];
+  timeline: Record<string, unknown>[];
+  raw_events: Record<string, unknown>[];
+  postmortem_api: string;
+};
+
+export type MonitoringAiopsRepairResponse = {
+  run: Record<string, unknown>;
+  detail: MonitoringAiopsIncidentDetailResponse;
+};
+
 export type MonitoringCenterResponse = {
   scope: MonitoringScope;
   overall_status: string;
@@ -1866,6 +2020,7 @@ export type MonitoringCenterResponse = {
   run_trend: MonitoringTrendPoint[];
   position_summary: MonitoringPositionSummary[];
   run_type_summary: MonitoringRunTypeSummary[];
+  step_summary: MonitoringStepSummary[];
   recent_issues: MonitoringRunEvent[];
   slow_runs: MonitoringRunEvent[];
   audit_summary: MonitoringAuditSummary;
@@ -1875,6 +2030,7 @@ export type MonitoringCenterResponse = {
   evaluation: MonitoringEvaluation;
   knowledge: MonitoringKnowledge;
   users: MonitoringUsers;
+  aiops: MonitoringAiopsIntegration;
   service_health: MonitoringServiceHealthItem[];
 };
 
@@ -3457,6 +3613,10 @@ export async function listDesktopDownloads(token: string) {
   return requestJson<DesktopDownloadsResponse>("/desktop-downloads", {}, token);
 }
 
+export function getDesktopReleaseDownloadUrl(platform: DesktopPlatform) {
+  return buildApiUrl(`/desktop-downloads/${encodeURIComponent(platform)}/download`);
+}
+
 export async function downloadDesktopRelease(token: string, platform: DesktopPlatform) {
   const response = await fetch(`${API_BASE_URL}/desktop-downloads/${encodeURIComponent(platform)}/download`, {
     headers: {
@@ -3635,6 +3795,39 @@ export async function getMonitoringCenter(
   const params = new URLSearchParams();
   params.set("date_range", filters.date_range || "30d");
   return requestJson<MonitoringCenterResponse>(`/monitoring-center?${params}`, {}, token);
+}
+
+export async function getMonitoringLiveMetrics(token: string) {
+  return requestJson<MonitoringLiveMetrics>("/monitoring-center/live-metrics", {}, token);
+}
+
+export async function getMonitoringCenterAiopsIncident(
+  token: string,
+  incidentId: string,
+) {
+  return requestJson<MonitoringAiopsIncidentDetailResponse>(
+    `/monitoring-center/aiops/incidents/${encodeURIComponent(incidentId)}`,
+    {},
+    token,
+  );
+}
+
+export async function repairMonitoringCenterAiopsIncident(
+  token: string,
+  incidentId: string,
+  reason?: string,
+) {
+  return requestJson<MonitoringAiopsRepairResponse>(
+    `/monitoring-center/aiops/incidents/${encodeURIComponent(incidentId)}/repair`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(reason ? { reason } : {}),
+    },
+    token,
+  );
 }
 
 export async function runRagEvaluation(token: string, datasetId = "rag_smoke", topK = 5) {

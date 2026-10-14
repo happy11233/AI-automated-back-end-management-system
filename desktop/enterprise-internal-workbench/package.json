@@ -10,6 +10,7 @@
     "electron": "electron .",
     "build": "tsc -b && vite build",
     "package:mac": "npm run build && electron-builder --mac zip --arm64",
+    "package:mac:public": "bash scripts/package-public-mac.sh",
     "lint": "oxlint",
     "preview": "vite preview"
   },

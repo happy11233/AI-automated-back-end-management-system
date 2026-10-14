@@ -1,10 +1,16 @@
 from typing import Any
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from app.auth.security import require_admin
+from app.services.aiops_bridge_service import (
+    AIOpsBridgeError,
+    get_aiops_incident_detail,
+    repair_aiops_incident,
+)
 from app.services.monitoring_center_service import build_monitoring_center
+from app.services.live_metrics_service import build_live_metrics
 
 
 router = APIRouter(
@@ -37,7 +43,10 @@ class MonitoringRunSummary(BaseModel):
     failure_rate: float
     blocked_rate: float
     avg_duration_ms: int
+    p50_duration_ms: int
     p95_duration_ms: int
+    p99_duration_ms: int
+    duration_samples: int
     latest_run_at: str | None
     active_users: int
 
@@ -72,7 +81,27 @@ class MonitoringRunTypeSummary(BaseModel):
     blocked_runs: int
     success_rate: float
     avg_duration_ms: int
+    p50_duration_ms: int
+    p95_duration_ms: int
+    p99_duration_ms: int
+    duration_samples: int
     latest_run_at: str | None
+
+
+class MonitoringStepSummary(BaseModel):
+    step_name: str
+    provider: str
+    stage_type: str
+    total_steps: int
+    succeeded_steps: int
+    failed_steps: int
+    blocked_steps: int
+    avg_duration_ms: int
+    p50_duration_ms: int
+    p95_duration_ms: int
+    p99_duration_ms: int
+    duration_samples: int
+    latest_step_at: str | None
 
 
 class MonitoringRunEvent(BaseModel):
@@ -179,6 +208,83 @@ class MonitoringServiceHealthItem(BaseModel):
     metric: str
 
 
+class MonitoringAiopsHealth(BaseModel):
+    status: str
+    message: str
+    checked_at: str | None
+    base_url: str | None
+
+
+class MonitoringAiopsSummary(BaseModel):
+    service_target_count: int
+    enabled_service_target_count: int
+    incident_count: int
+    open_incident_count: int
+    critical_open_incident_count: int
+    action_required_count: int
+    remediating_count: int
+    resolved_count: int
+    failed_count: int
+    last_incident_at: str | None
+    scheduler_enabled: bool
+    default_inspection_interval_seconds: int
+    storage_backend: str
+    poll_interval_seconds: int
+    repairable_count: int
+
+
+class MonitoringAiopsIncidentItem(BaseModel):
+    incident_id: str
+    title: str
+    service: str
+    environment: str
+    namespace: str
+    severity: str
+    severity_label: str
+    status: str
+    status_label: str
+    alert_type: str
+    alert_type_label: str
+    summary: str
+    current_stage: str
+    current_stage_label: str
+    root_cause: str | None
+    impact: str | None
+    recommendation: str | None
+    service_target_id: str | None
+    runtime_type: str | None
+    evidence_count: int
+    action_count: int
+    repair_available: bool
+    repair_reason: str | None
+    latest_verification_status: str | None
+    latest_verification_summary: str | None
+    created_at: str | None
+    updated_at: str | None
+    detail_api: str
+    repair_api: str
+
+
+class MonitoringAiopsIntegration(BaseModel):
+    configured: bool
+    reachable: bool
+    status: str
+    message: str
+    base_url: str | None
+    health: MonitoringAiopsHealth
+    summary: MonitoringAiopsSummary
+    incidents: list[MonitoringAiopsIncidentItem]
+
+
+class MonitoringAiopsRepairRequest(BaseModel):
+    reason: str | None = None
+
+
+class MonitoringAiopsRepairResponse(BaseModel):
+    run: dict[str, Any]
+    detail: dict[str, Any]
+
+
 class MonitoringCenterResponse(BaseModel):
     scope: MonitoringScope
     overall_status: str
@@ -187,6 +293,7 @@ class MonitoringCenterResponse(BaseModel):
     run_trend: list[MonitoringTrendPoint]
     position_summary: list[MonitoringPositionSummary]
     run_type_summary: list[MonitoringRunTypeSummary]
+    step_summary: list[MonitoringStepSummary]
     recent_issues: list[MonitoringRunEvent]
     slow_runs: list[MonitoringRunEvent]
     audit_summary: MonitoringAuditSummary
@@ -196,6 +303,7 @@ class MonitoringCenterResponse(BaseModel):
     evaluation: MonitoringEvaluation
     knowledge: MonitoringKnowledge
     users: MonitoringUsers
+    aiops: MonitoringAiopsIntegration
     service_health: list[MonitoringServiceHealthItem]
 
 
@@ -205,3 +313,52 @@ def get_monitoring_center(
     current_user: dict = Depends(require_admin),
 ):
     return build_monitoring_center(date_range=date_range)
+
+
+@router.get("/live-metrics")
+def get_monitoring_live_metrics(current_user: dict = Depends(require_admin)) -> dict[str, Any]:
+    return build_live_metrics()
+
+
+@router.get("/aiops/incidents/{incident_id}", response_model=dict[str, Any])
+def get_monitoring_center_aiops_incident(
+    incident_id: str,
+    current_user: dict = Depends(require_admin),
+):
+    try:
+        return get_aiops_incident_detail(incident_id)
+    except AIOpsBridgeError as error:
+        raise _bridge_http_exception(error) from error
+
+
+@router.post("/aiops/incidents/{incident_id}/repair", response_model=MonitoringAiopsRepairResponse)
+def repair_monitoring_center_aiops_incident(
+    incident_id: str,
+    request: MonitoringAiopsRepairRequest | None = None,
+    current_user: dict = Depends(require_admin),
+):
+    approved_by = (
+        current_user.get("username")
+        or current_user.get("display_name")
+        or current_user.get("id")
+        or "admin"
+    )
+    reason = (
+        request.reason.strip()
+        if request and request.reason and request.reason.strip()
+        else "管理员在监控中心二次确认 AI 修复"
+    )
+    try:
+        return repair_aiops_incident(
+            incident_id,
+            approved_by=approved_by,
+            reason=reason,
+        )
+    except AIOpsBridgeError as error:
+        raise _bridge_http_exception(error) from error
+
+
+def _bridge_http_exception(error: AIOpsBridgeError) -> HTTPException:
+    message = str(error)
+    status_code = 404 if message.startswith("404") else 502
+    return HTTPException(status_code=status_code, detail=message)

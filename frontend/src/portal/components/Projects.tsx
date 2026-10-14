@@ -4,9 +4,11 @@ import { content } from "../data/content";
 
 interface ProjectsProps {
   language: Language;
+  isAuthenticated: boolean;
+  onProjectClick: (target: "automation" | "aiops" | "gateway") => void;
 }
 
-export function Projects({ language }: ProjectsProps) {
+export function Projects({ language, isAuthenticated, onProjectClick }: ProjectsProps) {
   return (
     <section id="projects" className="relative overflow-hidden border-b border-black/5 bg-[#fbfbfb] px-4 py-24 sm:px-6 lg:px-8">
       <div className="noise-layer opacity-60" />
@@ -34,7 +36,16 @@ export function Projects({ language }: ProjectsProps) {
               viewport={{ once: true, amount: 0.28 }}
               transition={{ duration: 0.66, delay: index * 0.08, ease: [0.22, 1, 0.36, 1] }}
               whileHover={{ y: -6 }}
-              className="group relative overflow-hidden rounded-[6px] border border-black/[0.07] bg-white/[0.72] p-5 shadow-soft transition hover:border-black/[0.28] hover:bg-white sm:p-8"
+              role="button"
+              tabIndex={0}
+              onClick={() => onProjectClick(project.target)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  onProjectClick(project.target);
+                }
+              }}
+              className="group relative cursor-pointer overflow-hidden rounded-[6px] border border-black/[0.07] bg-white/[0.72] p-5 shadow-soft transition hover:border-black/[0.28] hover:bg-white focus:outline-none focus:ring-2 focus:ring-black/30 sm:p-8"
             >
               <div className="grid gap-8 lg:grid-cols-[1fr_210px]">
                 <div className="relative z-10">
@@ -51,6 +62,11 @@ export function Projects({ language }: ProjectsProps) {
                       </span>
                     ))}
                   </div>
+                  <p className="mt-6 text-[11px] font-bold uppercase tracking-[0.12em] text-black/[0.42]">
+                    {isAuthenticated
+                      ? (language === "zh" ? "进入项目" : "Open project")
+                      : (language === "zh" ? "登录后进入项目" : "Sign in to open")}
+                  </p>
                 </div>
 
                 <div className="pointer-events-none flex items-start justify-end">

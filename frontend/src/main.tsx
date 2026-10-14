@@ -76,6 +76,7 @@ import {
   StatisticCard,
 } from "@ant-design/pro-components";
 import "./styles.css";
+import { MonitoringAiopsPanel } from "./components/MonitoringAiopsPanel";
 import {
 	  login,
   checkPlatformActionExecutorHealth,
@@ -98,12 +99,12 @@ import {
   getMySettings,
   getAiWorkflowDetail,
 	  getConnectorDetail,
+  getDesktopReleaseDownloadUrl,
   getEnterpriseWechatManagement,
   getAutomationFlowDetail,
   getAutomationFlowVersion,
   approveAutomationFlowVersion,
   analyzeFinanceReport,
-  downloadDesktopRelease,
   downloadGeneratedFile,
   generateAutomation,
   createAutomationFlowVersion,
@@ -282,6 +283,7 @@ const { Paragraph, Text, Title } = Typography;
 const { TextArea } = Input;
 
 type Role = "admin" | "employee";
+type ProjectTarget = "automation" | "aiops" | "gateway";
 type ChatRoute =
   | "refund_workflow"
   | "order_agent"
@@ -1425,6 +1427,7 @@ function App() {
   const [token, setToken] = useState(localStorage.getItem("access_token") ?? "");
   const [statusMessage, setStatusMessage] = useState("系统就绪");
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
+  const [pendingProjectTarget, setPendingProjectTarget] = useState<ProjectTarget | null>(null);
   const [isLoginErrorOpen, setIsLoginErrorOpen] = useState(false);
   const [isSessionExpiredOpen, setIsSessionExpiredOpen] = useState(false);
   const [isPublicLLMOpen, setIsPublicLLMOpen] = useState(false);
@@ -1820,7 +1823,33 @@ function App() {
     if (safeActiveView === "mcp_tools") {
       void refreshMcpTools();
     }
+
+    if (safeActiveView === "monitoring_center") {
+      void refreshMonitoringCenter();
+    }
   }, [safeActiveView]);
+
+  useEffect(() => {
+    if (!token || safeActiveView !== "monitoring_center" || !hasAdminAccess(role, token)) {
+      return;
+    }
+
+    const intervalSeconds = Math.max(
+      60,
+      monitoringCenter?.aiops?.summary.poll_interval_seconds || 300,
+    );
+    const intervalId = window.setInterval(() => {
+      void refreshMonitoringCenter(token, monitoringCenterFilters);
+    }, intervalSeconds * 1000);
+
+    return () => window.clearInterval(intervalId);
+  }, [
+    token,
+    role,
+    safeActiveView,
+    monitoringCenterFilters.dateRange,
+    monitoringCenter?.aiops?.summary.poll_interval_seconds,
+  ]);
 
   const stats = useMemo(
     () => [
@@ -1884,6 +1913,8 @@ function App() {
     try {
       setIsLoginErrorOpen(false);
       const result = await login(username, password);
+      const nextProjectTarget = pendingProjectTarget;
+      setPendingProjectTarget(null);
       closeLoginModal();
       setIsSessionExpiredOpen(false);
       localStorage.setItem("access_token", result.access_token);
@@ -1921,6 +1952,14 @@ function App() {
       }
       setStatusMessage(`已登录：${username}`);
       message.success("登录成功");
+
+      if (nextProjectTarget === "gateway") {
+        window.location.assign(import.meta.env.VITE_GATEWAY_URL || "http://localhost:8082");
+      } else if (nextProjectTarget === "aiops") {
+        window.location.assign(import.meta.env.VITE_AIOPS_URL || "http://localhost:9900");
+      } else if (nextProjectTarget === "automation") {
+        navigateToView("dashboard");
+      }
 
       if (nextRole === "admin") {
         await refreshAdminData(result.access_token);
@@ -2347,24 +2386,17 @@ function App() {
     }
 
     const item = desktopDownloads.find((entry) => entry.platform === platform) || null;
-    setDownloadingDesktopPlatform(platform);
-    try {
-      const result = await downloadDesktopRelease(token, platform);
-      const downloadName = result.filename || item?.filename || `enterprise-internal-workbench-${platform}.zip`;
-      downloadBlob(result.blob, downloadName);
-      setStatusMessage(`已开始下载：${item?.label || downloadName}`);
-      message.success(item?.label || "桌面端安装包已开始下载");
-      setIsDesktopDownloadModalOpen(false);
-    } catch (error) {
-      if (isAuthExpiredError(error)) {
-        return;
-      }
-      const text = error instanceof Error ? error.message : "桌面端安装包下载失败";
-      setStatusMessage(text);
-      message.error(text);
-    } finally {
-      setDownloadingDesktopPlatform("");
-    }
+    const downloadName = item?.filename || `enterprise-internal-workbench-${platform}.zip`;
+    const link = document.createElement("a");
+    link.href = getDesktopReleaseDownloadUrl(platform);
+    link.download = downloadName;
+    link.rel = "noopener";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setStatusMessage(`已开始下载：${item?.label || downloadName}`);
+    message.success(item?.label || "桌面端安装包已开始下载");
+    setIsDesktopDownloadModalOpen(false);
   }
 
   async function handleConfirmEnterpriseWechatSend(payload: EnterpriseWechatFileSendConfirmPayload) {
@@ -4914,8 +4946,23 @@ function App() {
           <PublicPortal
             language={language}
             onLanguageChange={() => setLanguage((current) => (current === "zh" ? "en" : "zh"))}
-            onLoginClick={() => setIsLoginModalOpen(true)}
             onLLMClick={() => setIsPublicLLMOpen(true)}
+            isAuthenticated={Boolean(token)}
+            onProjectClick={(target) => {
+              setPendingProjectTarget(target);
+              if (token) {
+                if (target === "gateway") {
+                  window.location.assign(import.meta.env.VITE_GATEWAY_URL || "http://localhost:8082");
+                } else if (target === "aiops") {
+                  window.location.assign(import.meta.env.VITE_AIOPS_URL || "http://localhost:9900");
+                } else {
+                  navigateToView("dashboard");
+                }
+                setPendingProjectTarget(null);
+              } else {
+                setIsLoginModalOpen(true);
+              }
+            }}
           />
           <PublicLLMChatWidget
             open={isPublicLLMOpen}
@@ -5141,6 +5188,7 @@ function App() {
                 )}
                 {safeActiveView === "monitoring_center" && role === "admin" && (
                   <MonitoringCenterPanel
+                    token={token}
                     data={monitoringCenter}
                     filters={monitoringCenterFilters}
                     setFilters={setMonitoringCenterFilters}
@@ -5606,20 +5654,20 @@ function App() {
 function PublicPortal(props: {
   language: Language;
   onLanguageChange: () => void;
-  onLoginClick: () => void;
   onLLMClick: () => void;
+  isAuthenticated: boolean;
+  onProjectClick: (target: ProjectTarget) => void;
 }) {
   return (
     <main className="portfolioShell">
       <Navbar
         language={props.language}
         onLanguageChange={props.onLanguageChange}
-        onLoginClick={props.onLoginClick}
         onLLMClick={props.onLLMClick}
       />
       <Hero language={props.language} />
       <Skills language={props.language} />
-      <Projects language={props.language} />
+      <Projects language={props.language} isAuthenticated={props.isAuthenticated} onProjectClick={props.onProjectClick} />
       <Contact language={props.language} />
     </main>
   );
@@ -14478,12 +14526,14 @@ function EvaluationCenterPanel({
 }
 
 function MonitoringCenterPanel({
+  token,
   data,
   filters,
   setFilters,
   loading,
   refreshMonitoringCenter,
 }: {
+  token: string;
   data: MonitoringCenterResponse | null;
   filters: MonitoringCenterFilterState;
   setFilters: React.Dispatch<React.SetStateAction<MonitoringCenterFilterState>>;
@@ -14491,6 +14541,7 @@ function MonitoringCenterPanel({
   refreshMonitoringCenter: () => void;
 }) {
   const summary = data?.run_summary;
+  const [activeTab, setActiveTab] = useState("overview");
   const maxTrend = Math.max(1, ...(data?.run_trend || []).map((item) => item.total_runs));
 
   return (
@@ -14557,13 +14608,15 @@ function MonitoringCenterPanel({
           <Card size="small" className="monitoringMetricCard">
             <Text type="secondary">P95 耗时</Text>
             <Title level={3}>{formatDuration(summary?.p95_duration_ms)}</Title>
-            <Text type="secondary">平均 {formatDuration(summary?.avg_duration_ms)}</Text>
+            <Text type="secondary">P50 {formatDuration(summary?.p50_duration_ms)} · P99 {formatDuration(summary?.p99_duration_ms)} · {summary?.duration_samples ?? 0} 个样本</Text>
           </Card>
         </Col>
       </Row>
 
       <Tabs
         className="monitoringCenterTabs"
+        activeKey={activeTab}
+        onChange={setActiveTab}
         items={[
           {
             key: "overview",
@@ -14649,6 +14702,19 @@ function MonitoringCenterPanel({
                   </Col>
                 </Row>
               </Space>
+            ),
+          },
+          {
+            key: "aiops",
+            label: "AIOps 运维",
+            children: (
+              <MonitoringAiopsPanel
+                token={token}
+                active={activeTab === "aiops"}
+                data={data?.aiops}
+                loading={loading}
+                refreshMonitoringCenter={refreshMonitoringCenter}
+              />
             ),
           },
           {
@@ -14749,7 +14815,7 @@ function MonitoringCenterPanel({
                       size="small"
                       dataSource={data?.run_type_summary || []}
                       pagination={false}
-                      scroll={{ x: 720 }}
+                      scroll={{ x: 900 }}
                       locale={{ emptyText: <Empty description="暂无类型运行数据" /> }}
                       columns={[
                         {
@@ -14766,7 +14832,43 @@ function MonitoringCenterPanel({
                         { title: "次数", dataIndex: "total_runs", width: 78 },
                         { title: "成功率", dataIndex: "success_rate", width: 92, render: (value) => formatPercent(value) },
                         { title: "均耗时", dataIndex: "avg_duration_ms", width: 92, render: (value) => formatDuration(value) },
+                        { title: "P50", dataIndex: "p50_duration_ms", width: 92, render: (value) => formatDuration(value) },
+                        { title: "P95", dataIndex: "p95_duration_ms", width: 92, render: (value) => formatDuration(value) },
+                        { title: "P99", dataIndex: "p99_duration_ms", width: 92, render: (value) => formatDuration(value) },
                         { title: "最近", dataIndex: "latest_run_at", render: (value) => formatTime(value) },
+                      ]}
+                    />
+                  </ProCard>
+                </Col>
+                <Col xs={24} className="monitoringPanelCol">
+                  <ProCard title="步骤耗时分解" bordered className="monitoringPanelCard">
+                    <Table
+                      rowKey={(record) => `${record.step_name}:${record.provider}`}
+                      size="small"
+                      dataSource={data?.step_summary || []}
+                      pagination={false}
+                      scroll={{ x: 980 }}
+                      locale={{ emptyText: <Empty description="暂无步骤耗时数据" /> }}
+                      columns={[
+                        {
+                          title: "步骤",
+                          dataIndex: "step_name",
+                          width: 240,
+                          render: (value, record) => (
+                            <Space direction="vertical" size={2} className="monitoringCellStack">
+                              <Text strong className="monitoringText">{String(value)}</Text>
+                              <Text className="monitoringMono">{record.stage_type} · {record.provider}</Text>
+                            </Space>
+                          ),
+                        },
+                        { title: "样本", dataIndex: "total_steps", width: 78 },
+                        { title: "失败", dataIndex: "failed_steps", width: 72 },
+                        { title: "拦截", dataIndex: "blocked_steps", width: 72 },
+                        { title: "均耗时", dataIndex: "avg_duration_ms", width: 100, render: (value) => formatDuration(value) },
+                        { title: "P50", dataIndex: "p50_duration_ms", width: 100, render: (value) => formatDuration(value) },
+                        { title: "P95", dataIndex: "p95_duration_ms", width: 100, render: (value) => formatDuration(value) },
+                        { title: "P99", dataIndex: "p99_duration_ms", width: 100, render: (value) => formatDuration(value) },
+                        { title: "最近", dataIndex: "latest_step_at", render: (value) => formatTime(value) },
                       ]}
                     />
                   </ProCard>

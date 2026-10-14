@@ -7,6 +7,7 @@ from typing import Any
 from app.db import fetch_all, fetch_one
 from app.erp.providers import get_active_provider
 from app.permissions import POSITION_LABELS
+from app.services.aiops_bridge_service import build_aiops_snapshot
 from app.services.connector_service import list_connectors
 from app.services.evaluation_center_service import build_evaluation_center
 from app.services.run_record_service import isoformat, sanitize_text
@@ -22,7 +23,7 @@ DATE_RANGE_DAYS = {
 def build_monitoring_center(date_range: str = "30d") -> dict[str, Any]:
     normalized_range = date_range if date_range in {"7d", "30d", "90d", "all"} else "30d"
     since = _since_for_range(normalized_range)
-    run_where, run_params = _time_scope("started_at", since)
+    run_where, run_params = _time_scope("started_at", since, canonical_runs=True)
     audit_where, audit_params = _time_scope("created_at", since)
 
     database = _database_health()
@@ -33,6 +34,7 @@ def build_monitoring_center(date_range: str = "30d") -> dict[str, Any]:
     evaluation = _evaluation_health()
     knowledge = _knowledge_stats()
     users = _user_stats()
+    aiops = build_aiops_snapshot()
     service_health = _service_health(
         database=database,
         erp_health=erp_health,
@@ -40,6 +42,7 @@ def build_monitoring_center(date_range: str = "30d") -> dict[str, Any]:
         evaluation=evaluation,
         run_summary=run_summary,
         audit_summary=audit_summary,
+        aiops=aiops,
     )
 
     return {
@@ -55,6 +58,7 @@ def build_monitoring_center(date_range: str = "30d") -> dict[str, Any]:
         "run_trend": _run_trend(run_where, run_params),
         "position_summary": _position_summary(run_where, run_params),
         "run_type_summary": _run_type_summary(run_where, run_params),
+        "step_summary": _step_summary(since),
         "recent_issues": _recent_issues(run_where, run_params),
         "slow_runs": _slow_runs(run_where, run_params),
         "audit_summary": audit_summary,
@@ -64,6 +68,7 @@ def build_monitoring_center(date_range: str = "30d") -> dict[str, Any]:
         "evaluation": evaluation,
         "knowledge": knowledge,
         "users": users,
+        "aiops": aiops,
         "service_health": service_health,
     }
 
@@ -89,10 +94,21 @@ def _run_summary(where_clause: str, params: list[Any]) -> dict[str, Any]:
             count(*) FILTER (WHERE status = 'running') AS running_runs,
             COALESCE(avg(duration_ms) FILTER (WHERE duration_ms IS NOT NULL), 0)::int AS avg_duration_ms,
             COALESCE(
+                percentile_disc(0.50) WITHIN GROUP (ORDER BY duration_ms)
+                FILTER (WHERE duration_ms IS NOT NULL),
+                0
+            )::int AS p50_duration_ms,
+            COALESCE(
                 percentile_disc(0.95) WITHIN GROUP (ORDER BY duration_ms)
                 FILTER (WHERE duration_ms IS NOT NULL),
                 0
             )::int AS p95_duration_ms,
+            COALESCE(
+                percentile_disc(0.99) WITHIN GROUP (ORDER BY duration_ms)
+                FILTER (WHERE duration_ms IS NOT NULL),
+                0
+            )::int AS p99_duration_ms,
+            count(*) FILTER (WHERE duration_ms IS NOT NULL) AS duration_samples,
             max(started_at) AS latest_run_at,
             count(DISTINCT user_id) FILTER (WHERE user_id IS NOT NULL) AS active_users
         FROM automation_runs
@@ -117,9 +133,12 @@ def _run_summary(where_clause: str, params: list[Any]) -> dict[str, Any]:
         "failure_rate": _ratio(failed_runs, completed_runs),
         "blocked_rate": _ratio(blocked_runs, completed_runs),
         "avg_duration_ms": int(row[5] or 0),
-        "p95_duration_ms": int(row[6] or 0),
-        "latest_run_at": isoformat(row[7]),
-        "active_users": int(row[8] or 0),
+        "p50_duration_ms": int(row[6] or 0),
+        "p95_duration_ms": int(row[7] or 0),
+        "p99_duration_ms": int(row[8] or 0),
+        "duration_samples": int(row[9] or 0),
+        "latest_run_at": isoformat(row[10]),
+        "active_users": int(row[11] or 0),
     }
 
 
@@ -198,6 +217,13 @@ def _run_type_summary(where_clause: str, params: list[Any]) -> list[dict[str, An
             count(*) FILTER (WHERE status = 'failed') AS failed_runs,
             count(*) FILTER (WHERE status = 'blocked') AS blocked_runs,
             COALESCE(avg(duration_ms) FILTER (WHERE duration_ms IS NOT NULL), 0)::int AS avg_duration_ms,
+            COALESCE(percentile_disc(0.50) WITHIN GROUP (ORDER BY duration_ms)
+                FILTER (WHERE duration_ms IS NOT NULL), 0)::int AS p50_duration_ms,
+            COALESCE(percentile_disc(0.95) WITHIN GROUP (ORDER BY duration_ms)
+                FILTER (WHERE duration_ms IS NOT NULL), 0)::int AS p95_duration_ms,
+            COALESCE(percentile_disc(0.99) WITHIN GROUP (ORDER BY duration_ms)
+                FILTER (WHERE duration_ms IS NOT NULL), 0)::int AS p99_duration_ms,
+            count(*) FILTER (WHERE duration_ms IS NOT NULL) AS duration_samples,
             max(started_at) AS latest_run_at
         FROM automation_runs
         {where_clause}
@@ -218,10 +244,87 @@ def _run_type_summary(where_clause: str, params: list[Any]) -> list[dict[str, An
             "blocked_runs": int(row[5] or 0),
             "success_rate": _ratio(int(row[3] or 0), int(row[2] or 0) - int(row[5] or 0)),
             "avg_duration_ms": int(row[6] or 0),
-            "latest_run_at": isoformat(row[7]),
+            "p50_duration_ms": int(row[7] or 0),
+            "p95_duration_ms": int(row[8] or 0),
+            "p99_duration_ms": int(row[9] or 0),
+            "duration_samples": int(row[10] or 0),
+            "latest_run_at": isoformat(row[11]),
         }
         for row in rows
     ]
+
+
+def _step_summary(since: datetime | None) -> list[dict[str, Any]]:
+    params: list[Any] = []
+    time_clause = ""
+    if since:
+        time_clause = "AND r.started_at >= %s"
+        params.append(since)
+
+    rows = fetch_all(
+        f"""
+        SELECT
+            s.step_name,
+            COALESCE(s.provider, 'unknown') AS provider,
+            count(*) AS total_steps,
+            count(*) FILTER (WHERE s.status = 'succeeded') AS succeeded_steps,
+            count(*) FILTER (WHERE s.status = 'failed') AS failed_steps,
+            count(*) FILTER (WHERE s.status = 'blocked') AS blocked_steps,
+            COALESCE(avg(s.duration_ms) FILTER (WHERE s.duration_ms IS NOT NULL), 0)::int AS avg_duration_ms,
+            COALESCE(percentile_disc(0.50) WITHIN GROUP (ORDER BY s.duration_ms)
+                FILTER (WHERE s.duration_ms IS NOT NULL), 0)::int AS p50_duration_ms,
+            COALESCE(percentile_disc(0.95) WITHIN GROUP (ORDER BY s.duration_ms)
+                FILTER (WHERE s.duration_ms IS NOT NULL), 0)::int AS p95_duration_ms,
+            COALESCE(percentile_disc(0.99) WITHIN GROUP (ORDER BY s.duration_ms)
+                FILTER (WHERE s.duration_ms IS NOT NULL), 0)::int AS p99_duration_ms,
+            count(*) FILTER (WHERE s.duration_ms IS NOT NULL) AS duration_samples,
+            max(s.started_at) AS latest_step_at
+        FROM automation_run_steps s
+        JOIN automation_runs r ON r.id = s.run_id
+        WHERE NOT EXISTS (
+            SELECT 1 FROM automation_runs parent
+            WHERE parent.metadata->'automation'->>'run_id' = r.id::text
+        )
+        {time_clause}
+        GROUP BY s.step_name, COALESCE(s.provider, 'unknown')
+        ORDER BY p95_duration_ms DESC, total_steps DESC
+        LIMIT 30;
+        """,
+        tuple(params),
+    )
+    return [
+        {
+            "step_name": row[0],
+            "provider": row[1],
+            "stage_type": _stage_type(row[0], row[1]),
+            "total_steps": int(row[2] or 0),
+            "succeeded_steps": int(row[3] or 0),
+            "failed_steps": int(row[4] or 0),
+            "blocked_steps": int(row[5] or 0),
+            "avg_duration_ms": int(row[6] or 0),
+            "p50_duration_ms": int(row[7] or 0),
+            "p95_duration_ms": int(row[8] or 0),
+            "p99_duration_ms": int(row[9] or 0),
+            "duration_samples": int(row[10] or 0),
+            "latest_step_at": isoformat(row[11]),
+        }
+        for row in rows
+    ]
+
+
+def _stage_type(step_name: str, provider: str) -> str:
+    value = f"{step_name} {provider}".lower()
+    if any(term in value for term in ("llm", "model", "chat", "reply", "intent")):
+        return "llm"
+    if any(term in value for term in ("rag", "retriev", "embedding", "rerank", "knowledge")):
+        return "rag"
+    if any(term in value for term in ("erp", "mcp", "webhook", "connector")):
+        return "external_dependency"
+    if any(term in value for term in ("excel", "file", "artifact", "upload", "download")):
+        return "file_processing"
+    if any(term in value for term in ("workflow", "graph", "dispatch", "executor")):
+        return "workflow"
+    return "other"
 
 
 def _recent_issues(where_clause: str, params: list[Any]) -> list[dict[str, Any]]:
@@ -451,6 +554,7 @@ def _service_health(
     evaluation: dict[str, Any],
     run_summary: dict[str, Any],
     audit_summary: dict[str, Any],
+    aiops: dict[str, Any],
 ) -> list[dict[str, Any]]:
     connector_summary = connectors["summary"]
     connector_warning = connector_summary["needs_config"] + connector_summary["pending"]
@@ -504,6 +608,13 @@ def _service_health(
             "message": f"{evaluation['summary']['total_cases']} 个真实评测/回归样本",
             "metric": f"{round(evaluation['summary']['average_pass_rate'] * 100, 1)}%",
         },
+        {
+            "id": "aiops",
+            "name": "AIOps 运维",
+            "status": aiops["status"],
+            "message": aiops["message"],
+            "metric": f"{aiops['summary']['open_incident_count']} 个待处理事故",
+        },
     ]
 
 
@@ -516,11 +627,28 @@ def _overall_status(items: list[dict[str, Any]]) -> str:
     return "ok"
 
 
-def _time_scope(column: str, since: datetime | None) -> tuple[str, list[Any]]:
-    if not since:
-        return "WHERE 1 = 1", []
+def _time_scope(
+    column: str,
+    since: datetime | None,
+    *,
+    canonical_runs: bool = False,
+) -> tuple[str, list[Any]]:
+    clauses = []
+    if canonical_runs:
+        # Chat wrappers persist a child run id in metadata. Keep the
+        # user-facing wrapper in aggregate metrics and exclude the child so
+        # one request is not counted twice.
+        clauses.append(
+            "NOT EXISTS ("
+            "SELECT 1 FROM automation_runs parent "
+            "WHERE parent.metadata->'automation'->>'run_id' = automation_runs.id::text"
+            ")"
+        )
 
-    return f"WHERE {column} >= %s", [since]
+    if since:
+        clauses.append(f"{column} >= %s")
+
+    return f"WHERE {' AND '.join(clauses) if clauses else '1 = 1'}", [since] if since else []
 
 
 def _since_for_range(date_range: str) -> datetime | None:

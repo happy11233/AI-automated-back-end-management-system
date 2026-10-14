@@ -235,7 +235,39 @@ ERP_PROVIDER=erpnext
 ERP_BASE_URL=http://127.0.0.1:8080
 ERP_API_KEY=your_erpnext_api_key
 ERP_API_SECRET=your_erpnext_api_secret
+MCP_TOOL_TIMEOUT_SECONDS=15
 ```
+
+延迟优化配置建议：
+
+```text
+# 复杂任务使用高质量模型，客服回复和短任务使用快模型
+BAILIAN_CHAT_MODEL=qwen3.6-plus
+BAILIAN_FAST_CHAT_MODEL=qwen-turbo
+BAILIAN_FAST_CHAT_MAX_TOKENS=512
+BAILIAN_REQUEST_TIMEOUT_SECONDS=60
+BAILIAN_MAX_RETRIES=1
+
+# 避免相同权限范围内重复请求 embedding 服务
+RAG_EMBEDDING_CACHE_TTL_SECONDS=300
+RAG_EMBEDDING_CACHE_MAX_ENTRIES=512
+RAG_CUSTOMER_MULTI_QUERY_COUNT=1
+RAG_CONTEXT_MAX_CHARS=12000
+RAG_CHUNK_MAX_CHARS=3000
+CUSTOMER_CONTEXT_PARALLEL_ENABLED=true
+```
+
+模型切换或依赖变更后需要重建 API 容器。项目 MCP 服务使用 `mcp>=1.12,<2`，不要升级到 MCP 2.x，避免旧版 `FastMCP` 服务无法启动。监控中心的工作流耗时会排除父对话包裹的重复子运行；运行记录详情仍保留完整步骤。
+
+可用 `.venv/bin/python scripts/report_latency.py --days 30` 输出 JSON 延迟报告，追加 `--format csv` 输出 CSV。报告按唯一运行统计平均值、P50/P95/P99 和各步骤耗时；同一场景优化前后要使用相同时间范围和样本量比较。
+
+客服固定输入压测使用 `python3 scripts/benchmark_customer_service.py --count 30`，结果写入 `data/latency-benchmarks/`（该目录不提交）。脚本会记录每次端到端和步骤耗时，适合在切换模型或优化开关前后分别运行。
+
+财务纯排版固定输入压测使用 `python3 scripts/benchmark_finance_excel.py --count 30`，默认不选择 ERP 表，不调用 AI 建议模型，结果同样写入 `data/latency-benchmarks/`。
+
+RAG 固定查询检索压测使用 `docker exec -w /app company-rag-api python /app/scripts/benchmark_rag.py --count 30`，首个样本包含 embedding 冷启动，后续样本用于观察短期缓存命中后的检索延迟；脚本会同时校验返回片段和引用数量。
+
+运营 Listing 固定输入压测使用 `python3 scripts/benchmark_listing.py --count 30`，默认使用 `BAILIAN_FAST_CHAT_MODEL` 生成草稿，脚本会校验运行记录、平台草稿状态和 Amazon 上传仍为 `waiting_confirmation`，不会调用上传或发布接口。最近一次 30 次结果：30/30 成功，HTTP 平均 4.258s、P95 5.917s、P99 5.984s；运行记录平均 4.234s、P95 5.884s。结果文件写入 `data/latency-benchmarks/`（该目录不提交）。
 
 2. 启动后端和数据库：
 
@@ -285,6 +317,14 @@ http://127.0.0.1:5173
 ```
 
 前端开发服务会把 `/api` 代理到 `http://127.0.0.1:8001`。
+
+### AIOps 实时指标
+
+管理员登录后，在「监控中心 > AIOps 运维」可查看每 5 秒更新的 CPU、内存、磁盘、数据库连接、AIOps 连通性，以及各业务模块近 1 分钟的请求量、服务端错误数和耗时。指标接口为 `GET /monitoring-center/live-metrics`，仅管理员可访问。请求指标保存在 API 进程内存中，重启后重新计数；页面展示的是实时窗口，不是长期监控历史。
+
+服务器 CPU/内存取自 API 容器可见的 Linux 主机，磁盘取自 `data` 挂载所在文件系统；API 容器 CPU/内存取自 cgroup。未设置容器内存配额时，API 内存占用率以主机总内存为分母。Docker Desktop 本地运行时，服务器指标对应 Docker VM。部署到 Linux 云服务器后，服务器指标对应云服务器；API 容器指标对应当前 API 容器。如需跨多台机器汇总、长期趋势和告警，应再部署 Prometheus、Node Exporter 和 cAdvisor。
+
+独立 AIOps 服务在宿主机运行时，平台 `.env` 使用 `AIOPS_SERVICE_URL=http://host.docker.internal:9900`，并确保 AIOps 监听可由容器访问的地址。两个服务位于同一 Docker 网络时，建议改为 AIOps 的服务名，例如 `AIOPS_SERVICE_URL=http://aiops:9900`。修改 `.env` 后需重建 API 容器以加载配置。
 
 ## 云服务器公网演示
 
