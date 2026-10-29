@@ -3,19 +3,50 @@ services:
     image: pgvector/pgvector:pg16
     container_name: company-rag-postgres
     environment:
-      POSTGRES_USER: rag_user
-      POSTGRES_PASSWORD: rag_password
-      POSTGRES_DB: rag_agent
+      POSTGRES_USER: ${POSTGRES_USER:-rag_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-rag_password}
+      POSTGRES_DB: ${POSTGRES_DB:-rag_agent}
     ports:
       - "5433:5432"
     volumes:
       - company_rag_pg_data:/var/lib/postgresql/data
       - ./sql/schema.sql:/docker-entrypoint-initdb.d/001_schema.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U rag_user -d rag_agent"]
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 5s
       timeout: 5s
       retries: 20
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "256mb", "--maxmemory-policy", "noeviction"]
+    volumes:
+      - company_rag_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    restart: unless-stopped
+
+  rabbitmq:
+    image: rabbitmq:4-management
+    container_name: company-rag-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-rag_worker}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?Set RABBITMQ_PASSWORD in .env}
+      RABBITMQ_DEFAULT_VHOST: company_rag
+    ports:
+      - "127.0.0.1:5672:5672"
+      - "127.0.0.1:15672:15672"
+    volumes:
+      - company_rag_rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
 
   api:
     build: .
@@ -24,9 +55,12 @@ services:
       - "host.docker.internal:host-gateway"
     env_file:
       - .env
-    environment:
-      DATABASE_URL: postgresql://rag_user:rag_password@postgres:5432/rag_agent
-      VECTOR_DATABASE_URL: postgresql+psycopg://rag_user:rag_password@postgres:5432/rag_agent
+    environment: &app_environment
+      DATABASE_URL: postgresql://${POSTGRES_USER:-rag_user}:${POSTGRES_PASSWORD:-rag_password}@postgres:5432/${POSTGRES_DB:-rag_agent}
+      VECTOR_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-rag_user}:${POSTGRES_PASSWORD:-rag_password}@postgres:5432/${POSTGRES_DB:-rag_agent}
+      CELERY_BROKER_URL: amqp://${RABBITMQ_USER:-rag_worker}:${RABBITMQ_PASSWORD:?Set RABBITMQ_PASSWORD in .env}@rabbitmq:5672/company_rag
+      CONTEXT_CLEANUP_SCHEDULER: celery
+      REDIS_URL: redis://redis:6379/0
       PLATFORM_ACTION_EXECUTOR_WEBHOOK_URL: ${PLATFORM_ACTION_EXECUTOR_WEBHOOK_URL:-}
       PLATFORM_ACTION_EXECUTOR_API_KEY: ${PLATFORM_ACTION_EXECUTOR_API_KEY:-}
       PLATFORM_ACTION_EXECUTOR_TIMEOUT_SECONDS: ${PLATFORM_ACTION_EXECUTOR_TIMEOUT_SECONDS:-12}
@@ -42,7 +76,52 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/ready', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+    restart: unless-stopped
+
+  worker:
+    build: .
+    command: ["celery", "-A", "app.celery_app:celery_app", "worker", "--loglevel=INFO", "--queues=default,maintenance", "--without-mingle", "--without-gossip"]
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    env_file:
+      - .env
+    environment: *app_environment
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      api:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    stop_grace_period: 11m
+    restart: unless-stopped
+
+  beat:
+    build: .
+    command: ["celery", "-A", "app.celery_app:celery_app", "beat", "--loglevel=INFO", "--schedule=/app/data/celery/beat-schedule"]
+    env_file:
+      - .env
+    environment: *app_environment
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
     restart: unless-stopped
 
 volumes:
   company_rag_pg_data:
+  company_rag_rabbitmq_data:
+  company_rag_redis_data:

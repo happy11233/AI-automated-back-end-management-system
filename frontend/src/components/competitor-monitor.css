@@ -1,0 +1,51 @@
+.competitorMonitor { display: grid; gap: 24px; min-width: 0; color: #24324a; }
+.competitorHero { display: flex; justify-content: space-between; align-items: center; gap: 24px; padding: 32px; border: 1px solid #e1e7f3; border-radius: 20px; background: linear-gradient(115deg, #f4f6ff, #fff 70%); }
+.competitorEyebrow { font-size: 11px; font-weight: 700; letter-spacing: 1.5px; color: #6372b7; }
+.competitorHero h2.ant-typography { margin: 12px 0 8px; font-size: 28px; }
+.competitorHero .ant-typography { margin-bottom: 14px; }
+.competitorActions { display: flex; flex-direction: column; align-items: center; gap: 10px; flex-shrink: 0; }
+.competitorActions .ant-btn-primary { min-width: 168px; border-radius: 10px; }
+.competitorActions .ant-btn-text { color: #66738b; font-size: 12px; }
+.competitorSchedule { display: flex; flex-wrap: wrap; gap: 14px 24px; align-items: center; padding: 18px 24px; background: #fff; border: 1px solid #e8edf5; border-radius: 14px; font-size: 12px; }
+.competitorSchedule > div { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.competitorSchedule > div:first-child { flex: 1; }
+.competitorSchedule .anticon { color: #6478cf; }
+.competitorSchedule span { color: #79869b; }
+.competitorScheduleNext { flex-basis: 100%; font-size: 11px; color: #79869b; }
+.competitorStatusDot { width: 6px; height: 6px; background: #d99d41; border-radius: 50%; }
+.competitorStatusDot.online { background: #20a583; }
+.competitorResultHeader { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+.competitorResultHeader h3.ant-typography { font-size: 19px; margin: 0 0 5px; }
+.competitorResultHeader > span { color: #738098; font-size: 12px; }
+.competitorDivider { padding: 0 10px; color: #d3dae7; }
+.competitorProductGrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; }
+.competitorProduct.ant-card { min-width: 0; border: 1px solid #e5eaf3; border-radius: 16px; box-shadow: 0 4px 18px #25315404; }
+.competitorProduct .ant-card-body { padding: 22px; }
+.competitorProductHeading { display: flex; justify-content: space-between; align-items: start; gap: 8px; margin-bottom: 26px; }
+.competitorProductHeading h4.ant-typography { font-size: 16px; margin: 0 0 5px; }
+.competitorProductHeading .ant-typography-secondary { font-size: 11px; }
+.competitorCurrency { font-size: 10px; color: #75819a; background: #f3f5fa; padding: 3px 7px; border-radius: 5px; }
+.competitorBars { margin: 0; }
+.competitorBarRow { display: grid; grid-template-columns: 68px minmax(0, 1fr) 55px; align-items: center; gap: 8px; margin-bottom: 20px; }
+.competitorBarLabel { display: grid; gap: 3px; font-size: 12px; }
+.competitorBarLabel small { color: #8b97a9; font-size: 9px; }
+.competitorBarTrack { height: 13px; border-radius: 4px; background: #f4f6fa; overflow: hidden; }
+.competitorBarFill { height: 100%; border-radius: 4px; background: #87c9c1; transition: width .4s; }
+.competitorBarFill.own { background: #5268e8; }
+.competitorBarRow strong { font-size: 12px; font-variant-numeric: tabular-nums; text-align: right; }
+.competitorBars figcaption { color: #99a3b4; font-size: 10px; margin-top: 6px; }
+.competitorPriceGap { margin-top: 20px; padding: 12px; font-size: 11px; border-radius: 8px; background: #f0f8f5; color: #28846c; }
+.competitorPriceGap.higher { background: #fff8ed; color: #aa7632; }
+.competitorHistoryHint { font-size: 10px; text-align: center; color: #99a3b4; padding: 14px 0 0; margin-bottom: 0; }
+.competitorHistory { margin-top: 22px; }
+.competitorHistoryLegend, .competitorHistoryTimes { display: flex; justify-content: space-between; gap: 8px; color: #8b97a9; font-size: 9px; }
+.competitorHistoryLegend i { display: inline-block; width: 6px; height: 6px; margin: 0 4px 1px 7px; background: #5268e8; border-radius: 50%; }
+.competitorHistoryLegend i.competitorDot { background: #18a693; }
+.competitorHistory svg { display: block; width: 100%; margin-top: 6px; }
+.competitorHistoryTimes { font-size: 8px; flex-wrap: wrap; }
+.competitorNotice { font-size: 11px; color: #8b97a9; line-height: 1.8; margin: 0; }
+.competitorEmpty { text-align: center; padding: 56px 16px; border-radius: 16px; }
+.competitorEmpty .ant-typography { font-size: 12px; }
+.competitorApiCopy { margin-top: 20px; }
+@media (max-width: 1250px) { .competitorProductGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 680px) { .competitorHero { flex-direction: column; align-items: stretch; padding: 22px; } .competitorActions { align-items: stretch; } .competitorProductGrid { grid-template-columns: minmax(0, 1fr); } .competitorSchedule { padding: 16px; flex-direction: column; align-items: stretch; } .competitorSchedule > div:first-child { flex: none; } .competitorSchedule > div:first-child > span:last-child { flex-basis: 100%; } .competitorScheduleNext { flex-basis: auto; } .competitorHero h2.ant-typography { font-size: 24px; } }

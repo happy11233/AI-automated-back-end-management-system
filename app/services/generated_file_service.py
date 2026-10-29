@@ -8,6 +8,7 @@ from uuid import uuid4
 from fastapi import HTTPException, status
 
 from app.config import settings
+from app.artifact_storage import put_artifact, read_artifact, artifact_exists, delete_artifact
 from app.db import execute, fetch_all, fetch_one
 from app.services.run_record_service import isoformat, preview_text, record_artifact, sanitize_metadata
 
@@ -62,17 +63,14 @@ def save_generated_file(
         return None
 
     safe_name = _safe_filename(filename)
-    storage_dir = _storage_dir()
-    storage_dir.mkdir(parents=True, exist_ok=True)
     storage_name = f"{uuid4().hex}_{safe_name}"
-    storage_path = storage_dir / storage_name
-    storage_path.write_bytes(content)
+    storage_path = put_artifact(storage_name, content, mime_type)
 
     days = retention_days or settings.generated_file_retention_days
     expires_at = datetime.now(timezone.utc) + timedelta(days=max(1, days))
     merged_metadata = {
         **(metadata or {}),
-        "storage": "local",
+        "storage": settings.artifact_storage_backend,
         "generated_by": current_user.get("username"),
         "retention_days": max(1, days),
         "downloadable": True,
@@ -173,7 +171,7 @@ def get_generated_file(
         "id": item["id"],
         "filename": item["filename"],
         "mime_type": item["mime_type"],
-        "content": Path(item["storage_path"]).read_bytes(),
+        "content": read_artifact(item["storage_path"]),
     }
 
 
@@ -214,8 +212,8 @@ def get_generated_file_storage_reference(
     if expires_at and expires_at <= datetime.now(timezone.utc):
         raise HTTPException(status_code=status.HTTP_410_GONE, detail="文件已超过 1 个月保存期")
 
-    path = Path(str(row[11]))
-    if not path.exists() or not path.is_file():
+    path = str(row[11])
+    if not artifact_exists(path):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="文件存储已不存在")
 
     return {
@@ -303,21 +301,13 @@ def cleanup_expired_generated_files() -> int:
     )
     deleted = 0
     for row in rows:
-        path = Path(str(row[1]))
         try:
-            if path.exists() and path.is_file():
-                path.unlink()
-                deleted += 1
-        except OSError:
-            pass
-    if rows:
-        execute(
-            """
-            UPDATE automation_run_artifacts
-            SET downloadable = FALSE
-            WHERE expires_at IS NOT NULL AND expires_at <= now();
-            """
-        )
+            delete_artifact(str(row[1]))
+        except Exception:
+            # Retry on the next sweep; do not mark failed deletions completed.
+            continue
+        execute("UPDATE automation_run_artifacts SET downloadable = FALSE WHERE id = %s", (row[0],))
+        deleted += 1
     return deleted
 
 

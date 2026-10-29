@@ -6,6 +6,9 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Literal
 
+from app.services.email_service import is_email_send_requested
+from app.services.chat_intent_guard_service import is_information_request, has_execution_request, is_action_negated, instruction_text
+
 
 FinanceCompoundOutput = Literal["finance_monthly_report", "finance_salary_export"]
 
@@ -55,7 +58,7 @@ def recognize_finance_compound_intent(
     today: date | None = None,
 ) -> FinanceCompoundIntent:
     normalized = " ".join((message or "").strip().split())
-    lowered = normalized.lower()
+    lowered = instruction_text(normalized).lower()
     current_day = today or date.today()
     start_date, end_date, period_label = _resolve_period(normalized, current_day)
     matched_keywords: list[str] = []
@@ -64,8 +67,8 @@ def recognize_finance_compound_intent(
     has_report = _looks_like_finance_report_request(lowered, matched_keywords)
     wants_generation = _contains_any(lowered, _generation_keywords(), matched_keywords)
     merge_requested = _contains_any(lowered, _merge_keywords(), matched_keywords)
-    email_requested = _contains_any(lowered, _email_keywords(), matched_keywords)
-    wechat_requested = _contains_any(lowered, _wechat_keywords(), matched_keywords)
+    email_requested = _contains_any(lowered, _email_keywords(), matched_keywords) and is_email_send_requested(normalized)
+    wechat_requested = _contains_any(lowered, _wechat_keywords(), matched_keywords) and not is_action_negated(normalized)
 
     outputs: list[FinanceCompoundOutput] = []
     if has_report:
@@ -85,7 +88,7 @@ def recognize_finance_compound_intent(
         confidence += 0.08
 
     # 单纯工资表仍走原工资表 Skill；只要出现财务报表，才进入本复合/报表生成链路。
-    if FINANCE_REPORT_OUTPUT not in outputs:
+    if FINANCE_REPORT_OUTPUT not in outputs or is_information_request(normalized) or not has_execution_request(normalized):
         return FinanceCompoundIntent(
             intent="unknown",
             outputs=tuple(outputs),

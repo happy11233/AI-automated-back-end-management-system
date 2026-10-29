@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from app.observability import observed
+
 from dataclasses import dataclass, field
 from importlib import import_module
 from typing import Any, Callable
@@ -80,6 +82,7 @@ def validate_skill_access(
     }
 
 
+@observed('skill.execute', 'tool')
 def execute_skill(
     *,
     skill_id: str,

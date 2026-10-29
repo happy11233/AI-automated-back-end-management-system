@@ -80,12 +80,23 @@ specs/
 loop-engineering/
 loop_engineering/
 .github/
+!.github/
+.github/*
+!.github/workflows/
+.github/workflows/*
+!.github/workflows/production-checks.yml
 
 # Internal planning docs generated during loop engineering or spec coding.
 # Keep only the public README and the sample RAG document used by local demos.
 docs/*
 !docs/refund.md
 !docs/.gitkeep
+!docs/DATABASE_MIGRATION_STRATEGY.md
+!docs/PRODUCTION_RUNBOOK.md
+!docs/ECOMMERCE_AGENT_LOOP_PLAN.md
+!docs/ECOMMERCE_AGENT_BASELINE.md
+!docs/FRONTEND_BUNDLE_OPTIMIZATION.md
+!docs/FRONTEND_STATE_OPTIMIZATION.md
 
 # Generated evaluation outputs
 eval/*_report.json
@@ -100,3 +111,5 @@ desktop/**/*.zip
 desktop/**/*.blockmap
 desktop/**/*.tsbuildinfo
 desktop/**/.npm-cache/
+
+!docs/COMPETITOR_MONITOR_LOOP_PLAN.md

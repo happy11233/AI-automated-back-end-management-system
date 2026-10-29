@@ -10,7 +10,7 @@ def execute_refund_for_approval(approval_id: str) -> dict:
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT id, action_type, status, payload
+                SELECT id, action_type, status, refund_status, payload
                 FROM approval_requests
                 WHERE id = %s
                 FOR UPDATE;
@@ -37,18 +37,39 @@ def execute_refund_for_approval(approval_id: str) -> dict:
                     "message": "审批尚未通过，不能执行退款。",
                 }
 
-            payload = approval[3]
+            cur.execute(
+                """SELECT id, status, amount_cents FROM refund_transactions
+                   WHERE approval_id = %s FOR UPDATE""", (approval_id,),
+            )
+            existing = cur.fetchone()
+            if approval[3] == "succeeded" and existing is None:
+                return {
+                    "success": False, "refund_status": "succeeded",
+                    "message": "退款状态与流水不一致，已停止重复执行，请人工对账。",
+                }
+            if existing is not None and existing[1] == "succeeded":
+                cur.execute("UPDATE approval_requests SET refund_status='succeeded' WHERE id=%s", (approval_id,))
+                return {
+                    "success": True,
+                    "refund_status": "succeeded",
+                    "message": "该审批已经执行过退款，未重复执行。",
+                    "refund_transaction_id": str(existing[0]),
+                }
+
+            payload = approval[4] if isinstance(approval[4], dict) else {}
             order_no = payload.get("order_no")
 
             if not order_no:
+                cur.execute("UPDATE approval_requests SET refund_status='failed' WHERE id=%s", (approval_id,))
                 return {
                     "success": False,
+                    "refund_status": "failed",
                     "message": "审批记录中缺少订单号。",
                 }
 
             cur.execute(
                 """
-                SELECT order_no, amount_cents, refundable
+                SELECT order_no, amount_cents, refundable, status
                 FROM orders
                 WHERE order_no = %s
                 FOR UPDATE;
@@ -58,26 +79,25 @@ def execute_refund_for_approval(approval_id: str) -> dict:
             order = cur.fetchone()
 
             if order is None:
+                cur.execute("UPDATE approval_requests SET refund_status='failed' WHERE id=%s", (approval_id,))
                 return {
                     "success": False,
+                    "refund_status": "failed",
                     "message": f"订单 {order_no} 不存在。",
                 }
 
-            cur.execute(
-                """
-                SELECT id
-                FROM refund_transactions
-                WHERE approval_id = %s;
-                """,
-                (approval_id,),
-            )
-            existing = cur.fetchone()
-
-            if existing is not None:
+            if existing is not None and existing[2] != order[1]:
+                cur.execute("UPDATE approval_requests SET refund_status='failed' WHERE id=%s", (approval_id,))
                 return {
-                    "success": True,
-                    "message": "该审批已经执行过退款，未重复执行。",
-                    "refund_transaction_id": str(existing[0]),
+                    "success": False, "refund_status": "failed",
+                    "message": "订单金额已变化，需要重新审批后再退款。",
+                }
+
+            if order[3] == "refunded":
+                cur.execute("UPDATE approval_requests SET refund_status='failed' WHERE id=%s", (approval_id,))
+                return {
+                    "success": False, "refund_status": "failed",
+                    "message": "订单已标记退款但本审批没有成功流水，请人工对账，禁止重复退款。",
                 }
 
             if order[2] is False:
@@ -93,8 +113,10 @@ def execute_refund_for_approval(approval_id: str) -> dict:
                     },
                 )
 
+                cur.execute("UPDATE approval_requests SET refund_status='failed' WHERE id=%s", (approval_id,))
                 return {
                     "success": False,
+                    "refund_status": "failed",
                     "message": f"订单 {order_no} 当前不可退款。",
                     "refund_transaction_id": str(failed_refund[0]),
                 }
@@ -119,9 +141,11 @@ def execute_refund_for_approval(approval_id: str) -> dict:
                 """,
                 (order_no,),
             )
+            cur.execute("UPDATE approval_requests SET refund_status='succeeded' WHERE id=%s", (approval_id,))
 
             return {
                 "success": True,
+                "refund_status": "succeeded",
                 "message": f"订单 {order_no} 已退款成功。",
                 "refund_transaction_id": str(refund[0]),
             }
@@ -145,6 +169,9 @@ def create_refund_transaction(
             payload
         )
         VALUES (%s, %s, %s, %s, %s::jsonb)
+        ON CONFLICT (approval_id) DO UPDATE
+        SET status = EXCLUDED.status, payload = EXCLUDED.payload
+        WHERE refund_transactions.status <> 'succeeded'
         RETURNING id;
         """,
         (

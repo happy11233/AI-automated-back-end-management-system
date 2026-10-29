@@ -3,13 +3,14 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from app.services.chat_intent_guard_service import is_information_request, has_execution_request
 from app.skills.executor import SkillExecutionResult, execute_skill
 from app.skills.registry import SkillDefinition, skill_for_react_action
 
 
 def detect_chat_automation(message: str, current_user: dict) -> dict[str, Any] | None:
     text = " ".join(message.strip().split())
-    if not text:
+    if not text or is_information_request(text) or not has_execution_request(text):
         return None
 
     position = current_user.get("position")
@@ -153,14 +154,16 @@ def _run_customer_service_reply(
     draft_id = draft.get("id") if draft else None
     answer = (
         "已识别为客服自动化回复需求。AI 已自动分类客户问题、查询客服岗位权限内的 ERP/RAG 信息，"
-        "并生成回复草稿保存到客服平台草稿区。\n"
+        "并在本系统保存回复草稿；外部写回和实际发送以执行记录与渠道回执为准。\n"
         f"客户消息 ID：{metadata.get('message_id') or '未返回'}\n"
         f"意图：{metadata.get('intent') or '未识别'}\n"
         f"风险等级：{metadata.get('risk_level')}\n"
         f"处理结果：{result.status}\n"
         f"草稿 ID：{draft_id or '未生成'}\n"
         f"写回状态：{metadata.get('writeback_status') or 'draft_saved'}\n\n"
-        f"{result.answer or ''}"
+        f"客户回复正文（草稿）：\n{result.answer or '待人工复核'}\n\n"
+        f"客服内部处理建议：\n{metadata.get('internal_note') or '暂无'}\n"
+        f"需要人工复核：{'是' if metadata.get('needs_human_review', True) else '否'}"
     )
     return {
         "thread_id": thread_id,

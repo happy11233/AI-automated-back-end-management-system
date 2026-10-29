@@ -1,4 +1,6 @@
 from datetime import datetime, timezone
+import fcntl
+from hashlib import sha256
 import json
 from pathlib import Path
 from uuid import uuid4
@@ -45,14 +47,22 @@ def create_ticket(
     priority: str = "normal",
     requester: str | None = None,
     source: str = "rag-agent",
+    idempotency_key: str | None = None,
 ) -> dict:
     """创建一条外部工单，适合人工处理、审批、售后跟进等场景。"""
+    ticket_id = (f"TICKET-{sha256(idempotency_key.encode()).hexdigest()[:16].upper()}"
+                 if idempotency_key else f"TICKET-{uuid4().hex[:10].upper()}")
+    if idempotency_key and _is_feishu_ticket_configured():
+        existing = _get_feishu_ticket(ticket_id)
+        if existing and existing.get("found"):
+            return {"created": False, **existing}
     feishu_result = _create_feishu_ticket(
         title=title,
         description=description,
         priority=priority,
         requester=requester,
         source=source,
+        ticket_id=ticket_id,
     )
     if feishu_result is not None:
         return feishu_result
@@ -60,7 +70,7 @@ def create_ticket(
     DATA_DIR.mkdir(parents=True, exist_ok=True)
 
     ticket = {
-        "ticket_id": f"TICKET-{uuid4().hex[:10].upper()}",
+        "ticket_id": ticket_id,
         "title": title.strip()[:120],
         "description": description.strip(),
         "priority": priority,
@@ -70,8 +80,18 @@ def create_ticket(
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
 
-    with TICKETS_FILE.open("a", encoding="utf-8") as file:
-        file.write(dumps_json(ticket) + "\n")
+    with TICKETS_FILE.open("a+", encoding="utf-8") as file:
+        fcntl.flock(file, fcntl.LOCK_EX)
+        try:
+            file.seek(0)
+            for line in file:
+                existing = json.loads(line)
+                if existing.get("ticket_id") == ticket_id:
+                    return {"created": False, **existing}
+            file.write(dumps_json(ticket) + "\n")
+            file.flush()
+        finally:
+            fcntl.flock(file, fcntl.LOCK_UN)
 
     return {
         "created": True,
@@ -123,12 +143,12 @@ def _create_feishu_ticket(
     priority: str,
     requester: str | None,
     source: str,
+    ticket_id: str,
 ) -> dict | None:
     if not _is_feishu_ticket_configured():
         return None
 
     client = get_feishu_client()
-    ticket_id = f"TICKET-{uuid4().hex[:10].upper()}"
     created_at = datetime.now(timezone.utc).isoformat()
     fields = {
         settings.feishu_ticket_id_field: ticket_id,

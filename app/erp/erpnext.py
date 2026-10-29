@@ -78,6 +78,12 @@ class ERPNextProvider(ERPProvider):
             "fields": json.dumps(fields, ensure_ascii=False),
         }
         normalized_filters = self._build_filters(doctype, filters, query)
+        if doctype == "Item Price":
+            # This public resource represents selling prices, never purchase costs.
+            normalized_filters = list(normalized_filters or []) + [
+                ["selling", "=", 1],
+                ["buying", "=", 0],
+            ]
         if normalized_filters:
             params["filters"] = json.dumps(normalized_filters, ensure_ascii=False)
         normalized_or_filters = self._build_or_filters(doctype, filters, query)
@@ -124,6 +130,11 @@ class ERPNextProvider(ERPProvider):
             return None
 
         searchable_fields = {
+            "Crossborder Product": ["name", "item_code", "product_name", "market", "store"],
+            "Competitor Product": ["name", "own_item_code", "product_name", "brand", "market"],
+            "Ad Campaign Daily": ["name", "item_code", "campaign_name", "market"],
+            "Marketplace Settlement": ["name", "order_no", "sales_invoice", "item_code", "status"],
+            "Shipment Tracking": ["name", "order_no", "tracking_no", "sales_order", "status"],
             "Item": ["name", "item_name", "item_code"],
             "Item Price": ["name", "item_code", "price_list"],
             "Bin": ["name", "item_code", "warehouse"],

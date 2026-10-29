@@ -17,10 +17,10 @@ from app.services.agent_execution_service import (
 )
 from app.services.email_service import (
     EmailAttachment,
-    email_result_metadata,
     resolve_email_recipient,
-    send_email_with_attachments,
+    validate_email_address,
 )
+from app.services.email_confirmation_service import create_email_confirmation
 from app.services.finance_compound_intent_service import (
     FINANCE_COMPOUND_INTENT,
     FINANCE_REPORT_OUTPUT,
@@ -292,35 +292,37 @@ def execute_finance_compound_generation(
     )
 
     email_metadata = {"email_requested": intent.email_requested, "email_sent": False}
+    email_confirmation = None
     if intent.email_requested:
         email_recipient, email_recipient_source = resolve_email_recipient(
             message,
             current_user.get("email"),
         )
-        email_result = send_email_with_attachments(
-            to_email=email_recipient,
-            subject=f"{intent.period_label}财务资料",
-            body=_email_body(current_user=current_user, intent=intent, attachments=attachments),
-            attachments=[item.to_email_attachment() for item in attachments],
-        )
-        email_metadata = {
-            **email_result_metadata(email_result),
-            "email_recipient_source": email_recipient_source,
-        }
-        _record_step(
-            run_id,
-            step_name="finance_compound_email_delivery",
-            step_order=step_order + 1,
-            status_value="succeeded" if email_result.sent else "failed",
-            provider=email_result.provider,
-            resource_type="email",
-            resource_id=email_result.recipient,
-            input_text=message,
-            output_text="已发送财务资料邮件" if email_result.sent else email_result.error,
-            error_message=email_result.error if not email_result.sent else None,
-            duration_ms=0,
-            metadata=email_metadata,
-        )
+        email_error = validate_email_address(email_recipient)
+        if email_error:
+            email_metadata = {"email_requested": True, "email_sent": False, "email_error": email_error}
+        else:
+            email_confirmation = create_email_confirmation(
+                current_user=current_user,
+                recipient=email_recipient,
+                subject=f"{intent.period_label}财务资料",
+                body=_email_body(current_user=current_user, intent=intent, attachments=attachments),
+                artifact_ids=[str(item.metadata["artifact_id"]) for item in attachments if item.metadata.get("artifact_id")],
+                sensitive_type="财务资料和员工数据",
+            )
+            email_metadata = {
+                "email_requested": True,
+                "email_sent": False,
+                "email_status": "waiting_email_confirmation",
+                "email_confirmation_id": email_confirmation["confirmation_id"],
+                "email_recipient_source": email_recipient_source,
+            }
+            _record_step(
+                run_id, step_name="finance_compound_email_confirmation", step_order=step_order + 1,
+                status_value="blocked", provider="email_confirmation", resource_type="email",
+                resource_id=email_recipient, input_text=message,
+                output_text="等待用户确认收件人和财务附件", duration_ms=0, metadata=email_metadata,
+            )
 
     metadata = {
         "intent": intent.intent,
@@ -335,6 +337,8 @@ def execute_finance_compound_generation(
         "source": source,
         **email_metadata,
     }
+    if email_confirmation:
+        metadata["email_confirmation"] = email_confirmation
 
     return FinanceCompoundGenerationResult(
         answer=_build_answer(
@@ -467,10 +471,10 @@ def _build_answer(
         lines.append("你提到了微信发送，本次已整理成可确认发送的文件。")
 
     if intent.email_requested:
-        if email_metadata.get("email_sent"):
-            lines.append(f"已按你的要求发送到邮箱：{email_metadata.get('recipient')}")
+        if email_metadata.get("email_confirmation_id"):
+            lines.append("邮箱发送确认卡已生成，请预览附件并确认收件人后发送。")
         else:
-            lines.append(f"你要求发送到邮箱，但邮件未发送成功：{email_metadata.get('error') or '未配置邮箱地址'}")
+            lines.append(f"文件已生成，但尚未准备邮箱发送：{email_metadata.get('email_error') or '缺少可发送文件'}")
     elif intent.wechat_requested:
         lines.append("你提到了微信发送，本次会在聊天窗口展示企业微信发送确认卡，确认后由后端发送文件。")
     else:

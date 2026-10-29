@@ -1,3 +1,4 @@
+from app.observability import observed
 from hashlib import sha256
 from typing import Any
 
@@ -152,6 +153,7 @@ def build_metadata_filter(
     return {"$and": filters}
 
 
+@observed('rag.retrieve', 'retriever')
 def retrieve_chunks(
     query: str,
     role: str,

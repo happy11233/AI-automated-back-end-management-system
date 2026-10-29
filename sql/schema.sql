@@ -230,6 +230,7 @@ CREATE TABLE IF NOT EXISTS chat_thread_summaries (
 CREATE TABLE IF NOT EXISTS chat_thread_state (
     thread_id TEXT PRIMARY KEY REFERENCES chat_threads(id) ON DELETE CASCADE,
     user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    context_version BIGINT NOT NULL DEFAULT 0,
     current_intent TEXT,
     order_no TEXT,
     risk_level TEXT,
@@ -260,11 +261,33 @@ CREATE TABLE IF NOT EXISTS approval_requests (
     requested_by UUID REFERENCES users(id) ON DELETE SET NULL,
     action_type TEXT NOT NULL,
     payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+    payload_hash TEXT,
     status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
+    refund_status TEXT CHECK (refund_status IN ('pending', 'succeeded', 'failed')),
     reviewer_id UUID REFERENCES users(id) ON DELETE SET NULL,
     reviewed_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_approval_requests_business_key
+ON approval_requests(thread_id, action_type, payload_hash) WHERE payload_hash IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS approval_ticket_outbox (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    approval_id UUID NOT NULL UNIQUE REFERENCES approval_requests(id) ON DELETE CASCADE,
+    idempotency_key TEXT NOT NULL UNIQUE,
+    status TEXT NOT NULL DEFAULT 'pending'
+        CHECK (status IN ('pending', 'dispatching', 'succeeded', 'failed', 'uncertain')),
+    attempt_count INTEGER NOT NULL DEFAULT 0,
+    max_attempts INTEGER NOT NULL DEFAULT 3 CHECK (max_attempts BETWEEN 1 AND 10),
+    next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    external_ticket_id TEXT,
+    last_error TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_approval_ticket_outbox_due
+ON approval_ticket_outbox(next_attempt_at) WHERE status IN ('pending', 'failed', 'uncertain');
 
 CREATE TABLE IF NOT EXISTS audit_logs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -775,3 +798,192 @@ CREATE INDEX IF NOT EXISTS idx_customer_service_message_events_message_created_a
 CREATE INDEX IF NOT EXISTS idx_document_chunks_embedding_hnsw
 ON document_chunks
 USING hnsw (embedding vector_cosine_ops);
+
+CREATE TABLE IF NOT EXISTS background_jobs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id),
+    position TEXT,
+    kind TEXT NOT NULL CHECK (kind IN ('finance_reconciliation')),
+    status TEXT NOT NULL DEFAULT 'queued' CHECK (status IN ('queued','running','succeeded','failed')),
+    idempotency_key TEXT NOT NULL,
+    payload_hash TEXT NOT NULL,
+    payload JSONB NOT NULL,
+    result JSONB NOT NULL DEFAULT '{}'::jsonb,
+    error_code TEXT,
+    attempt_count INTEGER NOT NULL DEFAULT 0,
+    max_attempts INTEGER NOT NULL DEFAULT 3 CHECK (max_attempts BETWEEN 1 AND 10),
+    request_id TEXT,
+    next_attempt_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    started_at TIMESTAMPTZ,
+    finished_at TIMESTAMPTZ,
+    UNIQUE(user_id, idempotency_key)
+);
+CREATE INDEX IF NOT EXISTS idx_background_jobs_user_created ON background_jobs(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_background_jobs_due ON background_jobs(next_attempt_at) WHERE status = 'queued';
+CREATE TABLE IF NOT EXISTS task_outbox (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    job_id UUID NOT NULL REFERENCES background_jobs(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    published_at TIMESTAMPTZ,
+    attempt_count INTEGER NOT NULL DEFAULT 0,
+    next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE(job_id)
+);
+CREATE INDEX IF NOT EXISTS idx_task_outbox_pending ON task_outbox(next_attempt_at) WHERE published_at IS NULL;
+
+CREATE TABLE IF NOT EXISTS agent_business_events (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    workflow_id TEXT NOT NULL,
+    event_id TEXT NOT NULL,
+    payload_hash TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('processing', 'succeeded', 'failed')),
+    run_id UUID REFERENCES automation_runs(id) ON DELETE SET NULL,
+    error_code TEXT,
+    notification_id UUID REFERENCES notifications(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    finished_at TIMESTAMPTZ,
+    UNIQUE (user_id, workflow_id, event_id)
+);
+
+-- Business tasks are distinct from execution attempts and platform receipts.
+CREATE TABLE IF NOT EXISTS ecommerce_stores (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    platform TEXT NOT NULL,
+    external_store_id TEXT NOT NULL,
+    marketplace TEXT NOT NULL,
+    name TEXT NOT NULL,
+    active BOOLEAN NOT NULL DEFAULT true,
+    created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE(platform, external_store_id, marketplace)
+);
+
+CREATE TABLE IF NOT EXISTS ecommerce_store_grants (
+    store_id UUID NOT NULL REFERENCES ecommerce_stores(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    position TEXT NOT NULL CHECK(position IN ('operations','finance','customer_service')),
+    enabled BOOLEAN NOT NULL DEFAULT true,
+    updated_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY(store_id, user_id, position)
+);
+CREATE INDEX IF NOT EXISTS idx_ecommerce_store_grants_user ON ecommerce_store_grants(user_id, position, enabled);
+
+CREATE TABLE IF NOT EXISTS ecommerce_business_objects (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    store_id UUID NOT NULL REFERENCES ecommerce_stores(id),
+    object_type TEXT NOT NULL CHECK(object_type IN ('order','order_line','sku','refund','settlement',
+        'bank_transaction','ticket','shipment','purchase','campaign','accounting_entry')),
+    external_id TEXT NOT NULL,
+    line_id TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CHECK(object_type <> 'order_line' OR line_id <> ''),
+    UNIQUE(store_id, object_type, external_id, line_id)
+);
+
+CREATE TABLE IF NOT EXISTS agent_tasks (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    owner_user_id UUID NOT NULL REFERENCES users(id),
+    position TEXT NOT NULL CHECK(position IN ('operations','finance','customer_service')),
+    workflow_id TEXT NOT NULL,
+    app_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    goal TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft','awaiting_input','queued','running',
+        'awaiting_approval','awaiting_external','partially_completed','succeeded','failed','cancelled')),
+    source TEXT NOT NULL CHECK(source IN ('manual','chat','event','schedule')),
+    thread_id TEXT REFERENCES chat_threads(id) ON DELETE SET NULL,
+    store_id UUID REFERENCES ecommerce_stores(id),
+    expected_outputs JSONB NOT NULL DEFAULT '[]'::jsonb CHECK(jsonb_typeof(expected_outputs)='array'),
+    completion_criteria JSONB NOT NULL DEFAULT '[]'::jsonb CHECK(jsonb_typeof(completion_criteria)='array'),
+    policy_snapshot JSONB NOT NULL DEFAULT '{}'::jsonb,
+    workflow_version TEXT NOT NULL,
+    idempotency_key TEXT NOT NULL,
+    input_hash TEXT NOT NULL,
+    revision INTEGER NOT NULL DEFAULT 1 CHECK(revision > 0),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    finished_at TIMESTAMPTZ,
+    UNIQUE(owner_user_id, idempotency_key)
+);
+CREATE INDEX IF NOT EXISTS idx_agent_tasks_owner_updated ON agent_tasks(owner_user_id, position, updated_at DESC, id DESC);
+CREATE INDEX IF NOT EXISTS idx_agent_tasks_store_status ON agent_tasks(store_id, status);
+
+CREATE TABLE IF NOT EXISTS agent_task_objects (
+    task_id UUID NOT NULL REFERENCES agent_tasks(id) ON DELETE CASCADE,
+    object_id UUID NOT NULL REFERENCES ecommerce_business_objects(id),
+    PRIMARY KEY(task_id, object_id)
+);
+
+CREATE TABLE IF NOT EXISTS agent_task_runs (
+    task_id UUID NOT NULL REFERENCES agent_tasks(id) ON DELETE CASCADE,
+    run_id UUID NOT NULL UNIQUE REFERENCES automation_runs(id) ON DELETE CASCADE,
+    attempt_number INTEGER NOT NULL CHECK(attempt_number > 0),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY(task_id, run_id),
+    UNIQUE(task_id, attempt_number)
+);
+
+-- Mock monitoring is scoped to its owner; official API data must use a separate provider.
+CREATE TABLE IF NOT EXISTS competitor_monitor_snapshots (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    owner_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    run_id UUID NOT NULL UNIQUE REFERENCES automation_runs(id) ON DELETE CASCADE,
+    trigger_type TEXT NOT NULL CHECK (trigger_type IN ('manual', 'schedule')),
+    provider TEXT NOT NULL CHECK (provider IN ('mock', 'official')),
+    scheduled_for TIMESTAMPTZ,
+    captured_at TIMESTAMPTZ NOT NULL,
+    result JSONB NOT NULL CHECK (jsonb_typeof(result) = 'object'),
+    CHECK ((trigger_type = 'schedule') = (scheduled_for IS NOT NULL))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_competitor_monitor_slot
+    ON competitor_monitor_snapshots(owner_user_id, scheduled_for) WHERE scheduled_for IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_competitor_monitor_owner_time
+    ON competitor_monitor_snapshots(owner_user_id, captured_at DESC, id DESC);
+
+CREATE TABLE IF NOT EXISTS email_send_confirmations (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    recipient TEXT NOT NULL,
+    subject TEXT NOT NULL,
+    body TEXT NOT NULL,
+    artifacts JSONB NOT NULL CHECK (jsonb_typeof(artifacts) = 'array'),
+    status TEXT NOT NULL DEFAULT 'pending'
+        CHECK (status IN ('pending', 'sending', 'sent', 'failed', 'unknown')),
+    run_id UUID REFERENCES automation_runs(id) ON DELETE SET NULL,
+    error TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    expires_at TIMESTAMPTZ NOT NULL DEFAULT (now() + interval '30 minutes'),
+    sent_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_email_send_confirmations_user_status
+    ON email_send_confirmations(user_id, status, expires_at);
+
+CREATE TABLE IF NOT EXISTS mcp_execution_approvals (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tool_id TEXT NOT NULL,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    source TEXT NOT NULL,
+    arguments_hash TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'issued' CHECK (status IN ('issued', 'used')),
+    issued_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    expires_at TIMESTAMPTZ NOT NULL DEFAULT (now() + interval '5 minutes'),
+    used_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_mcp_execution_approvals_user_status
+    ON mcp_execution_approvals(user_id, status, expires_at);
+
+CREATE TABLE IF NOT EXISTS platform_execution_callback_events (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    task_id UUID NOT NULL REFERENCES platform_execution_tasks(id) ON DELETE CASCADE,
+    attempt_count INTEGER NOT NULL CHECK (attempt_count > 0),
+    external_event_id TEXT NOT NULL,
+    body_hash TEXT NOT NULL,
+    outcome TEXT NOT NULL DEFAULT 'received' CHECK (outcome IN ('received', 'applied', 'ignored')),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (task_id, attempt_count, external_event_id)
+);
+CREATE INDEX IF NOT EXISTS idx_platform_callback_events_task_time
+    ON platform_execution_callback_events(task_id, created_at DESC);

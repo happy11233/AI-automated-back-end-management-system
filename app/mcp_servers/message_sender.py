@@ -15,7 +15,6 @@ from app.services.enterprise_wechat_service import (
     search_enterprise_wechat_recipients,
     send_enterprise_wechat_file,
 )
-from app.services.email_service import EmailAttachment, send_email_with_attachments
 
 
 mcp = FastMCP(
@@ -28,7 +27,7 @@ mcp = FastMCP(
 def health_check() -> dict[str, Any]:
     """返回消息发送工具状态，不发送消息。"""
     smtp_configured = bool(settings.smtp_host and (settings.smtp_from_email or settings.smtp_username))
-    real_send_enabled = bool(settings.message_sender_real_send_enabled)
+    real_send_enabled = False
     enterprise_wechat_status = enterprise_wechat_config_status()
     enterprise_wechat_configured = bool(enterprise_wechat_status["configured"])
     status = "configured" if (smtp_configured or enterprise_wechat_configured) and real_send_enabled else "stub_ready"
@@ -97,7 +96,7 @@ def send_confirmed_email(
     confirmed: bool = False,
     sensitive_confirmed: bool = False,
 ) -> dict[str, Any]:
-    """发送已确认邮件；真实发送开关未启用时只返回待发送。"""
+    """Direct MCP email sending is disabled; authenticated API confirmation owns delivery."""
     normalized_recipient = str(recipient or "").strip()
     if not _looks_like_email(normalized_recipient):
         return {
@@ -125,45 +124,14 @@ def send_confirmed_email(
             "message": "包含可能敏感的业务附件，发送前需要确认敏感数据。",
             "requires_sensitive_confirmation": True,
         }
-    if not settings.message_sender_real_send_enabled:
-        return {
-            "ok": True,
-            "status": "waiting_executor",
-            "message": "真实邮件发送开关未启用，当前停留在待发送状态。",
-            "channel": "email",
-            "recipient": _mask_recipient(normalized_recipient),
-            "attachment_count": len(attachments or []),
-            "sent": False,
-        }
-
-    email_attachments = _normalize_email_attachments(attachments or [])
-    result = send_email_with_attachments(
-        to_email=normalized_recipient,
-        subject=str(subject or "").strip()[:200],
-        body=str(body or "").strip(),
-        attachments=email_attachments,
-    )
-    if not result.sent:
-        return {
-            "ok": False,
-            "status": "failed",
-            "message": result.error or "邮件发送失败。",
-            "channel": "email",
-            "recipient": _mask_recipient(normalized_recipient),
-            "provider": result.provider,
-            "sent": False,
-        }
-
     return {
-        "ok": True,
-        "status": "completed",
-        "message": "邮件已发送。",
+        "ok": False,
+        "status": "blocked",
+        "message": "请通过已登录的 /automation/files/email-send/confirm 接口确认发送。",
         "channel": "email",
         "recipient": _mask_recipient(normalized_recipient),
-        "message_id": result.message_id,
-        "provider": result.provider,
-        "attachment_count": len(email_attachments),
-        "sent": True,
+        "attachment_count": len(attachments or []),
+        "sent": False,
     }
 
 
@@ -256,20 +224,6 @@ def _mask_recipient(value: str) -> str:
     name, domain = value.rsplit("@", 1)
     prefix = name[:2] if len(name) >= 2 else name[:1]
     return f"{prefix}***@{domain}"
-
-
-def _normalize_email_attachments(items: list[dict[str, Any]]) -> list[EmailAttachment]:
-    attachments: list[EmailAttachment] = []
-    for item in items:
-        if not isinstance(item, dict):
-            continue
-        content = _attachment_content(item)
-        if not isinstance(content, bytes):
-            continue
-        filename = str(item.get("filename") or "attachment").strip()[:180]
-        mime_type = str(item.get("mime_type") or "application/octet-stream").strip()
-        attachments.append(EmailAttachment(filename=filename, content=content, mime_type=mime_type))
-    return attachments
 
 
 def _resolve_enterprise_wechat_recipient(

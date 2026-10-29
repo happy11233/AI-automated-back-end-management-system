@@ -4,6 +4,7 @@ from uuid import uuid4
 from app.config import settings
 from app.db import execute, fetch_all, fetch_one
 from app.json_utils import dumps_json
+from app.observability import request_id_var
 from app.services.run_record_service import sanitize_metadata
 
 
@@ -214,7 +215,7 @@ def save_chat_message(
             user_id,
             role,
             content,
-            dumps_json(metadata or {}),
+            dumps_json({**(metadata or {}), **({"request_id": request_id_var.get()} if request_id_var.get() else {})}),
         ),
     )
 

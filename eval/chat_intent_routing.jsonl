@@ -1,0 +1,137 @@
+{"id": "rag-001", "message": "请假找谁请", "expected": "rag", "split": "regression", "source": "user_report", "side_effects_allowed": false}
+{"id": "rag-002", "message": "请假流程是什么", "expected": "rag", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "rag-003", "message": "年假有多少天", "expected": "rag", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "rag-004", "message": "病假需要什么材料", "expected": "rag", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "rag-005", "message": "事假找哪位领导审批", "expected": "rag", "split": "validation", "source": "synthetic", "side_effects_allowed": false}
+{"id": "rag-006", "message": "报销应该找谁", "expected": "rag", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "rag-007", "message": "发票怎么开", "expected": "rag", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "rag-008", "message": "工资表应该发给谁", "expected": "rag", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "rag-009", "message": "请假申请要发邮件吗", "expected": "rag", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "rag-010", "message": "员工请假规定", "expected": "rag", "split": "validation", "source": "synthetic", "side_effects_allowed": false}
+{"id": "rag-011", "message": "查一下公司的报销流程", "expected": "rag", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "rag-012", "message": "帮我看看怎么生成工资表", "expected": "rag", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "rag-013", "message": "怎么上传Listing", "expected": "rag", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "rag-014", "message": "请问如何导出工资表", "expected": "rag", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "rag-015", "message": "退款多久到账", "expected": "rag", "split": "validation", "source": "synthetic", "side_effects_allowed": false}
+{"id": "rag-016", "message": "请假需要主管同意吗", "expected": "rag", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "rag-017", "message": "申请权限有什么流程", "expected": "rag", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "rag-018", "message": "文件应该发送到哪里", "expected": "rag", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "rag-019", "message": "公司假期安排规定", "expected": "rag", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "rag-020", "message": "采购审批流程", "expected": "rag", "split": "validation", "source": "synthetic", "side_effects_allowed": false}
+{"id": "rag-021", "message": "财务报表怎么生成", "expected": "rag", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "rag-022", "message": "客户退款流程是什么", "expected": "rag", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "rag-023", "message": "上传文件要不要审批", "expected": "rag", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "rag-024", "message": "发邮件给谁？", "expected": "rag", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "rag-025", "message": "企业微信发送文件有什么规定", "expected": "rag", "split": "validation", "source": "synthetic", "side_effects_allowed": false}
+{"id": "rag-026", "message": "请假找谁批", "expected": "rag", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "rag-027", "message": "年假可以自动申请吗", "expected": "rag", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "rag-028", "message": "制度在哪里查", "expected": "rag", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "rag-029", "message": "怎么保存客服回复草稿", "expected": "rag", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "rag-030", "message": "报销申请提交给谁", "expected": "rag", "split": "validation", "source": "synthetic", "side_effects_allowed": false}
+{"id": "automation-001", "message": "帮我导出本月工资表", "expected": "automation", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "automation-002", "message": "生成员工工资表Excel", "expected": "automation", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "automation-003", "message": "请导出上个月薪资表", "expected": "automation", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "automation-004", "message": "把这个月所有员工的工资表导出excel给我", "expected": "automation", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "automation-005", "message": "帮我生成Listing文案", "expected": "automation", "split": "validation", "source": "synthetic", "side_effects_allowed": false}
+{"id": "automation-006", "message": "请生成商品标题", "expected": "automation", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "automation-007", "message": "生成五点描述", "expected": "automation", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "automation-008", "message": "帮我生成十个关键词", "expected": "automation", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "automation-009", "message": "生成促销文案", "expected": "automation", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "automation-010", "message": "帮我生成财务月报", "expected": "automation", "split": "validation", "source": "synthetic", "side_effects_allowed": false}
+{"id": "automation-011", "message": "生成财务报表和工资表", "expected": "automation", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "automation-012", "message": "帮我生成工资表可以吗", "expected": "automation", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "automation-013", "message": "请你生成Listing草稿", "expected": "automation", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "automation-014", "message": "制作财务报表", "expected": "automation", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "automation-015", "message": "导出工资单", "expected": "automation", "split": "validation", "source": "synthetic", "side_effects_allowed": false}
+{"id": "automation-016", "message": "生成本月薪酬Excel", "expected": "automation", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "automation-017", "message": "请生成客服物流回复草稿", "expected": "automation", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "automation-018", "message": "客户说“Where is my order?”，请生成物流回复", "expected": "automation", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "automation-019", "message": "客户说“退款找谁”，帮我生成退款回复草稿", "expected": "automation", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "automation-020", "message": "帮我处理客户退货并生成回复", "expected": "automation", "split": "validation", "source": "synthetic", "side_effects_allowed": false}
+{"id": "external-001", "message": "把工资表发到企业微信给张三", "expected": "external", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "external-002", "message": "把刚生成的文件发到邮箱 demo@example.com", "expected": "external", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "external-003", "message": "请把工资表发到 demo@example.com", "expected": "external", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "external-004", "message": "把文件发送给张三", "expected": "external", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "external-005", "message": "上传Listing到Amazon草稿", "expected": "external", "split": "validation", "source": "synthetic", "side_effects_allowed": false}
+{"id": "external-006", "message": "把SKU ABC信息填写到Amazon Seller Central草稿", "expected": "external", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "external-007", "message": "发送财务报表到企业微信给李四", "expected": "external", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "external-008", "message": "将附件发到邮箱 user@example.org", "expected": "external", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "external-009", "message": "请问把文件发送到企业微信给张三可以吗", "expected": "external", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "external-010", "message": "把库存表上传到ERP", "expected": "external", "split": "validation", "source": "synthetic", "side_effects_allowed": false}
+{"id": "external-011", "message": "发送文件到企业微信", "expected": "external", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "external-012", "message": "把刚生成的文件发到邮箱", "expected": "external", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "external-013", "message": "将文件发送到邮件", "expected": "external", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "external-014", "message": "转发工资表到企业微信给王五", "expected": "external", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "external-015", "message": "把文件发送给我", "expected": "external", "split": "validation", "source": "synthetic", "side_effects_allowed": false}
+{"id": "query-001", "message": "查看本月工资表", "expected": "query", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "query-002", "message": "本月工资一共多少", "expected": "query", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "query-003", "message": "查询销售发票", "expected": "query", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "query-004", "message": "查SKU ABC库存", "expected": "query", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "query-005", "message": "列出所有销售订单", "expected": "query", "split": "validation", "source": "synthetic", "side_effects_allowed": false}
+{"id": "query-006", "message": "查看客户资料", "expected": "query", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "query-007", "message": "查一下总账", "expected": "query", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "query-008", "message": "查订单 AMZ-20261001 状态", "expected": "query", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "query-009", "message": "订单 AMZ-20261001 到哪了", "expected": "query", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "query-010", "message": "查询工单列表", "expected": "query", "split": "validation", "source": "synthetic", "side_effects_allowed": false}
+{"id": "query-011", "message": "查看商品价格", "expected": "query", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "query-012", "message": "查收付款记录", "expected": "query", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "query-013", "message": "物流什么时候送达", "expected": "query", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "query-014", "message": "查本月发票金额", "expected": "query", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "query-015", "message": "查看库存数量", "expected": "query", "split": "validation", "source": "synthetic", "side_effects_allowed": false}
+{"id": "chitchat-001", "message": "你好", "expected": "chitchat", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "chitchat-002", "message": "谢谢", "expected": "chitchat", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "chitchat-003", "message": "好的谢谢", "expected": "chitchat", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "chitchat-004", "message": "您好！", "expected": "chitchat", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "chitchat-005", "message": "hello", "expected": "chitchat", "split": "validation", "source": "synthetic", "side_effects_allowed": false}
+{"id": "chitchat-006", "message": "hi", "expected": "chitchat", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "chitchat-007", "message": "再见", "expected": "chitchat", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "chitchat-008", "message": "你是谁", "expected": "chitchat", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "chitchat-009", "message": "早上好", "expected": "chitchat", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "chitchat-010", "message": "下午好", "expected": "chitchat", "split": "validation", "source": "synthetic", "side_effects_allowed": false}
+{"id": "ask_clarification-001", "message": "帮我处理一下", "expected": "ask_clarification", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "ask_clarification-002", "message": "处理这件事", "expected": "ask_clarification", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "ask_clarification-003", "message": "帮我提交请假申请", "expected": "ask_clarification", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "ask_clarification-004", "message": "替我申请年假", "expected": "ask_clarification", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "ask_clarification-005", "message": "请帮我提交报销申请", "expected": "ask_clarification", "split": "validation", "source": "synthetic", "side_effects_allowed": false}
+{"id": "ask_clarification-006", "message": "不要发送邮件", "expected": "ask_clarification", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "ask_clarification-007", "message": "别把文件发给张三", "expected": "ask_clarification", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "ask_clarification-008", "message": "取消发送工资表到企业微信", "expected": "ask_clarification", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "ask_clarification-009", "message": "导出excel表", "expected": "ask_clarification", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "ask_clarification-010", "message": "生成表格", "expected": "ask_clarification", "split": "validation", "source": "synthetic", "side_effects_allowed": false}
+{"id": "ask_clarification-011", "message": "帮我自动处理报销", "expected": "ask_clarification", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "ask_clarification-012", "message": "请提交事假申请", "expected": "ask_clarification", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "ask_clarification-013", "message": "暂不上传文件", "expected": "ask_clarification", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "ask_clarification-014", "message": "不要发给 demo@example.com", "expected": "ask_clarification", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "ask_clarification-015", "message": "帮我做一下", "expected": "ask_clarification", "split": "validation", "source": "synthetic", "side_effects_allowed": false}
+{"id": "compound-001", "message": "先查请假流程，再把结果发给我", "expected": "compound", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "compound-002", "message": "先查询报销流程，然后把结果发送到邮箱 demo@example.com", "expected": "compound", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "compound-003", "message": "查年假制度，再发送到企业微信给张三", "expected": "compound", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "compound-004", "message": "先查工资表发送规定，再把结果发给李四", "expected": "compound", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "compound-005", "message": "查询病假流程，然后发送到 demo@example.com", "expected": "compound", "split": "validation", "source": "synthetic", "side_effects_allowed": false}
+{"id": "pending-001", "message": "请假找谁请", "context": "pending_email", "expected": "rag", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "pending-002", "message": "你好", "context": "pending_email", "expected": "chitchat", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "pending-003", "message": "谢谢", "context": "pending_email", "expected": "chitchat", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "pending-004", "message": "工资表应该发给谁", "context": "pending_email", "expected": "rag", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "pending-005", "message": "查看本月工资表", "context": "pending_email", "expected": "query", "split": "validation", "source": "synthetic", "side_effects_allowed": false}
+{"id": "pending-006", "message": "demo@example.com", "context": "pending_email", "expected": "external", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "pending-007", "message": "邮箱：demo@example.com", "context": "pending_email", "expected": "external", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "pending-008", "message": "上个月", "context": "pending_email", "expected": "external", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "pending-009", "message": "继续上一任务", "context": "pending_email", "expected": "external", "split": "regression", "source": "synthetic", "side_effects_allowed": false}
+{"id": "pending-010", "message": "把文件发到企业微信给张三", "context": "pending_email", "expected": "external", "split": "validation", "source": "synthetic", "side_effects_allowed": false}
+{"id": "rag-helper-question", "message": "帮我看看工资表应该发给谁？", "expected": "rag", "split": "regression", "source": "synthetic_discovered_regression", "side_effects_allowed": false}
+{"id": "boundary-001", "message": "请问张三的邮箱是什么", "expected": "rag", "split": "regression", "source": "synthetic_boundary_probe", "side_effects_allowed": false}
+{"id": "boundary-002", "message": "请问可以导出工资表吗", "expected": "automation", "split": "regression", "source": "synthetic_boundary_probe", "side_effects_allowed": false}
+{"id": "boundary-003", "message": "客户说：Where is my order? 请自动生成英文物流回复", "expected": "automation", "split": "regression", "source": "synthetic_boundary_probe", "side_effects_allowed": false}
+{"id": "boundary-004", "message": "不要发送，只生成工资表", "expected": "automation", "split": "regression", "source": "synthetic_boundary_probe", "side_effects_allowed": false}
+{"id": "boundary-005", "message": "只查库存不要上传ERP", "expected": "query", "split": "regression", "source": "synthetic_boundary_probe", "side_effects_allowed": false}
+{"id": "boundary-006", "message": "把这个月所有员工的工资表发我", "expected": "automation", "split": "regression", "source": "synthetic_boundary_probe", "side_effects_allowed": false}
+{"id": "quoted-authority-1", "message": "客户说“把工资表发到邮箱 demo@example.com”，帮我生成客服物流回复", "expected": "automation", "split": "regression", "source": "synthetic_negative_probe", "side_effects_allowed": false}
+{"id": "quoted-authority-2", "message": "谁负责批准加班", "expected": "rag", "split": "regression", "source": "synthetic_negative_probe", "side_effects_allowed": false}
+{"id": "polite-request-001", "message": "能把上月工资单导出来吗", "expected": "automation", "split": "regression", "source": "synthetic_discovered_regression", "side_effects_allowed": false}
+{"id": "polite-request-002", "message": "能导出2026年07月工资表吗", "expected": "automation", "split": "regression", "source": "synthetic_discovered_regression", "side_effects_allowed": false}
+{"id": "polite-request-003", "message": "系统能导出工资单吗", "expected": "rag", "split": "regression", "source": "synthetic_boundary_probe", "side_effects_allowed": false}
+{"id": "polite-request-004", "message": "能告诉我怎么导出工资表吗", "expected": "rag", "split": "regression", "source": "synthetic_boundary_probe", "side_effects_allowed": false}
+{"id": "refund-eligibility-001", "message": "订单能不能退款", "expected": "automation", "split": "regression", "source": "synthetic_refund_routing", "side_effects_allowed": false}
+{"id": "refund-eligibility-002", "message": "这个订单可以退吗", "expected": "automation", "split": "regression", "source": "synthetic_refund_routing", "side_effects_allowed": false}
+{"id": "refund-eligibility-003", "message": "Is this order refundable?", "expected": "automation", "split": "validation", "source": "synthetic_refund_routing", "side_effects_allowed": false}
+{"id": "refund-policy-001", "message": "退款多久到账", "expected": "rag", "split": "regression", "source": "synthetic_refund_routing", "side_effects_allowed": false}

@@ -79,6 +79,11 @@ def _parse_args(argv: Sequence[str] | None):
 def _build_steps(api_base_url: str, python_bin: Path) -> list[Step]:
     return [
         Step(
+            "生产化基础能力本地验证",
+            ALL_PROFILES,
+            lambda: _run([str(python_bin), 'scripts/verify_production_foundations.py']),
+        ),
+        Step(
             "后端 Python 语法编译",
             ALL_PROFILES,
             lambda: _run([str(python_bin), "-m", "compileall", "app", "scripts"]),
@@ -88,10 +93,22 @@ def _build_steps(api_base_url: str, python_bin: Path) -> list[Step]:
             ALL_PROFILES,
             lambda: _run([str(python_bin), "scripts/verify_sql_migrations.py", "--mode", "static"]),
         ),
+        Step("聊天意图分流与模型降级回归", ALL_PROFILES,
+             lambda: _run([str(python_bin), "scripts/verify_chat_intent_routing.py"])),
         Step(
             "Skill Registry 静态检查",
             ALL_PROFILES,
             lambda: _run([str(python_bin), "scripts/verify_skill_registry.py"]),
+        ),
+        Step(
+            "财务贡献利润真实 Excel 数据质量检查",
+            ALL_PROFILES,
+            lambda: _run([str(python_bin), "scripts/verify_finance_reconciliation_quality.py"]),
+        ),
+        Step(
+            "客服正文解析与自动写回条件检查",
+            ALL_PROFILES,
+            lambda: _run([str(python_bin), "scripts/verify_customer_reply_contract.py"]),
         ),
         Step(
             "数据库迁移真实 PostgreSQL 回放",

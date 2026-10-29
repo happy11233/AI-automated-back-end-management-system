@@ -1,0 +1,37 @@
+# Add to docker-compose.yml. !override requires Docker Compose 2.24.4+.
+# HTTPS terminates at a trusted cloud load balancer or TLS proxy on this host.
+services:
+  postgres:
+    ports: !reset []
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set a random URL-safe POSTGRES_PASSWORD}
+    restart: unless-stopped
+  rabbitmq:
+    ports: !reset []
+  api:
+    ports: !override ["127.0.0.1:8001:8001"]
+    environment: &production_environment
+      APP_ENVIRONMENT: production
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:?Set JWT_SECRET_KEY}
+      METRICS_TOKEN: ${METRICS_TOKEN:?Set METRICS_TOKEN}
+      PLATFORM_ACTION_EXECUTION_CALLBACK_SECRET: ${PLATFORM_ACTION_EXECUTION_CALLBACK_SECRET:?Set PLATFORM_ACTION_EXECUTION_CALLBACK_SECRET}
+      REDIS_KEY_PREFIX: ${REDIS_KEY_PREFIX:-company-rag-prod}
+      RATE_LIMIT_ENABLED: "true"
+      BACKGROUND_JOBS_ENABLED: "true"
+    init: true
+    stop_grace_period: 90s
+  worker:
+    environment: *production_environment
+    init: true
+  beat:
+    environment: *production_environment
+    init: true
+  web:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.web
+    ports: ["127.0.0.1:8080:8080"]
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped

@@ -45,7 +45,7 @@ try {
     state: "visible",
     timeout: 20000,
   });
-  for (const text of ["审批用途", "类型", "原始原因", "通过", "拒绝"]) {
+  for (const text of ["审批用途", "类型", "原始原因", "退款结果", "外部工单"]) {
     await assertTextVisible(customerPage, text);
   }
   await assertTextHidden(customerPage, "customer_service_refund");
@@ -82,7 +82,7 @@ async function login(page, username, password) {
   await modal.locator("input").nth(0).fill(username);
   await modal.locator("input").nth(1).fill(password);
   const loginResponse = page.waitForResponse(
-    (response) => response.url().includes("/api/auth/login") && response.status() === 200,
+    (response) => response.url().includes("/auth/login") && response.status() === 200,
     { timeout: 30000 },
   );
   await page.locator(".ant-modal-footer .ant-btn-primary").click();

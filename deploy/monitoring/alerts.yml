@@ -1,0 +1,58 @@
+groups:
+  - name: company-rag-production
+    rules:
+      - alert: CompanyRagApiUnavailable
+        expr: up{job='company-rag-api'} == 0
+        for: 1m
+        labels: { severity: critical }
+        annotations: { summary: 'API metrics scrape unavailable for one minute' }
+      - alert: CompanyRagBackgroundMetricsUnavailable
+        expr: company_rag_background_metrics_available == 0
+        for: 1m
+        labels: { severity: critical }
+        annotations: { summary: 'Cannot collect persistent task metrics' }
+      - alert: CompanyRagWorkerOrSchedulerUnavailable
+        expr: time() - company_rag_background_heartbeat_timestamp_seconds > 90
+        for: 1m
+        labels: { severity: critical }
+        annotations: { summary: 'Worker or scheduled dispatch heartbeat is stale' }
+      - alert: CompanyRagTaskBacklog
+        expr: company_rag_oldest_pending_job_seconds > 300
+        for: 2m
+        labels: { severity: warning }
+        annotations: { summary: 'An unfinished finance task is older than five minutes' }
+      - alert: CompanyRagTaskOvertime
+        expr: company_rag_longest_running_job_seconds > 540
+        for: 1m
+        labels: { severity: critical }
+        annotations: { summary: 'A background task exceeded its soft execution limit' }
+      - alert: CompanyRagOutboxStalled
+        expr: company_rag_oldest_outbox_seconds > 60
+        for: 1m
+        labels: { severity: critical }
+        annotations: { summary: 'Outbox delivery has been waiting longer than one minute' }
+      - alert: CompanyRagTaskFailures
+        expr: company_rag_jobs_failed_last_5m > 0
+        for: 30s
+        labels: { severity: warning }
+        annotations: { summary: 'A background finance task failed in the last five minutes' }
+      - alert: CompanyRagAgentErrors
+        expr: sum(increase(company_rag_observed_runs_total{status='error'}[5m])) > 0
+        for: 30s
+        labels: { severity: warning }
+        annotations: { summary: 'An observed Agent, Skill, or business execution failed' }
+      - alert: CompanyRagAgentLatency
+        expr: histogram_quantile(0.95, sum by (le) (rate(company_rag_observed_duration_seconds_bucket{component=~'agent.*|skill.*|api.request'}[5m]))) > 30
+        for: 3m
+        labels: { severity: warning }
+        annotations: { summary: 'Observed Agent or business execution p95 exceeds thirty seconds' }
+      - alert: CompanyRagHttpErrorRate
+        expr: sum(rate(company_rag_http_requests_total{status=~'5..'}[5m])) / clamp_min(sum(rate(company_rag_http_requests_total[5m])), 0.001) > 0.05 and sum(increase(company_rag_http_requests_total[5m])) > 20
+        for: 2m
+        labels: { severity: warning }
+        annotations: { summary: 'HTTP 5xx ratio exceeds five percent' }
+      - alert: CompanyRagHttpLatency
+        expr: histogram_quantile(0.95, sum by (le) (rate(company_rag_http_duration_seconds_bucket{route!~'/chat/stream|/agent/chat|__unmatched__'}[5m]))) > 10
+        for: 5m
+        labels: { severity: warning }
+        annotations: { summary: 'HTTP p95 duration exceeds ten seconds excluding streaming Agent routes' }

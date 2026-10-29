@@ -2,6 +2,41 @@ from typing import Any
 
 
 ERP_RESOURCE_CATALOG: dict[str, dict[str, Any]] = {
+    "Crossborder Product": {
+        "label": "跨境商品档案",
+        "description": "我方 SKU 的站点、店铺、销售币种、卖点和模拟来源。",
+        "keywords": ["跨境商品", "商品档案", "我方商品", "我方产品"],
+        "provider_refs": {"erpnext": "Crossborder Product"},
+        "erpnext_fields": ["name", "item_code", "product_name", "market", "store", "brand", "currency", "selling_price", "rating", "review_count", "language", "features", "demo_batch", "is_simulated"],
+    },
+    "Competitor Product": {
+        "label": "竞品资料",
+        "description": "与我方 SKU 关联的竞品观察；模拟资料不计入我方库存和账务。",
+        "keywords": ["竞品", "竞争对手", "竞对", "competitor"],
+        "provider_refs": {"erpnext": "Competitor Product"},
+        "erpnext_fields": ["name", "own_item_code", "product_name", "brand", "market", "currency", "price", "rating", "review_count", "estimated_monthly_sales", "fulfillment", "observed_date", "strengths", "weaknesses", "data_source", "demo_batch", "is_simulated"],
+    },
+    "Ad Campaign Daily": {
+        "label": "广告日报",
+        "description": "SKU 广告曝光、点击、订单、花费、ACOS 和 ROAS。",
+        "keywords": ["广告", "广告日报", "投放", "acos", "roas"],
+        "provider_refs": {"erpnext": "Ad Campaign Daily"},
+        "erpnext_fields": ["name", "campaign_name", "item_code", "market", "report_date", "currency", "impressions", "clicks", "ad_orders", "spend", "ad_sales", "acos", "roas", "demo_batch", "is_simulated"],
+    },
+    "Marketplace Settlement": {
+        "label": "平台结算",
+        "description": "订单销售、退款、平台与履约费用、净回款及待核差额。",
+        "keywords": ["平台结算", "结算单", "净回款", "结算差异", "settlement"],
+        "provider_refs": {"erpnext": "Marketplace Settlement"},
+        "erpnext_fields": ["name", "order_no", "sales_invoice", "payment_entry", "item_code", "market", "settlement_date", "currency", "gross_amount", "refund_amount", "platform_fee", "fulfillment_fee", "expected_payout", "actual_payout", "difference", "exchange_rate", "status", "note", "demo_batch", "is_simulated"],
+    },
+    "Shipment Tracking": {
+        "label": "物流轨迹",
+        "description": "订单运单、承运商、预计送达和物流异常。",
+        "keywords": ["物流轨迹", "物流状态", "物流异常", "包裹轨迹", "shipment"],
+        "provider_refs": {"erpnext": "Shipment Tracking"},
+        "erpnext_fields": ["name", "order_no", "sales_order", "delivery_note", "tracking_no", "carrier", "market", "shipped_date", "estimated_delivery", "status", "last_event", "demo_batch", "is_simulated"],
+    },
     "Item": {
         "label": "商品资料",
         "description": "商品、SKU、基础属性和可售状态。",
@@ -15,7 +50,7 @@ ERP_RESOURCE_CATALOG: dict[str, dict[str, Any]] = {
     },
     "Item Price": {
         "label": "商品价格",
-        "description": "SKU 价格表、币种和生效价格。",
+        "description": "SKU 销售价格表、币种和生效售价；不包含采购进价。",
         "keywords": ["价格", "售价", "报价", "单价", "item price"],
         "provider_refs": {
             "erpnext": "Item Price",
@@ -44,7 +79,7 @@ ERP_RESOURCE_CATALOG: dict[str, dict[str, Any]] = {
             "kingdee": "SAL_SaleOrder",
             "yonyou": "sales-order",
         },
-        "erpnext_fields": ["name", "customer", "transaction_date", "po_no", "status", "grand_total", "modified"],
+        "erpnext_fields": ["name", "customer", "company", "transaction_date", "po_no", "status", "currency", "grand_total", "base_grand_total", "modified"],
     },
     "Sales Invoice summary": {
         "label": "销售发票摘要",
@@ -55,7 +90,7 @@ ERP_RESOURCE_CATALOG: dict[str, dict[str, Any]] = {
             "kingdee": "AR_RECEIVABLE_SUMMARY",
             "yonyou": "sales-invoice-summary",
         },
-        "erpnext_fields": ["name", "customer", "posting_date", "po_no", "status", "grand_total"],
+        "erpnext_fields": ["name", "customer", "company", "posting_date", "po_no", "status", "currency", "grand_total", "base_grand_total"],
     },
     "Customer": {
         "label": "客户资料",
@@ -77,7 +112,7 @@ ERP_RESOURCE_CATALOG: dict[str, dict[str, Any]] = {
             "kingdee": "SAL_OUTSTOCK",
             "yonyou": "delivery-note",
         },
-        "erpnext_fields": ["name", "customer", "posting_date", "lr_no", "title", "status", "grand_total", "modified"],
+        "erpnext_fields": ["name", "customer", "company", "posting_date", "lr_no", "title", "status", "currency", "grand_total", "base_grand_total", "modified"],
     },
     "Issue": {
         "label": "售后工单",
@@ -110,7 +145,7 @@ ERP_RESOURCE_CATALOG: dict[str, dict[str, Any]] = {
             "kingdee": "GL_VOUCHER",
             "yonyou": "gl-entry",
         },
-        "erpnext_fields": ["name", "posting_date", "account", "debit", "credit", "voucher_type", "voucher_no"],
+        "erpnext_fields": ["name", "company", "posting_date", "account", "debit", "credit", "voucher_type", "voucher_no"],
     },
     "Payment Entry": {
         "label": "收付款单",
@@ -121,7 +156,7 @@ ERP_RESOURCE_CATALOG: dict[str, dict[str, Any]] = {
             "kingdee": "CN_PAYAPPLY",
             "yonyou": "payment-entry",
         },
-        "erpnext_fields": ["name", "posting_date", "payment_type", "party", "paid_amount", "status", "reference_no"],
+        "erpnext_fields": ["name", "company", "posting_date", "payment_type", "party", "paid_amount", "base_paid_amount", "paid_from_account_currency", "status", "reference_no"],
     },
     "Salary Slip": {
         "label": "工资单",
@@ -143,7 +178,7 @@ ERP_RESOURCE_CATALOG: dict[str, dict[str, Any]] = {
             "kingdee": "AR_RECEIVABLE",
             "yonyou": "sales-invoice",
         },
-        "erpnext_fields": ["name", "customer", "posting_date", "due_date", "po_no", "status", "grand_total", "outstanding_amount"],
+        "erpnext_fields": ["name", "customer", "company", "posting_date", "due_date", "po_no", "status", "currency", "grand_total", "base_grand_total", "outstanding_amount"],
     },
     "Purchase Invoice": {
         "label": "采购发票",
@@ -154,7 +189,7 @@ ERP_RESOURCE_CATALOG: dict[str, dict[str, Any]] = {
             "kingdee": "AP_PAYABLE",
             "yonyou": "purchase-invoice",
         },
-        "erpnext_fields": ["name", "supplier", "posting_date", "due_date", "bill_no", "status", "grand_total", "outstanding_amount"],
+        "erpnext_fields": ["name", "supplier", "company", "posting_date", "due_date", "bill_no", "status", "currency", "grand_total", "base_grand_total", "outstanding_amount"],
     },
 }
 
@@ -180,9 +215,13 @@ def match_resource_by_keywords(
     text: str,
     scopes: list[str],
 ) -> str | None:
+    ranked = rank_resource_matches(text, scopes)
+    return ranked[0][0] if ranked else None
+
+
+def rank_resource_matches(text: str, scopes: list[str]) -> list[tuple[str, int]]:
     normalized_text = text.lower()
-    matched_resource: str | None = None
-    matched_score = 0
+    matches: list[tuple[str, int]] = []
 
     for resource in scopes:
         definition = ERP_RESOURCE_CATALOG.get(resource)
@@ -202,11 +241,10 @@ def match_resource_by_keywords(
             if candidate_text and candidate_text in normalized_text:
                 score += max(len(candidate_text), 1)
 
-        if score > matched_score:
-            matched_resource = resource
-            matched_score = score
+        if score > 0:
+            matches.append((resource, score))
 
-    return matched_resource
+    return sorted(matches, key=lambda item: -item[1])
 
 
 def list_resource_definitions(scopes: list[str]) -> list[dict[str, Any]]:

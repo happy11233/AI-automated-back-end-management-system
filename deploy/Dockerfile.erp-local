@@ -1,0 +1,9 @@
+ARG ERP_BASE_IMAGE=company-rag-agent-api:jobs-local
+FROM ${ERP_BASE_IMAGE}
+
+# Reuse the installed runtime for a small local ERP integration image.
+COPY app/erp/erpnext.py /app/app/erp/erpnext.py
+COPY app/erp/resources.py /app/app/erp/resources.py
+COPY app/permissions.py /app/app/permissions.py
+COPY app/services/erp_service.py /app/app/services/erp_service.py
+COPY app/api/erp.py /app/app/api/erp.py

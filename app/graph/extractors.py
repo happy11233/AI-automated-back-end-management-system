@@ -33,17 +33,20 @@ order_no_chain = order_no_prompt | chat_model.with_structured_output(OrderNoResu
 
 
 def extract_order_no_from_text(user_input: str) -> str | None:
+    rule_match = extract_order_no_by_rules(user_input)
+    if rule_match:
+        return rule_match
     try:
         result = order_no_chain.invoke({
             "user_input": user_input,
         })
     except Exception:
-        return _extract_order_no_by_rules(user_input)
+        return extract_order_no_by_rules(user_input)
 
     return result.order_no
 
 
-def _extract_order_no_by_rules(user_input: str) -> str | None:
+def extract_order_no_by_rules(user_input: str) -> str | None:
     import re
 
     patterns = [

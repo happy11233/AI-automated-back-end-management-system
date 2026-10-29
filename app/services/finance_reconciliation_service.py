@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from io import BytesIO
+import math
 from pathlib import Path
 import re
 from typing import Any
@@ -100,7 +101,12 @@ def reconcile_finance_workbooks(
             "order_line_count": int(len(profit_rows)),
             "anomaly_count": int(len(anomalies)),
             "total_sales": _round_money(profit_rows["sales_amount_base"].sum()),
-            "total_profit": _round_money(profit_rows["profit_base"].sum()),
+            "total_profit": _complete_money_total(profit_rows["profit_base"]),
+            "calculable_profit_subtotal": _round_money(profit_rows["profit_base"].sum(min_count=1)),
+            "incomplete_line_count": int(profit_rows["profit_base"].isna().sum()),
+            "calculable_line_count": int(profit_rows["profit_base"].notna().sum()),
+            "review_status": "requires_input" if profit_rows["profit_base"].isna().any() else "pending_review",
+            "report_scope": "order_contribution_profit",
             "negative_profit_count": int((profit_rows["profit_base"] < 0).sum()),
             "sheet_type_counts": _sheet_type_counts(classified),
             "output_bytes": len(content),
@@ -288,8 +294,11 @@ def _collect_exchange_rates(classified: list[dict[str, Any]], base_currency: str
         for _, row in frame.iterrows():
             currency = _clean_currency(row.get(currency_column))
             rate = _to_number(row.get(rate_column))
-            if currency and rate > 0:
-                rates[currency] = rate
+            if not currency or not math.isfinite(rate) or rate <= 0:
+                raise ValueError(f"{item['filename']}::{item['sheet_name']} 存在无效币种或汇率，请提供正数汇率。")
+            if currency in rates and rates[currency] != rate:
+                raise ValueError(f"{currency} 存在冲突汇率，请按期间拆分文件并确认统一折算口径。")
+            rates[currency] = rate
 
     return rates
 
@@ -437,10 +446,14 @@ def _build_profit_rows(
         + settlement["ad_fee_base"]
     )
     settlement["profit_base"] = settlement["net_revenue_base"] - settlement["total_cost_base"]
+    # Unknown costs must not turn into a numeric profit or a partial grand total.
+    incomplete = (settlement["purchase_cost_base"] <= 0) | (settlement["logistics_fee_base"] <= 0)
+    settlement.loc[incomplete, ["total_cost_base", "profit_base"]] = float("nan")
     settlement["profit_margin"] = settlement.apply(
         lambda row: row["profit_base"] / row["sales_amount_base"] if row["sales_amount_base"] else 0,
         axis=1,
     )
+    settlement.loc[incomplete, "profit_margin"] = float("nan")
     settlement["status"] = settlement.apply(_profit_status, axis=1)
 
     anomalies = _build_anomalies(settlement, purchase_rows, logistics_rows, ads_rows)
@@ -542,6 +555,13 @@ def _allocate_to_indexes(
 
 
 def _profit_status(row: pd.Series) -> str:
+    missing = []
+    if row["purchase_cost_base"] <= 0:
+        missing.append("采购成本")
+    if row["logistics_fee_base"] <= 0:
+        missing.append("物流费")
+    if missing:
+        return "待补" + "/".join(missing)
     if row["profit_base"] < 0:
         return "亏损"
     if row["profit_margin"] < 0.08:
@@ -559,7 +579,7 @@ def _build_anomalies(
 
     for _, row in profit_rows.iterrows():
         if bool(row.get("rate_missing")):
-            anomalies.append(_anomaly("missing_exchange_rate", "high", row, "币种缺少汇率，已按 1 处理。", row["sales_amount_base"]))
+            anomalies.append(_anomaly("missing_exchange_rate", "high", row, "币种缺少汇率，需补充后重新生成。", row["sales_amount_base"]))
         if row["purchase_cost_base"] <= 0:
             anomalies.append(_anomaly("missing_purchase_cost", "high", row, "未匹配到采购成本。", row["sales_amount_base"]))
         if row["logistics_fee_base"] <= 0:
@@ -628,6 +648,10 @@ def _build_summary(
         ("生成时间", datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
         ("基础币种", base_currency),
         ("处理要求", instruction),
+        ("报告口径", "订单贡献利润复核表；仅含已提供费用，不代表完整净利润、银行到账对平或已入账。"),
+        ("复核状态", "待补成本资料" if profit_rows["profit_base"].isna().any() else "待财务复核"),
+        ("待补资料行数", int(profit_rows["profit_base"].isna().sum())),
+        ("可计算行数", int(profit_rows["profit_base"].notna().sum())),
         ("上传文件数", len(files)),
         ("识别 Sheet 数", len(classified)),
         ("订单利润行数", len(profit_rows)),
@@ -638,7 +662,9 @@ def _build_summary(
         ("物流费合计", _round_money(profit_rows["logistics_fee_base"].sum())),
         ("广告费合计", _round_money(profit_rows["ad_fee_base"].sum())),
         ("采购成本合计", _round_money(profit_rows["purchase_cost_base"].sum())),
-        ("利润合计", _round_money(profit_rows["profit_base"].sum())),
+        ("利润合计", _complete_money_total(profit_rows["profit_base"])),
+        ("可计算行利润小计", _round_money(profit_rows["profit_base"].sum(min_count=1))),
+        ("利润说明", "存在待补资料行时不提供整体利润合计；小计仅包含成本资料齐备行。广告费等未提供的费用不包含在口径内。"),
         ("亏损订单数", int((profit_rows["profit_base"] < 0).sum())),
         ("低毛利订单数", int((profit_rows["status"] == "低毛利").sum())),
     ]
@@ -687,7 +713,7 @@ def _profit_records(profit_rows: pd.DataFrame) -> list[dict[str, Any]]:
         item = {}
         for key, label in labels.items():
             value = row[key]
-            if key.endswith("_base") or key in {"profit_margin", "quantity"}:
+            if key.endswith("_base") or key == "quantity":
                 value = _round_money(value)
             item[label] = value
         records.append(item)
@@ -740,7 +766,7 @@ def _write_records_sheet(workbook: Workbook, title: str, records: list[dict[str,
                 if target.value == "亏损":
                     target.fill = PatternFill("solid", fgColor="FEE2E2")
                     target.font = Font(color="991B1B", bold=True)
-                elif target.value == "低毛利":
+                elif target.value == "低毛利" or str(target.value).startswith("待补"):
                     target.fill = PatternFill("solid", fgColor="FEF3C7")
                     target.font = Font(color="92400E", bold=True)
 
@@ -834,7 +860,11 @@ def _sheet_type_counts(classified: list[dict[str, Any]]) -> dict[str, int]:
 
 def _money_to_base(value: Any, currency: str, exchange_rates: dict[str, float]) -> float:
     amount = _to_number(value)
-    rate = exchange_rates.get(currency, 1.0)
+    rate = exchange_rates.get(currency)
+    if rate is None:
+        raise ValueError(f"缺少 {currency} 到基础币种的汇率，请补充汇率表后重新生成；未进行默认折算。")
+    if not math.isfinite(amount) or not math.isfinite(rate) or rate <= 0:
+        raise ValueError(f"{currency} 存在无效金额或汇率，请核对源文件。")
     return amount * rate
 
 
@@ -856,7 +886,10 @@ def _sum_columns_to_base(
 def _row_currency(row: pd.Series, currency_column: str | None, base_currency: str) -> str:
     if not currency_column:
         return base_currency
-    return _clean_currency(row.get(currency_column)) or base_currency
+    currency = _clean_currency(row.get(currency_column))
+    if not currency:
+        raise ValueError("币种列存在空值，请补充源币种；不能将空币种默认当作基础币种。")
+    return currency
 
 
 def _to_number(value: Any) -> float:
@@ -906,8 +939,16 @@ def _normalize_label(value: str) -> str:
     return re.sub(r"[\s_\-:/\\().,，。]+", "", str(value).strip().lower())
 
 
-def _round_money(value: Any) -> float:
-    return round(float(value or 0), 2)
+def _round_money(value: Any) -> float | None:
+    if value is None or pd.isna(value):
+        return None
+    return round(float(value), 2)
+
+
+def _complete_money_total(values: pd.Series) -> float | None:
+    if values.isna().any():
+        return None
+    return _round_money(values.sum())
 
 
 def _clean_excel_value(value: Any) -> Any:

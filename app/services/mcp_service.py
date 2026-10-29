@@ -99,6 +99,7 @@ def create_external_ticket(
     priority: str,
     requester: str | None,
     source: str = "rag-agent",
+    idempotency_key: str | None = None,
 ) -> dict:
     return call_mcp_tool(
         "ticket_system",
@@ -109,6 +110,7 @@ def create_external_ticket(
             "priority": priority,
             "requester": requester,
             "source": source,
+            "idempotency_key": idempotency_key,
         },
     )
 

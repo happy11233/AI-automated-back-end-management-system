@@ -80,12 +80,27 @@ ERP未连接时，脚本会给出 warning，而不是直接失败。这样面试
 ## 技术栈
 
 - 后端：FastAPI、Pydantic、psycopg、JWT
+- 后台任务：Celery + RabbitMQ quorum 队列、PostgreSQL 任务状态和事务 Outbox
+- 共享缓存：Redis（embedding、企业微信 token、登录与 AI 入口限流）
+- 可观测性：可选 LangSmith Agent 链路追踪、请求 ID、受令牌保护的 Prometheus 指标
+- 异步体验：财务对账任务可在离开/刷新后继续查看；下载沿用岗位与所有者鉴权
+- 文件存储：本地私有文件 / S3 兼容对象存储适配
 - AI 编排：LangChain、LangGraph、ReAct 决策服务
 - 大模型：阿里百炼 / DashScope OpenAI compatible API
 - RAG：PostgreSQL + pgvector、BM25、jieba、rerank、LangChain Text Splitters、MinerU PDF 解析增强
 - 前端：React、Vite、TypeScript、Ant Design Pro
 - 自动化集成：Skill Executor、Webhook、外部执行器、MCP 工具层预留、企业微信发送能力
 - 部署：Docker Compose、PostgreSQL、pgvector、云服务器公网访问
+- 生产入口：Nginx 静态前端、SSE 反向代理、就绪检查和生产密钥校验
+
+## 生产化 Loop
+
+实施范围和实际验收证据见 [PRODUCTION_LOOP.md](PRODUCTION_LOOP.md)，配置、迁移、LangSmith 启用和回滚步骤见 [生产运行手册](docs/PRODUCTION_RUNBOOK.md)。
+LangSmith 仓库默认关闭，企业输入输出默认隐藏。本地私有配置已启用 10% 采样并通过真实 Agent/Skill/Worker 云端回读；新环境需配置自己的 API Key，步骤见运行手册。生产覆盖配置不会自动应用。
+
+## 电商 Agent 任务闭环 Loop
+
+后续运营、财务、客服 Agent 的范围、依赖和验收标准见 [电商 Agent Loop 实施计划](docs/ECOMMERCE_AGENT_LOOP_PLAN.md)。计划复用现有工作台、Skill、审批、队列和生产基础，分 14 轮推进统一任务、三岗闭环、持续自动化、跨岗协作与发布验收。当前为计划阶段；代码实现、平台联调和实际上线分别记录，不以草稿生成或接口受理代替业务完成。
 
 ## 架构图
 
@@ -356,6 +371,46 @@ curl "http://127.0.0.1:8001/run-records" \
 ```
 
 ## 验证与测试
+
+### 跨境电商 ERP 演示数据
+
+本地 ERPNext 地址为 `http://127.0.0.1:8080`，站点为 `frontend`。项目通过
+`ERP_PROVIDER=erpnext`、`ERP_BASE_URL=http://host.docker.internal:8080` 和 `.env` 中的
+API 凭据连接。API 密钥不写入仓库或演示报告。
+
+模拟批次 `CB-DEMO-20261021` 使用独立公司 `Crossborder Demo 2026`：
+60 条我方商品、40 条竞品观察（合计 100 条），覆盖美国、德国、日本站点和
+USD/EUR/JPY；另有 60 笔订单、60 张销售发票、12 张采购发票、53 笔收款、
+60 条平台结算、60 条广告日报、40 条物流轨迹和 30 条售后工单。
+所有商品、客户、价格、销量、汇率和物流均为模拟，不连接真实交易平台。
+竞品观察不计入我方库存和总账。平台费用、退款和结算差异是待财务复核记录，
+不代表费用及应收已全部自动入账或核销。
+
+ERP 原始数据通过幂等脚本写入，原有记录保留：
+
+```bash
+docker cp scripts/erpnext_crossborder_seed.py frappe_docker-backend-1:/home/frappe/frappe-bench/apps/frappe/frappe/crossborder_seed.py
+docker exec frappe_docker-backend-1 bench --site frontend execute frappe.crossborder_seed.seed_catalog
+docker exec frappe_docker-backend-1 bench --site frontend execute frappe.crossborder_seed.seed_business
+docker exec frappe_docker-backend-1 bench --site frontend execute frappe.crossborder_seed.verify
+```
+
+运营可查看跨境商品、竞品和广告；客服可查看订单、物流与售后；财务可查看
+平台结算、发票与收付款。项目的“商品价格”资源只开放销售价格，排除采购进价。
+单据显示原币金额和币种；概览优先使用同一公司的本位币，跨公司多币种金额不直接加总。
+
+已有 `company-rag-agent-api:jobs-local` 镜像时，可复用已安装依赖启动本次集成：
+
+```bash
+docker build -f deploy/Dockerfile.erp-local -t company-rag-agent-api:crossborder-local .
+docker compose -f docker-compose.yml -f docker-compose.local.yml -f docker-compose.erp-local.yml up -d --no-build api worker beat
+python3 scripts/verify_crossborder_erp.py
+```
+
+完整源码构建仍使用根目录 Dockerfile。验证脚本执行真实登录、按岗位查询、记录详情、
+售价隔离和概览检查，结果保存在 `data/crossborder-demo/integration-verification.json`。
+ERP 校验清单位于站点 `private/files/crossborder-demo-manifest.json`。
+例如运营查询竞品可输入 SKU `CB-OWN-DE-CABLE-002`，售价应为 `EUR 12.08`。
 
 演示健康检查：
 

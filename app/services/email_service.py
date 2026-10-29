@@ -9,6 +9,7 @@ from typing import Any
 from uuid import uuid4
 
 from app.config import settings
+from app.services.chat_intent_guard_service import is_information_request, is_action_negated
 
 
 EMAIL_ADDRESS_RE = re.compile(
@@ -34,6 +35,8 @@ class EmailSendResult:
 
 
 def is_email_send_requested(message: str) -> bool:
+    if is_information_request(message) or is_action_negated(message):
+        return False
     lowered = (message or "").lower()
     request_keywords = [
         "通过邮箱",

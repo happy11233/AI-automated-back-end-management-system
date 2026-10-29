@@ -27,6 +27,26 @@ button {
   font: inherit;
 }
 
+.asyncViewStatus {
+  display: grid;
+  min-height: 160px;
+  place-content: center;
+  justify-items: center;
+  gap: 12px;
+  padding: 24px;
+  color: #727e94;
+  text-align: center;
+}
+
+.asyncViewReload {
+  padding: 8px 16px;
+  border: 1px solid #e3e8f0;
+  border-radius: 6px;
+  color: #202630;
+  background: #fff;
+  cursor: pointer;
+}
+
 .portfolioShell {
   min-height: 100vh;
   overflow-x: hidden;
@@ -363,6 +383,9 @@ button {
 }
 
 .sidebarUserDock {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
   margin-top: auto;
   padding: 10px 12px 12px;
 }
@@ -373,14 +396,10 @@ button {
 
 .userMenuButton.compact {
   width: 100%;
-  max-width: none;
+  height: 40px;
+  min-height: 40px;
   padding-inline: 0;
   justify-content: center;
-}
-
-.userMenuButton.compact .ant-space {
-  justify-content: center;
-  gap: 0 !important;
 }
 
 .workspaceLayout,
@@ -425,20 +444,68 @@ button {
 }
 
 .userMenuButton {
-  max-width: min(360px, calc(100vw - 96px));
-  height: 40px;
-  padding-inline: 10px;
-}
-
-.userMenuButton .ant-space {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
   max-width: 100%;
+  height: auto;
+  min-height: 64px;
+  padding: 8px;
+  white-space: normal;
 }
 
-.userMenuButton .ant-typography {
-  max-width: 128px;
+.userMenuContent {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+}
+
+.userMenuButton .ant-avatar,
+.userMenuChevron {
+  flex: 0 0 auto;
+}
+
+.userMenuDetails {
+  display: flex;
+  flex: 1 1 0%;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  text-align: left;
+}
+
+.userMenuName {
+  display: block;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-weight: 500;
+  line-height: 20px;
+}
+
+.userMenuBadges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-width: 0;
+}
+
+.userMenuBadges .ant-tag {
+  margin: 0;
+  padding-inline: 5px;
+  font-size: 11px;
+  line-height: 18px;
+}
+
+.userMenuChevron {
+  color: #667085;
+  font-size: 10px;
 }
 
 .loginModalForm {
@@ -1837,11 +1904,21 @@ button {
   align-items: center;
 }
 
-.aiWorkflowFocusedMetricGrid,
-.aiWorkflowFocusedInfoGrid {
+.aiWorkflowFocusedMetricGrid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
+}
+
+.aiWorkflowFocusedInfoGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+}
+
+.aiWorkflowFocusedInfoGrid > * {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .aiWorkflowFocusedMetricGrid > div {
@@ -4233,7 +4310,7 @@ button {
 .platformTaskToolbar,
 .notificationToolbar {
   display: grid;
-  grid-template-columns: minmax(360px, auto) auto;
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
   align-items: center;
   max-width: 620px;
@@ -4565,18 +4642,6 @@ button {
     overflow-wrap: anywhere;
   }
 
-  .userMenuButton {
-    max-width: calc(100vw - 132px);
-  }
-
-  .userMenuButton .ant-tag {
-    display: none;
-  }
-
-  .userMenuButton .ant-typography {
-    max-width: 96px;
-  }
-
   .aiAppCardBody {
     min-height: 0;
   }
@@ -4795,5 +4860,278 @@ button {
 
   .platformExecutorButtonRow {
     justify-content: flex-start;
+  }
+}
+
+/* Workspace design system: scoped to the authenticated application. */
+.workspaceLayout {
+  --workspace-bg: #f6f7fb;
+  --workspace-surface: #ffffff;
+  --workspace-border: #e3e8f0;
+  --workspace-text: #202630;
+  --workspace-muted: #727e94;
+  --workspace-primary: #3973ff;
+  --workspace-radius: 8px;
+  color: var(--workspace-text);
+}
+
+.workspaceLayout,
+.workspaceLayout .ant-layout,
+.workspaceLayout .ant-pro-layout-bg-list,
+.workspaceLayout .ant-pro-layout-content {
+  background: var(--workspace-bg) !important;
+}
+
+.workspaceLayout .ant-pro-sider,
+.workspaceLayout .ant-pro-sider .ant-layout-sider-children,
+.workspaceLayout .ant-pro-sider .ant-pro-sider-container,
+.workspaceLayout .ant-pro-sider .ant-pro-sider-menu,
+.workspaceLayout .ant-pro-sider .ant-menu {
+  background: var(--workspace-surface) !important;
+}
+
+.workspaceLayout .ant-pro-sider {
+  border-inline-end: 1px solid var(--workspace-border);
+  box-shadow: none;
+}
+
+.workspaceLayout .ant-pro-sider .ant-menu-item,
+.workspaceLayout .ant-pro-sider .ant-menu-submenu-title {
+  width: calc(100% - 16px) !important;
+  height: 38px !important;
+  margin: 3px 8px !important;
+  padding-inline: 12px !important;
+  border-radius: var(--workspace-radius) !important;
+  color: #566176 !important;
+  font-weight: 400 !important;
+  line-height: 38px !important;
+}
+
+.workspaceLayout .ant-pro-sider .ant-menu-sub .ant-menu-item,
+.workspaceLayout .ant-pro-sider .ant-menu-sub .ant-menu-submenu-title {
+  padding-inline-start: 28px !important;
+}
+
+.workspaceLayout .ant-pro-sider .ant-menu-item-group-title {
+  padding: 16px 20px 6px !important;
+  color: var(--workspace-muted) !important;
+  font-size: 11px !important;
+  font-weight: 500 !important;
+}
+
+.workspaceLayout .ant-pro-sider .ant-menu-item-selected,
+.workspaceLayout .ant-pro-sider .ant-menu-item-selected .ant-menu-title-content,
+.workspaceLayout .ant-pro-sider .ant-menu-item-selected .ant-pro-base-menu-item-text {
+  color: var(--workspace-primary) !important;
+  font-weight: 600 !important;
+}
+
+.workspaceLayout .ant-pro-sider .ant-menu-item-selected {
+  background: #edf3ff !important;
+}
+
+.workspaceLayout .ant-pro-sider .ant-menu-item:hover,
+.workspaceLayout .ant-pro-sider .ant-menu-submenu-title:hover {
+  background: #f3f6fc !important;
+  color: var(--workspace-primary) !important;
+}
+
+.workspaceLayout .ant-pro-sider .ant-menu-inline-collapsed .ant-menu-item,
+.workspaceLayout .ant-pro-sider .ant-menu-inline-collapsed .ant-menu-submenu-title {
+  width: 42px !important;
+  height: 42px !important;
+  margin: 3px auto !important;
+  padding-inline: 0 !important;
+  line-height: 42px !important;
+}
+
+.workspaceLayout .sidebarBrand {
+  padding: 18px 16px;
+  font-size: 14px;
+}
+
+.workspaceLayout .sidebarBrandCollapsed {
+  padding-inline: 0;
+}
+
+.workspaceLayout .sidebarBrandIcon {
+  color: var(--workspace-primary);
+  background: #edf3ff;
+}
+
+.workspaceLayout .sidebarUserDock {
+  border-top: 1px solid var(--workspace-border);
+  background: var(--workspace-surface);
+}
+
+.workspaceLayout .workspacePageContainer {
+  min-width: 0;
+  padding: 0;
+  overflow: visible;
+  background: transparent;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.workspaceLayout .workspacePageContainer .ant-page-header {
+  padding: 0 0 20px;
+}
+
+.workspaceLayout .workspacePageContainer .ant-page-header-heading {
+  align-items: flex-start;
+}
+
+.workspaceLayout .workspacePageContainer .ant-page-header-heading-left {
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+}
+
+.workspaceLayout .workspacePageContainer .ant-page-header-heading-title {
+  color: var(--workspace-text);
+  font-size: 22px;
+  line-height: 1.4;
+}
+
+.workspaceLayout .workspacePageContainer .ant-page-header-heading-sub-title {
+  color: var(--workspace-muted);
+  font-size: 12px;
+  white-space: normal;
+}
+
+.workspaceLayout .workspacePageContainer .pageStack {
+  min-width: 0;
+  gap: 18px !important;
+}
+
+.workspaceLayout .ant-card,
+.workspaceLayout .ant-pro-card {
+  border-radius: var(--workspace-radius);
+  border-color: var(--workspace-border);
+  box-shadow: none;
+}
+
+.workspaceLayout .ant-pro-card-header {
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 16px 20px;
+}
+
+.workspaceLayout .ant-pro-card-title {
+  color: var(--workspace-text);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.workspaceLayout .ant-pro-card-extra {
+  min-width: 0;
+}
+
+.workspaceLayout .dashboardStatCard,
+.workspaceLayout .dashboardMetricCard {
+  margin-top: 0;
+  border: 1px solid var(--workspace-border);
+}
+
+.workspaceLayout .dashboardStatCard > .ant-card-body,
+.workspaceLayout .dashboardMetricCard > .ant-card-body {
+  justify-content: flex-start;
+  padding: 22px;
+}
+
+.workspaceLayout .dashboardCenteredMetric {
+  align-items: flex-start;
+  gap: 12px;
+  text-align: left;
+}
+
+.workspaceLayout .dashboardMetricValue {
+  justify-content: flex-start;
+  color: var(--workspace-text) !important;
+  font-size: clamp(24px, 2.4vw, 34px);
+  font-variant-numeric: tabular-nums;
+  text-align: left;
+}
+
+.workspaceLayout .dashboardSummaryCard {
+  min-height: 140px;
+  border-inline-start: 3px solid var(--workspace-primary);
+  background: #edf3ff;
+}
+
+.workspaceLayout .dashboardSummaryCard .dashboardMetricValue {
+  color: #2859d9 !important;
+}
+
+.workspaceLayout .dashboardMetricTitle {
+  color: #657189;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.workspaceLayout .dashboardShortcutCard {
+  background: #fafbfe;
+}
+
+.workspaceLayout .dashboardShortcutTitle .anticon {
+  color: var(--workspace-muted);
+}
+
+.workspaceLayout .dashboardShortcutButton {
+  color: var(--workspace-primary);
+  border-color: transparent;
+  background: #edf3ff;
+  box-shadow: none;
+}
+
+.workspaceLayout .dashboardShortcutButton:hover {
+  color: #2859d9 !important;
+  border-color: #c9d9ff !important;
+  background: #e3edff !important;
+}
+
+.workspaceLayout .effectMetricCard .ant-typography,
+.workspaceLayout .evaluationMetricCard .ant-typography {
+  font-variant-numeric: tabular-nums;
+}
+
+.workspaceLayout .ant-table-wrapper {
+  min-width: 0;
+}
+
+.workspaceLayout .menuButton:focus-visible {
+  outline: 2px solid var(--workspace-primary);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.workspaceLayout .workspaceChatPage {
+  padding: 12px;
+  background: var(--workspace-surface);
+  border: 1px solid var(--workspace-border);
+  border-radius: var(--workspace-radius);
+}
+
+@media (max-width: 768px) {
+  .workspaceLayout .ant-pro-layout-content {
+    padding: 16px 12px !important;
+  }
+
+  .workspaceLayout .workspacePageContainer {
+    min-height: calc(100dvh - 32px) !important;
+  }
+
+  .workspaceLayout .ant-pro-card-header {
+    padding: 14px 16px;
+  }
+
+  .workspaceLayout .dashboardStatCard > .ant-card-body,
+  .workspaceLayout .dashboardMetricCard > .ant-card-body {
+    min-height: 100px;
+    padding: 16px;
+  }
+
+  .workspaceLayout .dashboardSummaryCard {
+    min-height: 112px;
   }
 }

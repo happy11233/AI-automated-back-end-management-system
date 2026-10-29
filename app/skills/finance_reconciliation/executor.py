@@ -34,10 +34,16 @@ def execute(
         instruction=str(payload.get("instruction") or ""),
         base_currency=str(payload.get("base_currency") or "CNY"),
     )
+    incomplete_count = result.metadata["incomplete_line_count"]
+    review_message = (
+        f"其中 {incomplete_count} 条订单缺少成本资料，需补充后重跑；未提供整体利润合计。"
+        if incomplete_count
+        else "按已提供费用计算，待财务复核。"
+    )
     return SkillExecutionResult(
         skill_id=skill.skill_id,
         status="succeeded",
-        answer=f"已生成 {result.filename}",
+        answer=f"已生成 {result.filename}。{review_message}此文件为订单贡献利润复核表，不代表银行到账已对平或已入账。",
         attachments=[
             {
                 "filename": result.filename,

@@ -1,0 +1,2 @@
+ALTER TABLE chat_thread_state
+ADD COLUMN IF NOT EXISTS context_version BIGINT NOT NULL DEFAULT 0;

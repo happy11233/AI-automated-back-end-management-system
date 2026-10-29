@@ -117,6 +117,9 @@ def main() -> None:
         callback_token = async_payload["execution_task"]["callback_token"]
         callback_body = {
             "callback_token": callback_token,
+            "attempt_count": async_payload["execution_task"]["attempt_count"],
+            "execution_id": async_payload["execution_task"]["execution_id"],
+            "external_event_id": f"async-published-{async_task['id']}",
             "status": "succeeded",
             "response_payload": {
                 "ok": True,
@@ -158,7 +161,8 @@ def main() -> None:
             secret=CALLBACK_SECRET,
             nonce="valid-callback-once",
         )
-        assert replay_callback.status_code in {400, 401}, replay_callback.text[:500]
+        assert replay_callback.status_code == 200, replay_callback.text[:500]
+        assert replay_callback.json()["task"]["status"] == "succeeded", replay_callback.text[:500]
 
         retry_draft = create_listing_draft(
             token=tokens["operations"],
@@ -170,11 +174,14 @@ def main() -> None:
         failed_task = failed_publish["task"]
         assert failed_task["status"] == "failed", failed_publish
         assert failed_publish["draft"]["writeback_status"] == "failed", failed_publish
+        first_retry_payload = latest_payload_for_task(failed_task["id"])
 
         retry_result = post_json(tokens["operations"], f"/platform-execution-tasks/{failed_task['id']}/retry", {})
         assert retry_result["task"]["status"] == "succeeded", retry_result
         assert retry_result["task"]["attempt_count"] >= 2, retry_result
         assert retry_result["draft"]["status"] == "published", retry_result
+        second_retry_payload = latest_payload_for_task(failed_task["id"])
+        assert first_retry_payload["execution_task"]["callback_token"] != second_retry_payload["execution_task"]["callback_token"]
 
         operations_tasks = get_json(tokens["operations"], "/platform-execution-tasks?limit=20")["items"]
         assert any(item["id"] == async_task["id"] for item in operations_tasks), operations_tasks

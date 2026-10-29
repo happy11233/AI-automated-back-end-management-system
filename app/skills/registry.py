@@ -89,7 +89,7 @@ SKILL_DEFINITIONS: tuple[SkillDefinition, ...] = (
     SkillDefinition(
         skill_id="customer_reply",
         name="客服回复草稿",
-        description="根据客户消息、订单号、物流单号和售后问题生成客服回复草稿，低风险待发送，高风险转人工或审批。",
+        description="根据客户消息、订单与政策生成分离的客户正文和内部建议；资料充分且决策允许时写回草稿，其余待人工复核，发送另需审核。",
         position="customer_service",
         app_id="customer-service-message-loop",
         flow_key="automation:customer_service:message-loop",
@@ -114,6 +114,9 @@ SKILL_DEFINITIONS: tuple[SkillDefinition, ...] = (
         ),
         output_schema=(
             {"name": "reply_draft", "type": "markdown_text"},
+            {"name": "internal_note", "type": "text"},
+            {"name": "needs_human_review", "type": "boolean"},
+            {"name": "reply_parse_status", "type": "text"},
             {"name": "platform_draft", "type": "json"},
             {"name": "approval_result", "type": "json"},
             {"name": "erp_references", "type": "json_array"},
@@ -289,7 +292,7 @@ SKILL_DEFINITIONS: tuple[SkillDefinition, ...] = (
     SkillDefinition(
         skill_id="finance_reconciliation",
         name="财务对账自动化",
-        description="上传结算、物流、采购、广告和汇率表，按订单号/SKU 匹配并生成利润表和异常账单。",
+        description="上传结算、物流、采购、广告和汇率表，生成订单贡献利润复核表和异常账单，缺资料时提示补充。",
         position="finance",
         app_id="finance-reconciliation",
         flow_key="automation:finance:reconciliation",
@@ -302,7 +305,11 @@ SKILL_DEFINITIONS: tuple[SkillDefinition, ...] = (
         allowed_tools=("pandas.read_excel", "field_mapping", "order_sku_matching", "profit_calculation", "openpyxl.write_workbook", "run_records"),
         executor="app.skills.finance_reconciliation.executor:execute",
         skill_doc_path="app/skills/finance_reconciliation/SKILL.md",
-        verification_scripts=("scripts/verify_finance_reconciliation.py",),
+        verification_scripts=(
+            "scripts/verify_finance_reconciliation.py",
+            "scripts/verify_finance_reconciliation_quality.py",
+            "scripts/verify_finance_reconciliation_quality_api.py",
+        ),
         input_schema=(
             {"name": "files", "type": "file_list", "required": True, "accept": [".xlsx", ".xls"], "max_files": 8},
             {"name": "instruction", "type": "textarea", "required": False, "max_length": 2000},
@@ -317,6 +324,8 @@ SKILL_DEFINITIONS: tuple[SkillDefinition, ...] = (
             "仅财务岗位或管理员可执行。",
             "非管理员必须启用 finance-reconciliation。",
             "保留多文件数量、单文件大小和总大小校验。",
+            "缺汇率不得默认折算；缺成本不得输出整体利润合计。",
+            "贡献利润复核文件不代表银行到账已对平。",
             "结果需财务复核，不自动入账、不自动付款。",
         ),
     ),

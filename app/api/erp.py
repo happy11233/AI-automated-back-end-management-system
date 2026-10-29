@@ -219,7 +219,7 @@ DASHBOARD_AMOUNT_FIELDS: dict[str, tuple[str, ...]] = {
     "Sales Invoice summary": ("grand_total",),
     "Delivery Note": ("grand_total",),
     "Payment Entry": ("paid_amount", "received_amount", "paid_amount_after_tax"),
-    "Purchase Invoice": ("grand_total", "outstanding_amount"),
+    "Purchase Invoice": ("grand_total",),
     "Item Price": ("price_list_rate",),
     "GL Entry": ("debit", "credit"),
 }
@@ -384,7 +384,7 @@ def get_erp_dashboard_overview(
             {
                 "title": section.get("amount_label") or f"{section['resource_label']}金额",
                 "value": section["amount_total"],
-                "suffix": "元",
+                "suffix": section.get("amount_unit") or "",
                 "description": f"{section['resource_label']}当前筛选范围金额合计",
                 "status": "processing",
             }
@@ -811,6 +811,9 @@ def _query_dashboard_section(
     total_count = len(filtered_items)
     amount_total = _dashboard_amount_total(resource, filtered_items)
     amount_label = _dashboard_amount_label(resource)
+    _, amount_unit = _dashboard_amount_basis(resource, filtered_items)
+    if amount_label and amount_unit:
+        amount_label = f"{amount_label}（{amount_unit}）"
 
     return {
         "resource": resource,
@@ -829,6 +832,7 @@ def _query_dashboard_section(
         "total_count": total_count,
         "amount_total": amount_total,
         "amount_label": amount_label,
+        "amount_unit": amount_unit,
         "items": filtered_items[:5],
         "all_items": base_items,
     }
@@ -1086,8 +1090,37 @@ def _parse_dashboard_date(value: Any) -> date | None:
         return None
 
 
+def _dashboard_amount_basis(
+    resource: str, items: list[dict[str, Any]]
+) -> tuple[tuple[str, ...], str | None]:
+    fields = DASHBOARD_AMOUNT_FIELDS.get(resource, ())
+    companies = {str(item.get("company") or "") for item in items}
+    single_company = len(companies) == 1 and "" not in companies
+    base_field = {
+        "Sales Order": "base_grand_total",
+        "Sales Invoice": "base_grand_total",
+        "Sales Invoice summary": "base_grand_total",
+        "Delivery Note": "base_grand_total",
+        "Purchase Invoice": "base_grand_total",
+        "Payment Entry": "base_paid_amount",
+    }.get(resource)
+    if base_field and single_company and all(
+        _parse_dashboard_amount(item.get(base_field)) is not None for item in items
+    ):
+        return (base_field,), "公司本位币"
+    if resource == "GL Entry":
+        return (fields, "公司本位币") if single_company else ((), None)
+    currency_field = "paid_from_account_currency" if resource == "Payment Entry" else "currency"
+    currencies = {str(item.get(currency_field) or "") for item in items}
+    # A mixed-currency amount has no meaningful sum without an exchange rate.
+    if len(currencies) > 1:
+        return (), None
+    currency = next(iter(currencies), "") or None
+    return fields, currency
+
+
 def _dashboard_amount_total(resource: str, items: list[dict[str, Any]]) -> float | None:
-    fields = DASHBOARD_AMOUNT_FIELDS.get(resource)
+    fields, _ = _dashboard_amount_basis(resource, items)
     if not fields:
         return None
 

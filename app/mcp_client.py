@@ -1,3 +1,4 @@
+from app.observability import observed
 import asyncio
 import json
 import os
@@ -29,6 +30,7 @@ def call_mcp_tool(server_name: str, tool_name: str, arguments: dict[str, Any] | 
     return asyncio.run(call_mcp_tool_async(server_name, tool_name, arguments or {}))
 
 
+@observed('mcp.call_tool', 'tool')
 async def call_mcp_tool_async(server_name: str, tool_name: str, arguments: dict[str, Any]) -> Any:
     module_name = MCP_SERVERS.get(server_name)
 
@@ -39,7 +41,7 @@ async def call_mcp_tool_async(server_name: str, tool_name: str, arguments: dict[
         command=sys.executable,
         args=["-m", module_name],
         cwd=str(PROJECT_ROOT),
-        env=os.environ.copy(),
+        env={**os.environ, 'LANGSMITH_TRACING': 'false', 'LANGCHAIN_TRACING_V2': 'false'},
     )
 
     async with stdio_client(server_params) as (read_stream, write_stream):

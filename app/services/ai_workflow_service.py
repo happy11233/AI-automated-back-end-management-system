@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from app.observability import observed
+
 from datetime import datetime, timezone
 from typing import Any
 
@@ -58,8 +60,8 @@ WORKFLOW_DEFINITIONS: list[dict[str, Any]] = [
         "name": "运营竞品分析",
         "position": "operations",
         "category": "运营增长",
-        "scenario": "把竞品卖点、价格、差评点和链接摘录转成差异化分析。",
-        "business_value": "减少运营复制竞品信息、整理痛点和写分析报告的时间。",
+        "scenario": "一键比较自家商品与模拟热点竞品价格，每天四次自动巡检。",
+        "business_value": "持续追踪同规格商品价格差异，在监控看板查看快照与价格趋势；当前使用明确标识的模拟数据。",
         "trigger_type": "manual_form",
         "automation_level": "draft_auto",
         "execution_mode": "llm_generate",
@@ -316,11 +318,13 @@ def get_ai_workflow(workflow_id: str, current_user: dict) -> dict[str, Any]:
     return _workflow_item(workflow)
 
 
+@observed('workflow.execute', 'chain')
 def run_ai_workflow(
     *,
     workflow_id: str,
     input_text: str,
     current_user: dict,
+    business_event_id: str | None = None,
 ) -> dict[str, Any]:
     workflow = _find_workflow(workflow_id)
     if not _can_view_workflow(current_user, workflow):
@@ -348,8 +352,12 @@ def run_ai_workflow(
         resource_type="ai_workflow",
         resource_id=str(workflow["id"]),
         input_text=normalized_input,
-        metadata=_run_metadata(workflow),
+        metadata={**_run_metadata(workflow), **({"business_event_id": business_event_id} if business_event_id else {})},
     )
+    if business_event_id:
+        from app.db import execute
+
+        execute("UPDATE agent_business_events SET run_id=%s WHERE id=%s", (run_id, business_event_id))
     steps: list[dict[str, Any]] = []
     erp_references: list[dict[str, Any]] = []
     platform_draft: dict[str, Any] | None = None
@@ -363,7 +371,7 @@ def run_ai_workflow(
             status_value="succeeded",
             workflow=workflow,
             input_text=normalized_input,
-            output_text="人工触发参数校验通过",
+            output_text="业务事件字段校验通过" if business_event_id else "人工触发参数校验通过",
             duration_ms=0,
         ))
 
@@ -550,7 +558,7 @@ def _workflow_item(item: dict[str, Any]) -> dict[str, Any]:
 
 def _workflow_stages(item: dict[str, Any]) -> list[dict[str, Any]]:
     return [
-        {"key": "trigger", "label": "触发", "description": _trigger_label(item["trigger_type"]), "automated": item["trigger_type"] != "manual_file_upload"},
+        {"key": "trigger", "label": "触发", "description": _trigger_label(item["trigger_type"]), "automated": item["trigger_type"] not in {"manual_form", "manual_file_upload", "chat_plan_execute"}},
         {"key": "data_read", "label": "读数据", "description": _data_read_description(item), "automated": bool(item["erp_resources"])},
         {"key": "ai_decision", "label": "AI 判断", "description": item["output_contract"], "automated": True},
         {"key": "tool_execution", "label": "工具执行", "description": "、".join(item["tools"]), "automated": True},

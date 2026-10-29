@@ -47,12 +47,15 @@ def main() -> None:
     assert low_risk_item["status"] in {"auto_reply_ready", "drafted"}, low_risk_item
     assert low_risk_item["reply_draft"], low_risk_item
     assert low_risk_result["run_id"], low_risk_result
-    assert [step["step_order"] for step in low_risk_result["steps"]] == [1, 2, 3, 4, 5, 6], low_risk_result["steps"]
-    assert low_risk_result["steps"][-2]["step_name"] == "save_reply_platform_draft", low_risk_result["steps"]
-    assert low_risk_result["steps"][-1]["step_name"] == "submit_external_writeback", low_risk_result["steps"]
+    assert low_risk_item["reply_parse_status"] == "validated" and low_risk_item["internal_note"]
+    auto_writeback = low_risk_item["status"] == "auto_reply_ready" and not low_risk_item["needs_human_review"]
+    assert [step["step_order"] for step in low_risk_result["steps"]] == list(range(1, 7 if auto_writeback else 6)), low_risk_result["steps"]
+    assert low_risk_result["steps"][4]["step_name"] == "save_reply_platform_draft", low_risk_result["steps"]
+    if auto_writeback:
+        assert low_risk_result["steps"][-1]["step_name"] == "submit_external_writeback"
     assert low_risk_item["metadata"].get("platform_draft_id"), low_risk_item
     assert low_risk_item["metadata"].get("writeback_status") in {"rpa_ready", "draft_saved"}, low_risk_item
-    assert low_risk_item["metadata"].get("latest_execution_id"), low_risk_item
+    assert bool(low_risk_item["metadata"].get("latest_execution_id")) == auto_writeback, low_risk_item
 
     high_risk_detail = post_json(
         tokens["customer_service"],

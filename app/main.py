@@ -1,4 +1,10 @@
 from contextlib import asynccontextmanager, suppress
+from contextvars import copy_context
+from app.config import settings
+from app.observability import OBSERVED_RUNS, RequestContextMiddleware, flush_traces
+from app.rate_limit import RateLimitMiddleware
+from app.production_health import MetricsMiddleware, router as production_health_router
+from app.artifact_storage import read_artifact
 import asyncio
 import base64
 import json
@@ -17,8 +23,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from app.api.audit_logs import router as audit_logs_router
+from app.api.jobs import router as jobs_router
+from app.api.agent_tasks import router as agent_tasks_router
 from app.api.auth import router as auth_router
 from app.api.ai_workflows import router as ai_workflows_router
+from app.api.competitor_monitor import router as competitor_monitor_router
 from app.api.automation_flows import governance_router as automation_flow_governance_router
 from app.api.automation_flows import router as automation_flows_router
 from app.api.business_action_loop import router as business_action_loop_router
@@ -29,6 +38,7 @@ from app.api.effect_analytics import router as effect_analytics_router
 from app.api.evaluation_center import router as evaluation_center_router
 from app.api.feedback import router as feedback_router
 from app.api.files import router as files_router
+from app.api.operations_images import router as operations_images_router
 from app.api.internal_aiops import router as internal_aiops_router
 from app.api.monitoring_center import router as monitoring_center_router
 from app.api.mcp_tools import router as mcp_tools_router
@@ -85,6 +95,8 @@ from app.services.chat_plan_execute_service import (
     should_use_chat_plan_execute,
 )
 from app.services.chat_automation_dispatcher import run_chat_automation
+from app.services.chat_thread_lock_service import ChatThreadLock
+from app.services.chat_intent_guard_service import is_information_request, is_action_negated
 from app.services.automation_flow_version_service import resolve_flow_execution_reference
 from app.services.chat_react_decision_service import (
     decide_chat_action,
@@ -95,12 +107,11 @@ from app.services.customer_service_automation_service import ensure_customer_ser
 from app.services.erp_service import query_erp_for_current_user, summarize_erp_items
 from app.services.external_action_gateway_service import resolve_external_action_message
 from app.services.email_service import (
-    EmailAttachment,
-    email_result_metadata,
     is_email_send_requested,
     resolve_email_recipient,
-    send_email_with_attachments,
+    validate_email_address,
 )
+from app.services.email_confirmation_service import create_email_confirmation
 from app.services.enterprise_wechat_service import ensure_enterprise_wechat_schema
 from app.services.feedback_service import ensure_feedback_schema
 from app.services.generated_file_service import (
@@ -108,6 +119,12 @@ from app.services.generated_file_service import (
     get_latest_generated_file_for_thread,
     list_recent_generated_files_for_thread,
     save_generated_file,
+)
+from app.services.operations_image_service import (
+    ensure_operations_image_access,
+    generate_product_scene,
+    image_from_chat_attachments,
+    image_generation_requested,
 )
 from app.services.rag_authorization_service import (
     create_document_grant,
@@ -154,6 +171,8 @@ from app.services.run_record_service import (
     elapsed_ms,
     ensure_run_record_flow_reference_schema,
     finish_run,
+    finish_run_if_running,
+    finish_running_steps,
     now_ms,
     record_artifact,
     record_step,
@@ -195,13 +214,16 @@ async def lifespan(app: FastAPI):
     ensure_run_record_flow_reference_schema()
     ensure_enterprise_wechat_schema()
     cleanup_expired_context()
-    cleanup_task = asyncio.create_task(cleanup_expired_context_loop())
+    cleanup_task = (asyncio.create_task(cleanup_expired_context_loop())
+                    if settings.context_cleanup_scheduler == "api" else None)
     try:
         yield
     finally:
-        cleanup_task.cancel()
-        with suppress(asyncio.CancelledError):
-            await cleanup_task
+        if cleanup_task is not None:
+            cleanup_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await cleanup_task
+        await asyncio.to_thread(flush_traces)
         close_pool()
 
 
@@ -209,9 +231,13 @@ app = FastAPI(
     title="AI automated back-end management system",
     lifespan=lifespan,
 )
+app.add_middleware(RateLimitMiddleware)
+app.add_middleware(RequestContextMiddleware)
+app.add_middleware(MetricsMiddleware)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
+    allow_origins=([item.strip() for item in settings.cors_allowed_origins.split(",") if item.strip()]
+                   if settings.cors_allowed_origins else [
         "http://127.0.0.1:5173",
         "http://127.0.0.1:5174",
         "http://127.0.0.1:5175",
@@ -220,7 +246,7 @@ app.add_middleware(
         "http://localhost:5174",
         "http://localhost:5175",
         "http://localhost:5188",
-    ],
+    ]),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -240,7 +266,11 @@ async def collect_feature_metrics(request, call_next):
 
 
 app.include_router(auth_router)
+app.include_router(jobs_router)
+app.include_router(agent_tasks_router)
+app.include_router(production_health_router)
 app.include_router(ai_workflows_router)
+app.include_router(competitor_monitor_router)
 app.include_router(approvals_router)
 app.include_router(automation_router)
 app.include_router(automation_flows_router)
@@ -253,6 +283,7 @@ app.include_router(effect_analytics_router)
 app.include_router(evaluation_center_router)
 app.include_router(feedback_router)
 app.include_router(files_router)
+app.include_router(operations_images_router)
 app.include_router(internal_aiops_router)
 app.include_router(monitoring_center_router)
 app.include_router(mcp_tools_router)
@@ -283,6 +314,7 @@ class ChatResponse(BaseModel):
     intent: str | None = None
     risk_level: str | None = None
     erp_references: list[dict] = Field(default_factory=list)
+    citations: list[dict] = Field(default_factory=list)
     attachments: list[dict] = Field(default_factory=list)
     platform_draft: dict | None = None
     approval_result: dict | None = None
@@ -531,6 +563,29 @@ def _save_assistant_automation_message(
     )
 
 
+def _generate_product_scene_from_chat(request: ChatRequest, current_user: dict, thread_id: str, entrypoint: str) -> dict:
+    ensure_operations_image_access(current_user)
+    source = image_from_chat_attachments(request.attachments)
+    if source is None:
+        raise HTTPException(status_code=400, detail="请在 AI 对话中附上商品白底图，再描述需要的场景")
+    generated = generate_product_scene(
+        content=source[0], mime_type=source[1], prompt=request.message,
+        current_user=current_user, entrypoint=entrypoint, thread_id=thread_id,
+    )
+    answer = "商品场景图已生成并保存，可以在对话中预览或下载。"
+    result = {
+        "thread_id": thread_id, "answer": answer, "intent": "operations_product_scene",
+        "risk_level": "low", "attachments": [{
+            "type": "image_file", "filename": generated["filename"],
+            "mime_type": generated["mime_type"],
+            "metadata": {"artifact_id": generated["artifact_id"]},
+        }],
+        "automation": {"artifact_id": generated["artifact_id"], "run_id": generated["run_id"]},
+    }
+    _save_assistant_automation_message(result=result, current_user=current_user, entrypoint=entrypoint)
+    return result
+
+
 def _finish_chat_automation_run(
     *,
     run_id: str,
@@ -703,9 +758,9 @@ def _run_finance_salary_export_chat(
             "download_path": f"/files/{artifact_id}/download",
         }
     email_requested = is_email_send_requested(request.message)
-    email_result = None
+    email_confirmation = None
     email_metadata = {
-        "email_requested": False,
+        "email_requested": email_requested,
         "email_sent": False,
     }
     if email_requested:
@@ -714,43 +769,39 @@ def _run_finance_salary_export_chat(
             request.message,
             current_user.get("email"),
         )
-        email_result = send_email_with_attachments(
-            to_email=email_recipient,
-            subject=f"{salary_result.intent.period_label}员工工资表",
-            body=(
-                f"你好，{current_user.get('display_name') or current_user.get('username')}：\n\n"
-                f"系统已根据你的 AI 对话请求自动生成 {salary_result.intent.period_label} 员工工资表，"
-                f"共 {len(salary_result.items)} 名员工，应发合计 "
-                f"{salary_result.metadata['gross_pay_total']:.2f}，实发合计 "
-                f"{salary_result.metadata['net_pay_total']:.2f}。\n\n"
-                "附件为本次生成的 Excel 文件。"
-            ),
-            attachments=[
-                EmailAttachment(
-                    filename=salary_result.filename,
-                    content=salary_result.content,
-                    mime_type=attachment["mime_type"],
-                )
-            ],
-        )
-        email_metadata = {
-            **email_result_metadata(email_result),
-            "email_recipient_source": email_recipient_source,
-        }
-        record_step(
-            run_id=run_id,
-            step_name="email_delivery",
-            step_order=3,
-            status_value="succeeded" if email_result.sent else "failed",
-            provider=email_result.provider,
-            resource_type="email",
-            resource_id=email_result.recipient,
-            input_text=request.message,
-            output_text="已发送工资表邮件" if email_result.sent else email_result.error,
-            duration_ms=elapsed_ms(email_started_ms),
-            error_message=email_result.error if not email_result.sent else None,
-            metadata=email_metadata,
-        )
+        email_error = validate_email_address(email_recipient)
+        if email_error:
+            email_metadata = {"email_requested": True, "email_sent": False, "email_error": email_error}
+        else:
+            email_confirmation = create_email_confirmation(
+                current_user=current_user,
+                recipient=email_recipient,
+                subject=f"{salary_result.intent.period_label}员工工资表",
+                body=(
+                    f"你好，{current_user.get('display_name') or current_user.get('username')}：\n\n"
+                    f"系统已根据你的 AI 对话请求自动生成 {salary_result.intent.period_label} 员工工资表，"
+                    f"共 {len(salary_result.items)} 名员工，应发合计 "
+                    f"{salary_result.metadata['gross_pay_total']:.2f}，实发合计 "
+                    f"{salary_result.metadata['net_pay_total']:.2f}。\n\n"
+                    "附件为本次生成的 Excel 文件。"
+                ),
+                artifact_ids=[str(artifact_id)] if artifact_id else [],
+                sensitive_type="员工工资表",
+            )
+            email_metadata = {
+                "email_requested": True,
+                "email_sent": False,
+                "email_status": "waiting_email_confirmation",
+                "email_confirmation_id": email_confirmation["confirmation_id"],
+                "email_recipient_source": email_recipient_source,
+            }
+            record_step(
+                run_id=run_id, step_name="email_confirmation", step_order=3,
+                status_value="blocked", provider="email_confirmation", resource_type="email",
+                resource_id=email_recipient, input_text=request.message,
+                output_text="等待用户确认收件人和工资表附件",
+                duration_ms=elapsed_ms(email_started_ms), metadata=email_metadata,
+            )
 
     answer = (
         f"已识别为财务工资表导出请求，自动查询 {salary_result.provider_label} 的 "
@@ -760,11 +811,10 @@ def _run_finance_salary_export_chat(
         f"{salary_result.metadata['net_pay_total']:.2f}。\n"
         f"附件：{salary_result.filename}"
     )
-    if email_requested and email_result:
-        if email_result.sent:
-            answer += f"\n已按你的要求发送到邮箱：{email_result.recipient}"
-        else:
-            answer += f"\n你要求发送到邮箱，但邮件未发送成功：{email_result.error}"
+    if email_confirmation:
+        answer += f"\n已准备发送到 {email_confirmation['recipient']}；请预览附件并在确认卡中发送。"
+    elif email_requested:
+        answer += f"\n文件已生成，但尚未准备发送：{email_metadata.get('email_error')}"
     else:
         answer += "\n你没有要求发送邮箱，本次只在对话中输出并生成可下载附件。"
     finish_run(
@@ -791,6 +841,9 @@ def _run_finance_salary_export_chat(
             **salary_result.metadata,
             **email_metadata,
         },
+        "approval_result": email_confirmation,
+        "automation": {"type": "email_file_send", "status": "waiting_email_confirmation",
+                       "confirmation_card": email_confirmation} if email_confirmation else None,
     }
 
 
@@ -891,6 +944,11 @@ def _run_finance_compound_generation_chat(
         "generated_files": skill_result.metadata.get("generated_files"),
     }
     answer = skill_result.answer or ""
+    email_confirmation = skill_result.metadata.get("email_confirmation")
+    if isinstance(email_confirmation, dict):
+        approval_result = email_confirmation
+        automation = {**automation, "type": "email_file_send", "status": "waiting_email_confirmation",
+                      "confirmation_card": email_confirmation}
     if intent.wechat_requested and attachments:
         primary_attachment = attachments[0]
         attachment_meta = primary_attachment.get("metadata") if isinstance(primary_attachment.get("metadata"), dict) else {}
@@ -1186,7 +1244,10 @@ def can_export_salary_from_chat(current_user: dict) -> bool:
 
 
 def chat_react_decision_dict(decision) -> dict:
-    return decision.model_dump() if hasattr(decision, "model_dump") else dict(decision)
+    data = decision.model_dump() if hasattr(decision, "model_dump") else dict(decision)
+    if hasattr(decision, "routing_contract"):
+        data["routing"] = decision.routing_contract()
+    return data
 
 
 def direct_chat_result(
@@ -1214,7 +1275,7 @@ def direct_chat_result(
 def _looks_like_generated_file_wechat_send_request(message: str) -> bool:
     text = " ".join((message or "").strip().split())
     lowered = text.lower()
-    if not text:
+    if not text or is_information_request(text) or is_action_negated(text):
         return False
 
     has_channel = any(keyword in lowered for keyword in ["企业微信", "企微", "微信", "wechat", "weixin"])
@@ -1251,7 +1312,7 @@ def _looks_like_generated_file_wechat_send_request(message: str) -> bool:
 def _looks_like_existing_finance_excel_transform_request(message: str) -> bool:
     text = " ".join((message or "").strip().split())
     lowered = text.lower()
-    if not text:
+    if not text or is_information_request(text) or is_action_negated(text):
         return False
 
     has_beautify_request = any(
@@ -1361,7 +1422,7 @@ def _run_existing_finance_excel_transform_chat(
         }
 
     source_filename = str(latest.get("filename") or "finance_report.xlsx")
-    source_content = Path(str(latest["storage_path"])).read_bytes()
+    source_content = read_artifact(str(latest['storage_path']))
     step_started_ms = now_ms()
     record_step(
         run_id=run_id,
@@ -2157,10 +2218,15 @@ def record_react_decision_step(run_id: str, decision, message: str, thread_id: s
     )
 
 
-@app.post("/chat", response_model=ChatResponse)
-def chat(request: ChatRequest,current_user: dict = Depends(get_current_user),):
+def _chat_unlocked(request: ChatRequest, current_user: dict):
     ensure_chat_app_enabled(current_user)
     ensure_chat_allowed_for_position(current_user, request.message)
+    if image_generation_requested(request.message, request.attachments):
+        ensure_operations_image_access(current_user)
+        image_from_chat_attachments(request.attachments)
+        thread_id = resolve_chat_thread_id(request.thread_id, current_user, title=derive_chat_thread_title(request.message))
+        save_chat_message(thread_id=thread_id, user_id=current_user["id"], role="user", content=request.message)
+        return _generate_product_scene_from_chat(request, current_user, thread_id, "/chat")
     salary_export_intent = recognize_salary_export_intent(request.message)
     finance_compound_intent = recognize_finance_compound_intent(request.message)
     salary_wechat_intent = recognize_salary_wechat_send_intent(request.message)
@@ -2247,6 +2313,7 @@ def chat(request: ChatRequest,current_user: dict = Depends(get_current_user),):
             thread_id=thread_id,
             user_id=current_user["id"],
             user_message=request.message,
+            expected_context_version=context_bundle["state"]["context_version"],
             graph_result=result,
         )
         write_audit_log(
@@ -2296,6 +2363,7 @@ def chat(request: ChatRequest,current_user: dict = Depends(get_current_user),):
             duration_ms=elapsed_ms(started_ms),
             metadata={
                 "mode": agent_route.mode,
+                "routing": agent_route.routing_contract(),
                 "reason": agent_route.reason,
                 "confidence": agent_route.confidence,
                 "estimated_step_count": agent_route.estimated_step_count,
@@ -2349,6 +2417,7 @@ def chat(request: ChatRequest,current_user: dict = Depends(get_current_user),):
             thread_id=thread_id,
             user_id=current_user["id"],
             user_message=request.message,
+            expected_context_version=context_bundle["state"]["context_version"],
             graph_result=result,
         )
         finish_run(
@@ -2360,6 +2429,7 @@ def chat(request: ChatRequest,current_user: dict = Depends(get_current_user),):
                 "intent": result.get("intent"),
                 "risk_level": result.get("risk_level"),
                 "mode": agent_route.mode,
+                "routing": agent_route.routing_contract(),
                 "child_run_id": (result.get("automation") or {}).get("run_id") if isinstance(result.get("automation"), dict) else None,
             },
         )
@@ -2403,6 +2473,7 @@ def chat(request: ChatRequest,current_user: dict = Depends(get_current_user),):
             thread_id=result.get("thread_id", thread_id),
             user_id=current_user["id"],
             user_message=request.message,
+            expected_context_version=context_bundle["state"]["context_version"],
             graph_result=result,
         )
         write_audit_log(
@@ -2446,6 +2517,7 @@ def chat(request: ChatRequest,current_user: dict = Depends(get_current_user),):
             duration_ms=elapsed_ms(started_ms),
             metadata={
                 "mode": agent_route.mode,
+                "routing": agent_route.routing_contract(),
                 "reason": agent_route.reason,
                 "confidence": agent_route.confidence,
                 "estimated_step_count": agent_route.estimated_step_count,
@@ -2503,6 +2575,7 @@ def chat(request: ChatRequest,current_user: dict = Depends(get_current_user),):
             thread_id=thread_id,
             user_id=current_user["id"],
             user_message=request.message,
+            expected_context_version=context_bundle["state"]["context_version"],
             graph_result=result,
         )
         finish_run(
@@ -2514,6 +2587,7 @@ def chat(request: ChatRequest,current_user: dict = Depends(get_current_user),):
                 "intent": result.get("intent"),
                 "risk_level": result.get("risk_level"),
                 "mode": agent_route.mode,
+                "routing": agent_route.routing_contract(),
                 "child_run_id": (result.get("automation") or {}).get("run_id") if isinstance(result.get("automation"), dict) else None,
             },
         )
@@ -2560,6 +2634,7 @@ def chat(request: ChatRequest,current_user: dict = Depends(get_current_user),):
             thread_id=thread_id,
             user_id=current_user["id"],
             user_message=request.message,
+            expected_context_version=context_bundle["state"]["context_version"],
             graph_result=direct_result,
         )
         finish_run(
@@ -2626,6 +2701,7 @@ def chat(request: ChatRequest,current_user: dict = Depends(get_current_user),):
             thread_id=result.get("thread_id", thread_id),
             user_id=current_user["id"],
             user_message=request.message,
+            expected_context_version=context_bundle["state"]["context_version"],
             graph_result=result,
         )
         write_audit_log(
@@ -2687,6 +2763,8 @@ def chat(request: ChatRequest,current_user: dict = Depends(get_current_user),):
             "risk_level": result.get("risk_level"),
             "position": current_user.get("position"),
             "erp_resource": result.get("erp_resource"),
+            "approval_result": result.get("approval_result"),
+            "automation": result.get("automation"),
             "attachments": [
                 _attachment_without_content(item)
                 for item in attachments_from_result(result)
@@ -2703,6 +2781,7 @@ def chat(request: ChatRequest,current_user: dict = Depends(get_current_user),):
             thread_id=result.get("thread_id", thread_id),
             user_id=current_user["id"],
             user_message=request.message,
+            expected_context_version=context_bundle["state"]["context_version"],
             graph_result=result,
         )
         write_audit_log(
@@ -2724,7 +2803,8 @@ def chat(request: ChatRequest,current_user: dict = Depends(get_current_user),):
             "risk_level": result.get("risk_level"),
             "erp_references": [],
             "attachments": attachments_from_result(result),
-            "approval_result": None,
+            "approval_result": result.get("approval_result"),
+            "automation": result.get("automation"),
         }
 
     if react_decision.action == "finance_salary_wechat_send":
@@ -2769,6 +2849,7 @@ def chat(request: ChatRequest,current_user: dict = Depends(get_current_user),):
             thread_id=result.get("thread_id", thread_id),
             user_id=current_user["id"],
             user_message=request.message,
+            expected_context_version=context_bundle["state"]["context_version"],
             graph_result=result,
         )
         return {
@@ -2833,6 +2914,7 @@ def chat(request: ChatRequest,current_user: dict = Depends(get_current_user),):
             thread_id=automation_result.get("thread_id", thread_id),
             user_id=current_user["id"],
             user_message=request.message,
+            expected_context_version=context_bundle["state"]["context_version"],
             graph_result=automation_result,
         )
         return {
@@ -2953,6 +3035,7 @@ def chat(request: ChatRequest,current_user: dict = Depends(get_current_user),):
             if isinstance(result.get("erp_result"), dict)
             else None,
             "erp_references": erp_references,
+            "citations": (result.get("rag_result") or {}).get("citations") or [],
             "approval_result": result.get("approval_result"),
         },
     )
@@ -2960,6 +3043,7 @@ def chat(request: ChatRequest,current_user: dict = Depends(get_current_user),):
         thread_id=result.get("thread_id", thread_id),
         user_id=current_user["id"],
         user_message=request.message,
+        expected_context_version=context_bundle["state"]["context_version"],
         graph_result=result,
     )
 
@@ -2986,18 +3070,53 @@ def chat(request: ChatRequest,current_user: dict = Depends(get_current_user),):
         "intent": result.get("intent"),
         "risk_level": result.get("risk_level"),
         "erp_references": erp_references,
+        "citations": (result.get("rag_result") or {}).get("citations") or [],
         "attachments": attachments_from_result(result),
         "approval_result": result.get("approval_result"),
     }
 
 
-@app.post("/chat/stream")
-def chat_stream(
+def _prepare_locked_chat_request(request: ChatRequest | AgentChatRequest, current_user: dict):
+    ensure_chat_app_enabled(current_user)
+    ensure_chat_allowed_for_position(current_user, request.message)
+    if isinstance(request, ChatRequest) and image_generation_requested(request.message, request.attachments):
+        ensure_operations_image_access(current_user)
+        image_from_chat_attachments(request.attachments)
+    thread_id = resolve_chat_thread_id(
+        request.thread_id, current_user, title=derive_chat_thread_title(request.message),
+    )
+    return thread_id, request.model_copy(update={"thread_id": thread_id})
+
+
+@app.post("/chat", response_model=ChatResponse)
+def chat(request: ChatRequest, current_user: dict = Depends(get_current_user)):
+    thread_id, resolved_request = _prepare_locked_chat_request(request, current_user)
+    with ChatThreadLock(thread_id):
+        return _chat_unlocked(resolved_request, current_user)
+
+
+def _chat_stream_unlocked(
     request: ChatRequest,
     current_user: dict = Depends(get_current_user),
 ):
     ensure_chat_app_enabled(current_user)
     ensure_chat_allowed_for_position(current_user, request.message)
+    if image_generation_requested(request.message, request.attachments):
+        ensure_operations_image_access(current_user)
+        image_from_chat_attachments(request.attachments)
+        thread_id = resolve_chat_thread_id(request.thread_id, current_user, title=derive_chat_thread_title(request.message))
+        save_chat_message(thread_id=thread_id, user_id=current_user["id"], role="user", content=request.message)
+
+        def image_events():
+            yield format_sse("start", {"thread_id": thread_id, "message": "正在生成商品场景图"})
+            yield format_business_progress_sse(thread_id=thread_id, workflow_id="operations_product_scene", step_key="generate", label="正在生成商品场景图")
+            try:
+                result = _generate_product_scene_from_chat(request, current_user, thread_id, "/chat/stream")
+                yield format_sse("done", result)
+            except Exception as error:
+                yield format_sse("error", {"thread_id": thread_id, "message": str(error.detail) if isinstance(error, HTTPException) else "生成失败，请稍后重试"})
+
+        return StreamingResponse(image_events(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
     salary_export_intent = recognize_salary_export_intent(request.message)
     finance_compound_intent = recognize_finance_compound_intent(request.message)
     salary_wechat_intent = recognize_salary_wechat_send_intent(request.message)
@@ -3170,6 +3289,7 @@ def chat_stream(
                     thread_id=final_thread_id,
                     user_id=current_user["id"],
                     user_message=request.message,
+                    expected_context_version=context_bundle["state"]["context_version"],
                     graph_result=result_state,
                 )
                 write_audit_log(
@@ -3250,6 +3370,7 @@ def chat_stream(
                     thread_id=final_thread_id,
                     user_id=current_user["id"],
                     user_message=request.message,
+                    expected_context_version=context_bundle["state"]["context_version"],
                     graph_result=result_state,
                 )
                 write_audit_log(
@@ -3295,6 +3416,7 @@ def chat_stream(
                     duration_ms=elapsed_ms(started_ms),
                     metadata={
                         "mode": agent_route.mode,
+                "routing": agent_route.routing_contract(),
                         "reason": agent_route.reason,
                         "confidence": agent_route.confidence,
                         "estimated_step_count": agent_route.estimated_step_count,
@@ -3321,7 +3443,7 @@ def chat_stream(
                     else:
                         progress_queue.put({"kind": "result", "result": result})
 
-                worker = Thread(target=run_plan_executor, daemon=True)
+                worker = Thread(target=copy_context().run, args=(run_plan_executor,), daemon=True)
                 worker.start()
                 result_state = None
                 while result_state is None:
@@ -3386,6 +3508,7 @@ def chat_stream(
                     thread_id=final_thread_id,
                     user_id=current_user["id"],
                     user_message=request.message,
+                    expected_context_version=context_bundle["state"]["context_version"],
                     graph_result=result_state,
                 )
                 finish_run(
@@ -3397,6 +3520,7 @@ def chat_stream(
                         "intent": result_state.get("intent"),
                         "risk_level": result_state.get("risk_level"),
                         "mode": agent_route.mode,
+                "routing": agent_route.routing_contract(),
                         "child_run_id": (result_state.get("automation") or {}).get("run_id") if isinstance(result_state.get("automation"), dict) else None,
                     },
                 )
@@ -3441,6 +3565,7 @@ def chat_stream(
                     duration_ms=elapsed_ms(started_ms),
                     metadata={
                         "mode": agent_route.mode,
+                "routing": agent_route.routing_contract(),
                         "reason": agent_route.reason,
                         "confidence": agent_route.confidence,
                         "estimated_step_count": agent_route.estimated_step_count,
@@ -3470,7 +3595,7 @@ def chat_stream(
                     else:
                         progress_queue.put({"kind": "result", "result": result})
 
-                worker = Thread(target=run_plan_executor, daemon=True)
+                worker = Thread(target=copy_context().run, args=(run_plan_executor,), daemon=True)
                 worker.start()
                 result_state = None
                 while result_state is None:
@@ -3535,6 +3660,7 @@ def chat_stream(
                     thread_id=final_thread_id,
                     user_id=current_user["id"],
                     user_message=request.message,
+                    expected_context_version=context_bundle["state"]["context_version"],
                     graph_result=result_state,
                 )
                 finish_run(
@@ -3546,6 +3672,7 @@ def chat_stream(
                         "intent": result_state.get("intent"),
                         "risk_level": result_state.get("risk_level"),
                         "mode": agent_route.mode,
+                "routing": agent_route.routing_contract(),
                         "child_run_id": (result_state.get("automation") or {}).get("run_id") if isinstance(result_state.get("automation"), dict) else None,
                     },
                 )
@@ -3627,6 +3754,7 @@ def chat_stream(
                     thread_id=final_thread_id,
                     user_id=current_user["id"],
                     user_message=request.message,
+                    expected_context_version=context_bundle["state"]["context_version"],
                     graph_result=result_state,
                 )
                 write_audit_log(
@@ -3689,6 +3817,7 @@ def chat_stream(
                     thread_id=thread_id,
                     user_id=current_user["id"],
                     user_message=request.message,
+                    expected_context_version=context_bundle["state"]["context_version"],
                     graph_result=direct_result,
                 )
                 finish_run(
@@ -3794,6 +3923,7 @@ def chat_stream(
                     thread_id=final_thread_id,
                     user_id=current_user["id"],
                     user_message=request.message,
+                    expected_context_version=context_bundle["state"]["context_version"],
                     graph_result=result_state,
                 )
                 write_audit_log(
@@ -3894,6 +4024,7 @@ def chat_stream(
                     thread_id=final_thread_id,
                     user_id=current_user["id"],
                     user_message=request.message,
+                    expected_context_version=context_bundle["state"]["context_version"],
                     graph_result=result_state,
                 )
                 yield format_sse(
@@ -3960,6 +4091,8 @@ def chat_stream(
                         "risk_level": result_state.get("risk_level"),
                         "position": current_user.get("position"),
                         "erp_resource": result_state.get("erp_resource"),
+                        "approval_result": result_state.get("approval_result"),
+                        "automation": result_state.get("automation"),
                         "attachments": [
                             _attachment_without_content(item)
                             for item in attachments
@@ -3970,6 +4103,7 @@ def chat_stream(
                     thread_id=final_thread_id,
                     user_id=current_user["id"],
                     user_message=request.message,
+                    expected_context_version=context_bundle["state"]["context_version"],
                     graph_result=result_state,
                 )
                 write_audit_log(
@@ -3998,7 +4132,8 @@ def chat_stream(
                         "erp_resource": result_state.get("erp_resource"),
                         "erp_references": [],
                         "attachments": attachments,
-                        "approval_result": None,
+                        "approval_result": result_state.get("approval_result"),
+                        "automation": result_state.get("automation"),
                     },
                 )
                 return
@@ -4087,6 +4222,7 @@ def chat_stream(
                     thread_id=final_thread_id,
                     user_id=current_user["id"],
                     user_message=request.message,
+                    expected_context_version=context_bundle["state"]["context_version"],
                     graph_result=automation_result,
                 )
                 yield format_sse(
@@ -4192,6 +4328,7 @@ def chat_stream(
                     if isinstance(result_state.get("erp_result"), dict)
                     else None,
                     "erp_references": erp_references,
+                    "citations": (result_state.get("rag_result") or {}).get("citations") or [],
                     "approval_result": result_state.get("approval_result"),
                 },
             )
@@ -4199,6 +4336,7 @@ def chat_stream(
                 thread_id=final_thread_id,
                 user_id=current_user["id"],
                 user_message=request.message,
+                expected_context_version=context_bundle["state"]["context_version"],
                 graph_result=result_state,
             )
             write_audit_log(
@@ -4243,6 +4381,7 @@ def chat_stream(
                     "risk_level": result_state.get("risk_level"),
                     "erp_resource": result_state.get("erp_resource"),
                     "erp_references": erp_references,
+                    "citations": (result_state.get("rag_result") or {}).get("citations") or [],
                     "attachments": attachments_from_result(result_state),
                     "approval_result": result_state.get("approval_result"),
                 },
@@ -4274,7 +4413,7 @@ def chat_stream(
                 },
             )
 
-    return StreamingResponse(
+    response = StreamingResponse(
         event_generator(),
         media_type="text/event-stream",
         headers={
@@ -4282,6 +4421,58 @@ def chat_stream(
             "X-Accel-Buffering": "no",
         },
     )
+    response.chat_run_id = run_id
+    response.chat_started_ms = started_ms
+    return response
+
+
+@app.post("/chat/stream")
+def chat_stream(request: ChatRequest, current_user: dict = Depends(get_current_user)):
+    thread_id, resolved_request = _prepare_locked_chat_request(request, current_user)
+    lock = ChatThreadLock(thread_id).acquire()
+    try:
+        response = _chat_stream_unlocked(resolved_request, current_user)
+    except BaseException:
+        lock.release()
+        raise
+
+    original_iterator = response.body_iterator
+
+    async def locked_iterator():
+        try:
+            async for chunk in original_iterator:
+                yield chunk
+        finally:
+            close = getattr(original_iterator, "aclose", None)
+            try:
+                if close is not None:
+                    await close()
+            finally:
+                try:
+                    cancelled = finish_run_if_running(
+                        getattr(response, "chat_run_id", None),
+                        status_value="failed",
+                        error_message="客户端断开或流式响应提前结束",
+                        duration_ms=elapsed_ms(getattr(response, "chat_started_ms", now_ms())),
+                        metadata={"cancelled": True, "reason": "stream_closed"},
+                    )
+                    if cancelled:
+                        finish_running_steps(
+                            getattr(response, "chat_run_id", None),
+                            error_message="流式响应提前结束，步骤结果需人工核对",
+                        )
+                        OBSERVED_RUNS.labels(component="chat.stream", status="cancelled").inc()
+                        write_audit_log(
+                            user_id=current_user.get("id"), action="chat.stream.cancelled",
+                            resource_type="thread", resource_id=thread_id,
+                            metadata={"run_id": getattr(response, "chat_run_id", None),
+                                      "reason": "stream_closed"},
+                        )
+                finally:
+                    lock.release()
+
+    response.body_iterator = locked_iterator()
+    return response
 
 
 def position_label_for_run(position: str | None) -> str:
@@ -4305,8 +4496,7 @@ def _stream_node_output_preview(node_output) -> str:
     }
     return {key: value for key, value in preview.items() if value is not None}
 
-@app.post("/agent/chat", response_model=AgentChatResponse)
-def agent_chat(
+def _agent_chat_unlocked(
     request: AgentChatRequest,
     current_user: dict = Depends(get_current_user),
 ):
@@ -4363,6 +4553,7 @@ def agent_chat(
         thread_id=thread_id,
         user_id=current_user["id"],
         user_message=request.message,
+        expected_context_version=context_bundle["state"]["context_version"],
         graph_result={
             "answer": result["answer"],
             "intent": "agent",
@@ -4374,6 +4565,13 @@ def agent_chat(
         "thread_id": thread_id,
         "answer": result["answer"],
     }
+
+
+@app.post("/agent/chat", response_model=AgentChatResponse)
+def agent_chat(request: AgentChatRequest, current_user: dict = Depends(get_current_user)):
+    thread_id, resolved_request = _prepare_locked_chat_request(request, current_user)
+    with ChatThreadLock(thread_id):
+        return _agent_chat_unlocked(resolved_request, current_user)
 
 
 @app.post("/admin/documents/upload")

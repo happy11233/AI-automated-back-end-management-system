@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from app.observability import submit_with_context
+
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from typing import Any
 
@@ -30,7 +32,7 @@ def summarize_approval(action_type: str, payload: dict[str, Any], *, prefer_llm:
     prompt = _build_prompt(action_type, payload, fallback)
 
     try:
-        future = _SUMMARY_EXECUTOR.submit(_chat_summary, prompt)
+        future = submit_with_context(_SUMMARY_EXECUTOR, _chat_summary, prompt)
         summary = sanitize_text(str(future.result(timeout=SUMMARY_TIMEOUT_SECONDS)).strip())
         summary = _clean_summary(summary)
         if summary:

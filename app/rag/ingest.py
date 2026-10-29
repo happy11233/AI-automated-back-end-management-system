@@ -1,4 +1,6 @@
+from app.observability import observed
 from functools import lru_cache
+from threading import Lock
 from hashlib import sha256
 from uuid import uuid4
 
@@ -239,6 +241,7 @@ def ingest_text_document(
     )
 
 
+@observed('rag.ingest', 'chain')
 def ingest_documents(
     title: str,
     source: str,
@@ -608,153 +611,166 @@ def find_active_documents_by_source(source: str) -> list[dict]:
     ]
 
 
-@lru_cache(maxsize=1)
+_scope_schema_lock = Lock()
+
+
 def ensure_rag_document_scope_schema() -> None:
-    execute(
-        """
-        CREATE TABLE IF NOT EXISTS rag_teams (
-            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-            team_key TEXT NOT NULL UNIQUE,
-            name TEXT NOT NULL,
-            description TEXT,
-            position_scope TEXT CHECK (
-                position_scope IS NULL
-                OR position_scope IN ('operations', 'customer_service', 'finance')
-            ),
-            market_scope TEXT CHECK (
-                market_scope IS NULL
-                OR market_scope IN ('us', 'de', 'jp')
-            ),
-            store_scope TEXT CHECK (
-                store_scope IS NULL
-                OR store_scope IN ('us_store', 'de_store', 'jp_store')
-            ),
-            status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'paused', 'archived')),
-            created_by UUID REFERENCES users(id) ON DELETE SET NULL,
-            created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-            updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-        );
-        """
-    )
-    execute(
-        """
-        CREATE TABLE IF NOT EXISTS rag_team_memberships (
-            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-            team_id UUID NOT NULL REFERENCES rag_teams(id) ON DELETE CASCADE,
-            user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-            member_role TEXT NOT NULL DEFAULT 'member' CHECK (member_role IN ('member', 'supervisor', 'auditor')),
-            status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'paused', 'removed')),
-            added_by UUID REFERENCES users(id) ON DELETE SET NULL,
-            expires_at TIMESTAMPTZ,
-            created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-            updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-        );
-        """
-    )
-    execute("ALTER TABLE documents ADD COLUMN IF NOT EXISTS position_scope TEXT;")
-    execute("ALTER TABLE documents ADD COLUMN IF NOT EXISTS market_scope TEXT;")
-    execute("ALTER TABLE documents ADD COLUMN IF NOT EXISTS store_scope TEXT;")
-    execute("ALTER TABLE documents ADD COLUMN IF NOT EXISTS field_scope TEXT;")
-    execute("ALTER TABLE documents ADD COLUMN IF NOT EXISTS sensitivity_level TEXT;")
-    execute("ALTER TABLE documents ADD COLUMN IF NOT EXISTS owner_user_id UUID;")
-    execute("ALTER TABLE documents ADD COLUMN IF NOT EXISTS owner_team_id UUID;")
-    execute("ALTER TABLE documents ADD COLUMN IF NOT EXISTS access_mode TEXT DEFAULT 'open';")
-    execute("UPDATE documents SET access_mode = 'open' WHERE access_mode IS NULL;")
-    execute("ALTER TABLE documents ALTER COLUMN access_mode SET DEFAULT 'open';")
-    execute("ALTER TABLE documents ALTER COLUMN access_mode SET NOT NULL;")
-    execute("ALTER TABLE documents DROP CONSTRAINT IF EXISTS documents_access_mode_check;")
-    execute(
-        """
-        ALTER TABLE documents
-        ADD CONSTRAINT documents_access_mode_check
-        CHECK (
-            access_mode IN ('open', 'owner_only', 'team_only', 'explicit_grants', 'owner_and_grants')
-        );
-        """
-    )
-    execute(
-        """
-        DO $$
-        BEGIN
-            IF NOT EXISTS (
-                SELECT 1 FROM pg_constraint WHERE conname = 'documents_owner_user_id_fkey'
-            ) THEN
+    # lru_cache alone allows multiple concurrent first calls.
+    with _scope_schema_lock:
+        _ensure_rag_document_scope_schema_once()
+
+
+@lru_cache(maxsize=1)
+def _ensure_rag_document_scope_schema_once() -> None:
+    # Serialize initialization across API/worker processes as one transaction.
+    with transaction() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT pg_advisory_xact_lock(20261022, 1);")
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS rag_teams (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    team_key TEXT NOT NULL UNIQUE,
+                    name TEXT NOT NULL,
+                    description TEXT,
+                    position_scope TEXT CHECK (
+                        position_scope IS NULL
+                        OR position_scope IN ('operations', 'customer_service', 'finance')
+                    ),
+                    market_scope TEXT CHECK (
+                        market_scope IS NULL
+                        OR market_scope IN ('us', 'de', 'jp')
+                    ),
+                    store_scope TEXT CHECK (
+                        store_scope IS NULL
+                        OR store_scope IN ('us_store', 'de_store', 'jp_store')
+                    ),
+                    status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'paused', 'archived')),
+                    created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                );
+                """
+            )
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS rag_team_memberships (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    team_id UUID NOT NULL REFERENCES rag_teams(id) ON DELETE CASCADE,
+                    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    member_role TEXT NOT NULL DEFAULT 'member' CHECK (member_role IN ('member', 'supervisor', 'auditor')),
+                    status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'paused', 'removed')),
+                    added_by UUID REFERENCES users(id) ON DELETE SET NULL,
+                    expires_at TIMESTAMPTZ,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                );
+                """
+            )
+            cur.execute("ALTER TABLE documents ADD COLUMN IF NOT EXISTS position_scope TEXT;")
+            cur.execute("ALTER TABLE documents ADD COLUMN IF NOT EXISTS market_scope TEXT;")
+            cur.execute("ALTER TABLE documents ADD COLUMN IF NOT EXISTS store_scope TEXT;")
+            cur.execute("ALTER TABLE documents ADD COLUMN IF NOT EXISTS field_scope TEXT;")
+            cur.execute("ALTER TABLE documents ADD COLUMN IF NOT EXISTS sensitivity_level TEXT;")
+            cur.execute("ALTER TABLE documents ADD COLUMN IF NOT EXISTS owner_user_id UUID;")
+            cur.execute("ALTER TABLE documents ADD COLUMN IF NOT EXISTS owner_team_id UUID;")
+            cur.execute("ALTER TABLE documents ADD COLUMN IF NOT EXISTS access_mode TEXT DEFAULT 'open';")
+            cur.execute("UPDATE documents SET access_mode = 'open' WHERE access_mode IS NULL;")
+            cur.execute("ALTER TABLE documents ALTER COLUMN access_mode SET DEFAULT 'open';")
+            cur.execute("ALTER TABLE documents ALTER COLUMN access_mode SET NOT NULL;")
+            cur.execute("ALTER TABLE documents DROP CONSTRAINT IF EXISTS documents_access_mode_check;")
+            cur.execute(
+                """
                 ALTER TABLE documents
-                ADD CONSTRAINT documents_owner_user_id_fkey
-                FOREIGN KEY (owner_user_id) REFERENCES users(id) ON DELETE SET NULL;
-            END IF;
-        END $$;
-        """
-    )
-    execute(
-        """
-        DO $$
-        BEGIN
-            IF NOT EXISTS (
-                SELECT 1 FROM pg_constraint WHERE conname = 'documents_owner_team_id_fkey'
-            ) THEN
-                ALTER TABLE documents
-                ADD CONSTRAINT documents_owner_team_id_fkey
-                FOREIGN KEY (owner_team_id) REFERENCES rag_teams(id) ON DELETE SET NULL;
-            END IF;
-        END $$;
-        """
-    )
-    execute(
-        """
-        CREATE TABLE IF NOT EXISTS rag_document_access_grants (
-            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-            document_id UUID NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
-            subject_type TEXT NOT NULL CHECK (subject_type IN ('user', 'team')),
-            subject_id UUID NOT NULL,
-            access_level TEXT NOT NULL DEFAULT 'read' CHECK (access_level IN ('read', 'manage')),
-            status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'revoked', 'expired')),
-            granted_by UUID REFERENCES users(id) ON DELETE SET NULL,
-            reason TEXT,
-            expires_at TIMESTAMPTZ,
-            created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-            updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-        );
-        """
-    )
-    execute("CREATE INDEX IF NOT EXISTS idx_documents_position_scope ON documents(position_scope);")
-    execute("CREATE INDEX IF NOT EXISTS idx_documents_market_scope ON documents(market_scope);")
-    execute("CREATE INDEX IF NOT EXISTS idx_documents_store_scope ON documents(store_scope);")
-    execute("CREATE INDEX IF NOT EXISTS idx_documents_field_scope ON documents(field_scope);")
-    execute("CREATE INDEX IF NOT EXISTS idx_documents_sensitivity_level ON documents(sensitivity_level);")
-    execute("CREATE INDEX IF NOT EXISTS idx_rag_teams_status ON rag_teams(status);")
-    execute("CREATE INDEX IF NOT EXISTS idx_rag_teams_position_scope ON rag_teams(position_scope);")
-    execute("CREATE INDEX IF NOT EXISTS idx_rag_team_memberships_user_status ON rag_team_memberships(user_id, status);")
-    execute("CREATE INDEX IF NOT EXISTS idx_rag_team_memberships_team_status ON rag_team_memberships(team_id, status);")
-    execute(
-        """
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_rag_team_memberships_active_unique
-        ON rag_team_memberships(team_id, user_id)
-        WHERE status = 'active';
-        """
-    )
-    execute("CREATE INDEX IF NOT EXISTS idx_documents_owner_user ON documents(owner_user_id);")
-    execute("CREATE INDEX IF NOT EXISTS idx_documents_owner_team ON documents(owner_team_id);")
-    execute("CREATE INDEX IF NOT EXISTS idx_documents_access_mode ON documents(access_mode);")
-    execute(
-        """
-        CREATE INDEX IF NOT EXISTS idx_rag_document_access_grants_document_status
-        ON rag_document_access_grants(document_id, status);
-        """
-    )
-    execute(
-        """
-        CREATE INDEX IF NOT EXISTS idx_rag_document_access_grants_subject_status
-        ON rag_document_access_grants(subject_type, subject_id, status);
-        """
-    )
-    execute(
-        """
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_rag_document_access_grants_active_unique
-        ON rag_document_access_grants(document_id, subject_type, subject_id, access_level)
-        WHERE status = 'active';
-        """
-    )
+                ADD CONSTRAINT documents_access_mode_check
+                CHECK (
+                    access_mode IN ('open', 'owner_only', 'team_only', 'explicit_grants', 'owner_and_grants')
+                );
+                """
+            )
+            cur.execute(
+                """
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1 FROM pg_constraint WHERE conname = 'documents_owner_user_id_fkey'
+                    ) THEN
+                        ALTER TABLE documents
+                        ADD CONSTRAINT documents_owner_user_id_fkey
+                        FOREIGN KEY (owner_user_id) REFERENCES users(id) ON DELETE SET NULL;
+                    END IF;
+                END $$;
+                """
+            )
+            cur.execute(
+                """
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1 FROM pg_constraint WHERE conname = 'documents_owner_team_id_fkey'
+                    ) THEN
+                        ALTER TABLE documents
+                        ADD CONSTRAINT documents_owner_team_id_fkey
+                        FOREIGN KEY (owner_team_id) REFERENCES rag_teams(id) ON DELETE SET NULL;
+                    END IF;
+                END $$;
+                """
+            )
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS rag_document_access_grants (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    document_id UUID NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+                    subject_type TEXT NOT NULL CHECK (subject_type IN ('user', 'team')),
+                    subject_id UUID NOT NULL,
+                    access_level TEXT NOT NULL DEFAULT 'read' CHECK (access_level IN ('read', 'manage')),
+                    status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'revoked', 'expired')),
+                    granted_by UUID REFERENCES users(id) ON DELETE SET NULL,
+                    reason TEXT,
+                    expires_at TIMESTAMPTZ,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                );
+                """
+            )
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_documents_position_scope ON documents(position_scope);")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_documents_market_scope ON documents(market_scope);")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_documents_store_scope ON documents(store_scope);")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_documents_field_scope ON documents(field_scope);")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_documents_sensitivity_level ON documents(sensitivity_level);")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_rag_teams_status ON rag_teams(status);")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_rag_teams_position_scope ON rag_teams(position_scope);")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_rag_team_memberships_user_status ON rag_team_memberships(user_id, status);")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_rag_team_memberships_team_status ON rag_team_memberships(team_id, status);")
+            cur.execute(
+                """
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_rag_team_memberships_active_unique
+                ON rag_team_memberships(team_id, user_id)
+                WHERE status = 'active';
+                """
+            )
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_documents_owner_user ON documents(owner_user_id);")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_documents_owner_team ON documents(owner_team_id);")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_documents_access_mode ON documents(access_mode);")
+            cur.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_rag_document_access_grants_document_status
+                ON rag_document_access_grants(document_id, status);
+                """
+            )
+            cur.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_rag_document_access_grants_subject_status
+                ON rag_document_access_grants(subject_type, subject_id, status);
+                """
+            )
+            cur.execute(
+                """
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_rag_document_access_grants_active_unique
+                ON rag_document_access_grants(document_id, subject_type, subject_id, access_level)
+                WHERE status = 'active';
+                """
+            )
 
 
 def normalize_position_scope(position_scope: str | None) -> str | None:

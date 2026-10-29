@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+from app.observability import observed
+
 import base64
+import hashlib
+import json
 import re
 from dataclasses import dataclass
 from typing import Any, Callable, Literal
@@ -17,8 +21,8 @@ from app.services.agent_execution_service import (
     CHAT_PLAN_EXECUTE_WORKFLOW_ID,
     AgentPlanStep,
 )
-from app.services.ai_workflow_service import run_ai_workflow
-from app.services.email_service import EmailAttachment, email_result_metadata, send_email_with_attachments
+from app.services.ai_workflow_service import get_ai_workflow, run_ai_workflow
+from app.services.email_confirmation_service import create_email_confirmation
 from app.services.enterprise_wechat_service import search_enterprise_wechat_recipients
 from app.services.external_action_gateway_service import (
     ExternalActionIntent,
@@ -28,6 +32,7 @@ from app.services.external_action_gateway_service import (
 )
 from app.services.finance_compound_generation_service import execute_finance_compound_generation
 from app.services.finance_compound_intent_service import recognize_finance_compound_intent
+from app.services.chat_intent_guard_service import is_information_request, knowledge_action_parts, is_action_negated, has_execution_request, is_unsupported_leave_action
 from app.services.finance_report_service import FinanceReportInputFile, analyze_finance_report_files
 from app.services.finance_salary_service import export_salary_workbook_from_erp, recognize_salary_export_intent
 from app.services.finance_salary_wechat_service import (
@@ -56,9 +61,9 @@ from app.services.platform_draft_service import (
     get_latest_platform_draft_for_source_run,
     get_platform_draft,
 )
-from app.services.run_record_service import elapsed_ms, finish_run, get_run_detail, list_runs, now_ms, record_step, start_run
+from app.services.run_record_service import elapsed_ms, finish_run, finish_running_steps, finish_step, get_run_detail, list_runs, now_ms, record_step, start_run
 from app.services.user_ai_app_permission_service import is_ai_app_allowed
-from app.skills.executor import execute_skill
+from app.skills.executor import execute_skill, validate_skill_access
 from app.skills.registry import get_skill, list_skills, skill_for_react_action
 
 
@@ -274,6 +279,16 @@ def build_chat_plan_execute_plan(
             "reason": "用户消息为空。",
             "confidence": 1.0,
         }
+    parts = knowledge_action_parts(raw_text)
+    if parts:
+        query, action = parts
+        return {"kind": "knowledge_then_action", "query": query, "action_message": action,
+                "summary": "检索知识后准备后续动作", "confidence": 0.96,
+                "steps": [{"key": "knowledge.search", "label": "查询知识库"},
+                          {"key": "action.prepare", "label": "核验结果并准备动作", "requires_confirmation": True}]}
+    if is_information_request(raw_text) or is_unsupported_leave_action(raw_text) or (is_action_negated(raw_text) and not has_execution_request(raw_text)):
+        return {"kind": "clarify", "requires_clarification": True, "confidence": 1,
+                "question": "这是信息咨询，请通过知识查询获取答案。" if is_information_request(raw_text) else "当前不能执行该申请或已取消的操作，请说明需要查询的流程。"}
     text, pending_external_action = resolve_external_action_message(text, thread_id)
     external_action_followup_intent = resolve_external_action_followup_intent(raw_text, thread_id, attachment_list)
     if external_action_followup_intent is not None:
@@ -287,6 +302,8 @@ def build_chat_plan_execute_plan(
         plan = _build_external_action_plan(external_action_followup_intent)
         plan["source_message"] = str((pending_external_action or {}).get("source_message") or raw_text)
         plan["effective_message"] = text
+        if (pending_external_action or {}).get("artifact_id"):
+            plan["artifact_id"] = pending_external_action["artifact_id"]
         return plan
 
     if _looks_like_resume_request(text):
@@ -307,15 +324,8 @@ def build_chat_plan_execute_plan(
 
     external_action_intent = recognize_external_action_intent(text, attachment_list)
     if external_action_intent is not None:
-        if pending_external_action and pending_external_action.get("active"):
-            external_action_intent = ExternalActionIntent(
-                **{
-                    **external_action_intent.to_dict(),
-                    "recipient_name": external_action_intent.recipient_name or pending_external_action.get("recipient_name"),
-                }
-            )
         plan = _build_external_action_plan(external_action_intent)
-        plan["source_message"] = str((pending_external_action or {}).get("source_message") or raw_text)
+        plan["source_message"] = raw_text
         plan["effective_message"] = text
         return plan
 
@@ -860,10 +870,121 @@ def _attachment_summaries(attachments: list[dict[str, Any]]) -> list[dict[str, A
     return summaries
 
 
+def _stable_hash(value: Any) -> str:
+    return hashlib.sha256(json.dumps(value, sort_keys=True, ensure_ascii=False, default=str,
+                                    separators=(",", ":")).encode("utf-8")).hexdigest()
+
+
+def _attachment_manifest(attachments: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    manifest = []
+    for item in attachments:
+        if not isinstance(item, dict):
+            continue
+        metadata = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
+        manifest.append({
+            "id": item.get("id") or metadata.get("id") or metadata.get("artifact_id"),
+            "filename": item.get("filename"),
+            "size_bytes": item.get("size_bytes"),
+            "version": metadata.get("version"),
+            "sha256": metadata.get("sha256") or (
+                hashlib.sha256(base64.b64decode(item["content_base64"])).hexdigest()
+                if item.get("content_base64") else None
+            ),
+        })
+    return manifest
+
+
+def _persist_plan_attachments(*, items: list[dict[str, Any]], run_id: str,
+                              step_id: str, current_user: dict) -> None:
+    for item in items:
+        metadata = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
+        if item.get("id") or metadata.get("artifact_id") or not item.get("content_base64"):
+            continue
+        content = base64.b64decode(item["content_base64"], validate=True)
+        filename = str(item.get("filename") or "step-output.bin")
+        suffix = filename.lower().rsplit(".", 1)[-1]
+        artifact_type = "excel_file" if suffix in {"xlsx", "xls"} else "docx_file" if suffix == "docx" else "report_file"
+        content_hash = hashlib.sha256(content).hexdigest()
+        artifact_id = save_generated_file(
+            run_id=run_id, content=content, filename=filename,
+            artifact_type=artifact_type,
+            mime_type=str(item.get("mime_type") or "application/octet-stream"),
+            current_user=current_user,
+            metadata={"source": "chat_plan_execute", "step_id": step_id, "sha256": content_hash},
+        )
+        if not artifact_id:
+            raise RuntimeError(f"步骤 {step_id} 的附件未能持久化")
+        item["size_bytes"] = len(content)
+        item["metadata"] = {**metadata, "artifact_id": artifact_id, "sha256": content_hash}
+
+
+def _plan_version(plan: dict[str, Any]) -> str:
+    steps = [
+        {key: step.get(key) for key in ("key", "executor_type", "ref", "arguments")}
+        for step in plan.get("steps") or [] if isinstance(step, dict)
+    ]
+    return f"v1-{_stable_hash({'kind': plan.get('kind'), 'steps': steps})[:16]}"
+
+
+def _plan_step_id(plan: dict[str, Any], key: str) -> str:
+    return f"plan:{plan.get('plan_version') or _plan_version(plan)}:{key}"
+
+
+def _draft_content_hash(draft: dict[str, Any] | None) -> str | None:
+    return _stable_hash({"id": draft.get("id"), "content": draft.get("content")}) if draft else None
+
+
+def _plan_execution_binding(*, message: str, attachments: list[dict[str, Any]],
+                            current_user: dict, plan: dict[str, Any]) -> dict[str, str]:
+    return {
+        "plan_version": _plan_version(plan),
+        "input_hash": _stable_hash(" ".join(message.strip().split())),
+        "attachment_hash": _stable_hash(_attachment_manifest(attachments)),
+        "permission_hash": _stable_hash({key: current_user.get(key) for key in (
+            "id", "role", "position", "department", "market_scope", "store_scope",
+            "field_scope", "max_sensitivity_level", "allowed_ai_app_ids",
+        )}),
+    }
+
+
+def _validate_general_resume(*, resume_context: dict[str, Any], thread_id: str,
+                             current_user: dict, binding: dict[str, str]) -> None:
+    run = resume_context["run"]
+    old_binding = (run.get("metadata") or {}).get("execution_binding")
+    if (run.get("run_type") != "chat_plan_execute" or run.get("thread_id") != thread_id
+            or run.get("user_id") != str(current_user.get("id"))):
+        raise HTTPException(status_code=409, detail="续跑记录与当前会话或账号不匹配。")
+    if not isinstance(old_binding, dict) or any(old_binding.get(key) != value for key, value in binding.items()):
+        raise HTTPException(status_code=409, detail="原任务输入、附件、计划或权限已变化；请核对上次结果后重新发起任务。")
+
+
+def _validate_reused_step_access(*, executor_type: str, ref: str, arguments: dict[str, Any],
+                                 current_user: dict) -> None:
+    if executor_type == "skill":
+        requested = arguments.get("erp_resources") or arguments.get("requested_erp_resources") or []
+        if isinstance(requested, str):
+            requested = [item.strip() for item in requested.split(",") if item.strip()]
+        validate_skill_access(skill=get_skill(ref), current_user=current_user,
+                              requested_erp_resources=requested if isinstance(requested, list) else [])
+    elif executor_type == "mcp":
+        definition = get_mcp_tool_definition(ref)
+        if current_user.get("role") != "admin" and current_user.get("position") not in definition.position_scopes:
+            raise HTTPException(status_code=403, detail="当前岗位无权复用该 MCP 工具结果。")
+        item = next((item for item in (list_mcp_tools().get("items") or []) if item.get("tool_id") == ref), None)
+        if not item or not item.get("enabled", True):
+            raise HTTPException(status_code=409, detail="MCP 工具已停用，不能自动续跑。")
+    elif executor_type == "ai_workflow":
+        get_ai_workflow(ref, current_user)
+
+
 def should_use_chat_plan_execute(message: str, attachments: list[dict[str, Any]] | None = None) -> bool:
     text = " ".join((message or "").strip().split())
     if not text:
         return False
+    if is_information_request(text) or is_unsupported_leave_action(text) or (is_action_negated(text) and not has_execution_request(text)):
+        return False
+    if knowledge_action_parts(text):
+        return True
 
     lowered = text.lower()
     if _looks_like_resume_request(text):
@@ -979,18 +1100,59 @@ def _run_general_complex_plan(
     platform_draft: dict[str, Any] | None = (resume_context or {}).get("platform_draft")
     step_records: list[dict[str, Any]] = []
     mcp_traces: list[dict[str, Any]] = []
-    completed_step_names = set((resume_context or {}).get("summary", {}).get("completed_steps") or [])
+    prior_steps = {
+        str(item.get("step_name")): item
+        for item in (resume_context or {}).get("raw_detail", {}).get("steps") or []
+        if isinstance(item, dict)
+    }
+    execution_binding = _plan_execution_binding(message=message, attachments=attachments or [],
+                                                current_user=current_user, plan=plan)
+    root_run_id = (resume_context or {}).get("summary", {}).get("run_id") or run_id
+    seen_step_ids: set[str] = set()
 
     for index, step in enumerate(steps, start=1):
         key = str(step.get("key") or f"step_{index}")
+        canonical_id = _plan_step_id(plan, key)
+        if canonical_id in seen_step_ids:
+            raise HTTPException(status_code=400, detail="复杂任务计划存在重复步骤 ID。")
+        seen_step_ids.add(canonical_id)
         label = str(step.get("label") or key)
         executor_type = str(step.get("executor_type") or "skill")
         ref = str(step.get("ref") or "")
         arguments = step.get("arguments") if isinstance(step.get("arguments"), dict) else {}
-        if key in completed_step_names and platform_draft is not None and executor_type in {"skill", "ai_workflow"}:
-            step_summaries.append(f"{label}：复用上次成功结果")
+        step_input_hash = _stable_hash({"binding": execution_binding, "step": step})
+        prior = prior_steps.get(canonical_id)
+        if not prior and any(name in prior_steps for name in (f"plan.{key}", key)):
+            raise HTTPException(status_code=409, detail=f"旧版步骤 {key} 缺少续跑校验信息，请先人工核对结果。")
+        if prior:
+            prior_metadata = prior.get("metadata") if isinstance(prior.get("metadata"), dict) else {}
+            if prior.get("status") != "succeeded":
+                raise HTTPException(status_code=409, detail=f"步骤 {key} 的上次执行结果未知，请先人工核对。")
+            if prior_metadata.get("step_input_hash") != step_input_hash or prior_metadata.get("execution_binding") != execution_binding:
+                raise HTTPException(status_code=409, detail=f"步骤 {key} 的输入或权限已变化，请重新发起任务。")
+            _validate_reused_step_access(executor_type=executor_type, ref=ref,
+                                         arguments=arguments, current_user=current_user)
+            output_draft_hash = prior_metadata.get("output_draft_hash")
+            if output_draft_hash and output_draft_hash != _draft_content_hash(platform_draft):
+                raise HTTPException(status_code=409, detail=f"步骤 {key} 的草稿版本已变化，请先人工核对。")
+            output_manifest = prior_metadata.get("output_manifest") or []
+            if any(not item.get("id") for item in output_manifest):
+                raise HTTPException(status_code=409, detail=f"步骤 {key} 的文件没有持久化版本，不能自动复用。")
+            for item in output_manifest:
+                reference = get_generated_file_storage_reference(str(item["id"]), current_user=current_user)
+                reference_metadata = reference.get("metadata") if isinstance(reference.get("metadata"), dict) else {}
+                if (reference.get("owner_user_id") != str(current_user.get("id"))
+                        or reference.get("filename") != item.get("filename")
+                        or reference.get("size_bytes") != item.get("size_bytes")
+                        or reference_metadata.get("version") != item.get("version")
+                        or (item.get("sha256") and reference_metadata.get("sha256") != item.get("sha256"))):
+                    raise HTTPException(status_code=409, detail=f"步骤 {key} 的文件版本已变化，不能自动复用。")
+                outputs.append(_attachment_from_storage_reference(reference))
+            prior_summary = str(prior_metadata.get("output_summary") or prior.get("output_preview") or "").strip()
+            if prior_summary:
+                step_summaries.append(f"{label}：{prior_summary}")
             step_records.append({
-                "key": key,
+                "key": key, "step_id": canonical_id,
                 "label": label,
                 "executor_type": executor_type,
                 "ref": ref,
@@ -1000,6 +1162,17 @@ def _run_general_complex_plan(
 
         _emit(progress_callback, thread_id, f"generic.{key}", label, "running")
         started_ms = now_ms()
+        output_start = len(outputs)
+        execution_key = _stable_hash({"run_id": root_run_id, "step_id": canonical_id})
+        step_record_id = record_step(
+            run_id=run_id, step_name=canonical_id, step_order=index,
+            status_value="running", provider=executor_type,
+            resource_type="mcp_tool" if executor_type == "mcp" else "ai_workflow" if executor_type == "ai_workflow" else "automation",
+            resource_id=ref, input_text=arguments if executor_type == "mcp" else message,
+            metadata={"executor_type": executor_type, "step": step, "plan_version": plan["plan_version"],
+                      "execution_binding": execution_binding, "step_input_hash": step_input_hash,
+                      "execution_key": execution_key},
+        )
         if executor_type == "skill":
             result = execute_skill(
                 skill_id=ref,
@@ -1020,6 +1193,8 @@ def _run_general_complex_plan(
                 source="chat_plan_execute",
             )
             skill_attachments = _skill_result_attachments(result)
+            _persist_plan_attachments(items=skill_attachments, run_id=run_id,
+                                      step_id=canonical_id, current_user=current_user)
             outputs.extend(skill_attachments)
             if getattr(result, "platform_draft", None) is not None:
                 platform_draft = result.platform_draft
@@ -1028,29 +1203,19 @@ def _run_general_complex_plan(
             answer_piece = str(getattr(result, "answer", "") or "").strip()
             if answer_piece:
                 step_summaries.append(answer_piece)
-            step_output = {
-                "status": getattr(result, "status", "succeeded"),
-                "answer": answer_piece,
-                "attachment_count": len(skill_attachments),
-                "platform_draft_id": platform_draft.get("id") if isinstance(platform_draft, dict) else None,
-            }
-            record_step(
-                run_id=run_id,
-                step_name=f"plan.{key}",
-                step_order=index,
+            if not finish_step(
+                step_record_id,
                 status_value="succeeded",
-                provider="skill",
-                resource_type="automation",
-                resource_id=ref,
-                input_text=message,
                 output_text=answer_piece or ref,
                 duration_ms=elapsed_ms(started_ms),
                 metadata={
-                    "executor_type": executor_type,
-                    "step": step,
+                    "output_summary": answer_piece,
+                    "output_manifest": _attachment_manifest(skill_attachments),
+                    "output_draft_hash": _draft_content_hash(platform_draft),
                     "platform_draft_id": platform_draft.get("id") if isinstance(platform_draft, dict) else None,
                 },
-            )
+            ):
+                raise RuntimeError(f"步骤 {canonical_id} 的完成状态未能持久化")
         elif executor_type == "mcp":
             result = execute_managed_mcp_tool(
                 tool_id=ref,
@@ -1081,23 +1246,21 @@ def _run_general_complex_plan(
                             },
                         }
                     )
-            record_step(
-                run_id=run_id,
-                step_name=f"plan.{key}",
-                step_order=index,
+            _persist_plan_attachments(items=outputs[output_start:], run_id=run_id,
+                                      step_id=canonical_id, current_user=current_user)
+            if not finish_step(
+                step_record_id,
                 status_value="succeeded",
-                provider="mcp",
-                resource_type="mcp_tool",
-                resource_id=ref,
-                input_text=arguments,
                 output_text=summary,
                 duration_ms=elapsed_ms(started_ms),
                 metadata={
-                    "executor_type": executor_type,
-                    "step": step,
+                    "output_summary": summary,
+                    "output_manifest": _attachment_manifest(outputs[output_start:]),
+                    "output_draft_hash": _draft_content_hash(platform_draft),
                     "mcp_traces": mcp_traces[-1:] if mcp_traces else [],
                 },
-            )
+            ):
+                raise RuntimeError(f"步骤 {canonical_id} 的完成状态未能持久化")
         elif executor_type == "ai_workflow":
             result = run_ai_workflow(
                 workflow_id=ref,
@@ -1114,19 +1277,20 @@ def _run_general_complex_plan(
                     approval_result = result.get("approval_result")
                 if result.get("attachments") and isinstance(result.get("attachments"), list):
                     outputs.extend([item for item in result.get("attachments") if isinstance(item, dict)])
-            record_step(
-                run_id=run_id,
-                step_name=f"plan.{key}",
-                step_order=index,
+            _persist_plan_attachments(items=outputs[output_start:], run_id=run_id,
+                                      step_id=canonical_id, current_user=current_user)
+            if not finish_step(
+                step_record_id,
                 status_value="succeeded",
-                provider="ai_workflow",
-                resource_type="ai_workflow",
-                resource_id=ref,
-                input_text=message,
                 output_text=answer_piece if isinstance(result, dict) else ref,
                 duration_ms=elapsed_ms(started_ms),
-                metadata={"executor_type": executor_type, "step": step},
-            )
+                metadata={
+                    "output_summary": answer_piece if isinstance(result, dict) else ref,
+                    "output_manifest": _attachment_manifest(outputs[output_start:]),
+                    "output_draft_hash": _draft_content_hash(platform_draft),
+                },
+            ):
+                raise RuntimeError(f"步骤 {canonical_id} 的完成状态未能持久化")
         else:
             raise ValueError(f"不支持的执行器类型：{executor_type}")
 
@@ -1162,6 +1326,7 @@ def _run_general_complex_plan(
     }
 
 
+@observed('agent.plan_execute', 'chain')
 def execute_chat_plan_execute(
     *,
     message: str,
@@ -1174,6 +1339,7 @@ def execute_chat_plan_execute(
     resume_run_id: str | None = None,
     plan: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    request_started_ms = now_ms()
     normalized_message = " ".join((message or "").strip().split())
     if resume_run_id is None and _looks_like_resume_request(normalized_message):
         resume_run_id = _find_resume_run_id(thread_id=thread_id, current_user=current_user)
@@ -1185,6 +1351,7 @@ def execute_chat_plan_execute(
             thread_id=thread_id,
             resume_run_id=resume_run_id,
         )
+    planning_duration_ms = elapsed_ms(request_started_ms)
     if plan.get("requires_clarification"):
         answer = str(plan.get("question") or "请补充关键字段。")
         return {
@@ -1224,6 +1391,18 @@ def execute_chat_plan_execute(
     steps = [step for step in plan.get("steps") or [] if isinstance(step, dict)]
     _emit(progress_callback, thread_id, "understanding", "正在理解你的需求")
     resume_context = _load_resume_context(resume_run_id=resume_run_id, current_user=current_user)
+    execution_message = message
+    if plan.get("kind") == "general_complex_task":
+        plan["plan_version"] = _plan_version(plan)
+        if resume_context and _looks_like_resume_request(normalized_message):
+            execution_message = str(resume_context["run"].get("input_preview") or "")
+        execution_binding = _plan_execution_binding(message=execution_message,
+            attachments=attachments or [], current_user=current_user, plan=plan)
+        if resume_context:
+            _validate_general_resume(resume_context=resume_context, thread_id=thread_id,
+                                     current_user=current_user, binding=execution_binding)
+    else:
+        execution_binding = None
     run_id = start_run(
         run_type="chat_plan_execute",
         app_id=CHAT_PLAN_EXECUTE_APP_ID,
@@ -1233,7 +1412,7 @@ def execute_chat_plan_execute(
         thread_id=thread_id,
         resource_type="thread",
         resource_id=thread_id,
-        input_text=message,
+        input_text=execution_message,
         metadata={
             "workflow_id": CHAT_PLAN_EXECUTE_WORKFLOW_ID,
             "complex_kind": plan.get("kind"),
@@ -1241,11 +1420,13 @@ def execute_chat_plan_execute(
             "parent_run_id": parent_run_id,
             "resume_run_id": resume_run_id,
             "resume_context": resume_context.get("summary") if resume_context else None,
+            "execution_binding": execution_binding,
         },
     )
     try:
-        _record_plan_step(run_id, 1, "plan.build", "succeeded", "planner", thread_id, message, plan)
-        permissions = _check_permissions(current_user=current_user, plan=plan, message=message)
+        _record_plan_step(run_id, 1, "plan.build", "succeeded", "planner", thread_id, message, plan,
+                          duration_ms=planning_duration_ms)
+        permissions = _check_permissions(current_user=current_user, plan=plan, message=execution_message)
         _record_plan_step(
             run_id,
             2,
@@ -1258,7 +1439,8 @@ def execute_chat_plan_execute(
         )
         if not permissions["ok"]:
             answer = permissions["message"]
-            finish_run(run_id, status_value="blocked", output_text=answer, duration_ms=0, metadata={"plan": plan})
+            finish_run(run_id, status_value="blocked", output_text=answer,
+                       duration_ms=elapsed_ms(request_started_ms), metadata={"plan": plan})
             return _result(thread_id=thread_id, answer=answer, plan=plan, run_id=run_id, risk_level="blocked")
 
         outputs: list[dict[str, Any]] = []
@@ -1266,7 +1448,14 @@ def execute_chat_plan_execute(
         automation: dict[str, Any] | None = None
         step_order = 3
 
-        if plan["kind"] == "external_action":
+        if plan["kind"] == "knowledge_then_action":
+            knowledge_result = _run_knowledge_action_plan(message=message, current_user=current_user,
+                thread_id=thread_id, plan=plan, run_id=run_id)
+            outputs.extend(knowledge_result.get("attachments") or [])
+            approval_result = knowledge_result.get("approval_result")
+            automation = knowledge_result.get("automation")
+            answer = knowledge_result["answer"]
+        elif plan["kind"] == "external_action":
             external_result = _run_external_action_plan(
                 message=message,
                 current_user=current_user,
@@ -1324,7 +1513,7 @@ def execute_chat_plan_execute(
             answer = send_result.get("answer")
         elif plan["kind"] == "general_complex_task":
             general_result = _run_general_complex_plan(
-                message=message,
+                message=execution_message,
                 current_user=current_user,
                 thread_id=thread_id,
                 plan=plan,
@@ -1350,11 +1539,13 @@ def execute_chat_plan_execute(
             outputs.extend(file_result.get("attachments") or [])
             answer = file_result.get("answer")
 
+        execution_status = str((approval_result or {}).get("status") or (automation or {}).get("status") or "succeeded")
+        run_status = "blocked" if execution_status.startswith("waiting_") or execution_status == "blocked" else "failed" if execution_status == "failed" else "succeeded"
         finish_run(
             run_id,
-            status_value="succeeded",
+            status_value=run_status,
             output_text=answer,
-            duration_ms=0,
+            duration_ms=elapsed_ms(request_started_ms),
             metadata={
                 "workflow_id": CHAT_PLAN_EXECUTE_WORKFLOW_ID,
                 "complex_kind": plan.get("kind"),
@@ -1391,11 +1582,50 @@ def execute_chat_plan_execute(
             },
         }
     except HTTPException as error:
-        finish_run(run_id, status_value="failed", error_message=str(error.detail), duration_ms=0, metadata={"plan": plan})
+        finish_running_steps(run_id, error_message="执行中断，外部动作结果需人工核对")
+        finish_run(run_id, status_value="failed", error_message=str(error.detail),
+                   duration_ms=elapsed_ms(request_started_ms), metadata={"plan": plan})
         raise
     except Exception as error:
-        finish_run(run_id, status_value="failed", error_message=error, duration_ms=0, metadata={"plan": plan})
+        finish_running_steps(run_id, error_message="执行结果未知，请人工核对后再重试")
+        finish_run(run_id, status_value="failed", error_message=error,
+                   duration_ms=elapsed_ms(request_started_ms), metadata={"plan": plan})
         raise
+
+
+def _run_knowledge_action_plan(*, message: str, current_user: dict, thread_id: str,
+                               plan: dict[str, Any], run_id: str) -> dict[str, Any]:
+    from app.tools.kb_tool import search_knowledge_base
+    result = search_knowledge_base.invoke({"query": plan["query"], "role": current_user["role"],
+        **{key: current_user.get(key) for key in ("department", "position", "market_scope", "store_scope", "field_scope", "max_sensitivity_level")},
+        "user_id": current_user.get("id")})
+    answer = str(result.get("answer") or "资料中没有找到相关信息。")
+    _record_plan_step(run_id, 3, "knowledge.search", "succeeded", "rag", thread_id,
+                      plan["query"], {"citation_count": len(result.get("citations") or []), "answer": answer})
+    if not result.get("chunks") or "资料中没有找到相关信息" in answer:
+        return {"answer": answer + " 尚未准备后续发送，请先补充相关制度资料。", "automation": {
+            "type": "knowledge_then_action", "run_id": run_id, "plan": plan, "status": "blocked",
+            "citations": result.get("citations") or []}}
+    action = recognize_external_action_intent(plan["action_message"])
+    if action is None or action.external_action_type != "send_file" or action.target_channel not in {"email", "enterprise_wechat", "unknown_message_channel"}:
+        return {"answer": answer + "\n请补充后续动作的发送通道及接收人；当前尚未执行发送。", "automation": {
+            "type": "knowledge_then_action", "run_id": run_id, "plan": plan, "status": "waiting_clarification",
+            "citations": result.get("citations") or []}}
+    citations = result.get("citations") or []
+    content = answer + "\n\n资料来源：\n" + "\n".join(str(item.get("title")) + " / " + str(item.get("source")) for item in citations)
+    artifact_id = save_generated_file(run_id=run_id, content=content.encode("utf-8"), filename="知识查询结果.txt",
+        artifact_type="report_file", mime_type="text/plain; charset=utf-8", current_user=current_user,
+        metadata={"source": "knowledge_then_action", "query": plan["query"], "citations": citations})
+    if not artifact_id:
+        raise ValueError("知识查询结果文件保存失败")
+    send_plan = _build_external_action_plan(ExternalActionIntent(**{**action.to_dict(),
+        "business_object": "latest_file", "data_source": "knowledge_result"}))
+    send_plan.update({"artifact_id": artifact_id, "source_message": message, "effective_message": plan["action_message"]})
+    sent = _run_external_action_plan(message=plan["action_message"], current_user=current_user,
+        thread_id=thread_id, plan=send_plan, run_id=run_id, attachments=[])
+    sent["answer"] = answer + "\n\n" + str(sent.get("answer") or "")
+    sent.setdefault("automation", {}).update({"citations": citations, "knowledge_query": plan["query"]})
+    return sent
 
 
 def _run_external_action_plan(
@@ -1570,13 +1800,16 @@ def _run_finance_plan(
         source="chat",
     )
     attachments = [_attachment_to_chat_attachment(item) for item in result.attachments]
-    approval_result: dict[str, Any] | None = None
+    approval_result: dict[str, Any] | None = result.metadata.get("email_confirmation")
     automation: dict[str, Any] = {
         "type": "finance_compound_generation",
         "run_id": run_id,
         "plan": plan,
         "generated_count": len(attachments),
     }
+    if approval_result:
+        automation.update({"type": "email_file_send", "status": "waiting_email_confirmation",
+                           "confirmation_card": approval_result})
     if intent.wechat_requested and attachments:
         primary_attachment = attachments[0]
         primary_metadata = primary_attachment.get("metadata") if isinstance(primary_attachment.get("metadata"), dict) else {}
@@ -1652,6 +1885,9 @@ def _run_salary_wechat_plan(
     salary_wechat_intent: Any | None = None,
 ) -> dict[str, Any]:
     intent = salary_wechat_intent or recognize_salary_wechat_send_intent(message)
+    if plan.get("recipient_name"):
+        intent.recipient_name = str(plan["recipient_name"])
+        intent.missing_fields = [field for field in intent.missing_fields if field != "微信联系人"]
     salary_plan = build_salary_wechat_plan(intent)
     started_ms = now_ms()
     record_step(
@@ -1836,8 +2072,8 @@ def _run_salary_email_plan(
     run_id: str,
     progress_callback: ProgressCallback | None = None,
 ) -> dict[str, Any]:
-    recipient = _extract_email_recipient(message)
-    if not recipient:
+    recipient = plan.get("recipient_name") or _extract_email_recipient(message)
+    if not recipient or not _extract_email_recipient(str(recipient)):
         return {
             "answer": "我识别到你想通过邮箱发送工资表，但还没有看到收件邮箱。请补充邮箱地址。",
             "attachments": [],
@@ -1989,23 +2225,27 @@ def _run_message_send_plan(
     resume_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     target_channel = str(plan.get("target_channel") or "")
-    recipient = _extract_email_recipient(message) if target_channel == "email" or _contains(message, ["邮箱", "email", "mail"]) else extract_wechat_recipient(message)
+    recipient = plan.get("recipient_name") or (_extract_email_recipient(message) if target_channel == "email" else extract_wechat_recipient(message))
+    if target_channel == "email" and recipient and not _extract_email_recipient(str(recipient)):
+        recipient = None
     if not recipient:
         return {
             "answer": "请先补充接收对象。",
             "attachments": [],
-            "approval_result": None,
-            "automation": {"type": "message_send", "workflow_id": CHAT_PLAN_EXECUTE_WORKFLOW_ID, "plan": plan},
+            "approval_result": {"status": "waiting_clarification", "status_label": "等待补充接收对象"},
+            "automation": {"type": "message_send", "status": "waiting_clarification", "workflow_id": CHAT_PLAN_EXECUTE_WORKFLOW_ID, "run_id": run_id, "plan": plan},
         }
-    latest = get_latest_generated_file_for_thread(thread_id=thread_id, current_user=current_user, allowed_types={"excel_file", "word_file", "docx_file", "report_file"})
+    latest = (get_generated_file_storage_reference(str(plan["artifact_id"]), current_user=current_user)
+              if plan.get("artifact_id") else get_latest_generated_file_for_thread(thread_id=thread_id,
+              current_user=current_user, allowed_types={"excel_file", "word_file", "docx_file", "report_file"}))
     if latest is None:
         return {
             "answer": "当前会话还没有可发送的文件，请先生成或上传文件。",
             "attachments": [],
-            "approval_result": None,
-            "automation": {"type": "message_send", "workflow_id": CHAT_PLAN_EXECUTE_WORKFLOW_ID, "plan": plan},
+            "approval_result": {"status": "waiting_clarification", "status_label": "等待可发送文件"},
+            "automation": {"type": "message_send", "status": "waiting_clarification", "workflow_id": CHAT_PLAN_EXECUTE_WORKFLOW_ID, "run_id": run_id, "plan": plan},
         }
-    if _contains(message, ["企业微信", "微信"]):
+    if target_channel == "enterprise_wechat":
         execution = build_enterprise_wechat_file_confirmation_task(
             artifact_id=str(latest["id"]),
             artifact_filename=str(latest.get("filename") or "文件"),
@@ -2054,7 +2294,7 @@ def _run_file_processing_plan(
             "answer": "请先上传 Excel、Word、PDF 或图片文件，再让我处理。",
             "attachments": [],
             "approval_result": None,
-            "automation": {"type": "file_processing", "workflow_id": CHAT_PLAN_EXECUTE_WORKFLOW_ID, "plan": plan},
+            "automation": {"type": "file_processing", "workflow_id": CHAT_PLAN_EXECUTE_WORKFLOW_ID, "run_id": run_id, "plan": plan},
         }
     result = analyze_finance_report_files(files=parsed, instruction=message, output_format="word")
     saved_id = save_generated_file(
@@ -2099,35 +2339,12 @@ def _send_email_plan(
     current_user: dict,
 ) -> dict[str, Any]:
     artifact_id = str(latest.get("id") or "").strip()
-    filename = str(latest.get("filename") or "generated_file")
-    download_path = f"/files/{artifact_id}/download" if artifact_id else None
-    return {
-        "type": "email_file_send_confirmation",
-        "status": "waiting_email_confirmation",
-        "status_label": "等待邮箱发送确认",
-        "message": "已生成邮箱发送确认卡，请确认收件人和附件后再发送。",
-        "channel": "email",
-        "recipient": recipient,
-        "subject": message[:120] or "业务文件",
-        "body": "",
-        "requires_confirmation": True,
-        "requires_sensitive_confirmation": True,
-        "llm_direct_execution_allowed": False,
-        "artifact": {
-            "artifact_id": artifact_id,
-            "filename": filename,
-            "download_path": download_path,
-            "mime_type": str(latest.get("mime_type") or "application/octet-stream"),
-        },
-        "artifacts": [
-            {
-                "artifact_id": artifact_id,
-                "filename": filename,
-                "download_path": download_path,
-                "mime_type": str(latest.get("mime_type") or "application/octet-stream"),
-            }
-        ],
-    }
+    return create_email_confirmation(
+        current_user=current_user, recipient=recipient,
+        subject=message[:120] or "业务文件", body="按确认卡发送业务文件。",
+        artifact_ids=[artifact_id] if artifact_id else [],
+        sensitive_type="业务文件",
+    )
 
 
 def _check_permissions(*, current_user: dict, plan: dict[str, Any], message: str) -> dict[str, Any]:
@@ -2234,8 +2451,8 @@ def _read_storage_path(storage_reference: dict[str, Any]) -> bytes:
     path = storage_reference.get("storage_path")
     if not path:
         return b""
-    from pathlib import Path
-    return Path(str(path)).read_bytes()
+    from app.artifact_storage import read_artifact
+    return read_artifact(str(path))
 
 
 def _contains(text: str, keywords: list[str]) -> bool:
@@ -2244,8 +2461,11 @@ def _contains(text: str, keywords: list[str]) -> bool:
 
 
 def _looks_like_resume_request(text: str) -> bool:
-    lowered = text.lower()
-    return any(keyword in lowered for keyword in ["继续上一次计划", "继续上次计划", "继续", "恢复上一次计划", "重试上一次计划"])
+    normalized = re.sub(r"[。.!！?？\s]+$", "", text.strip().lower())
+    return bool(re.fullmatch(
+        r"(?:请|帮我)?(?:继续(?:上一次|上次|上一|刚才)?(?:的)?(?:计划|任务)?|恢复上一次计划|重试上一次计划)",
+        normalized,
+    ))
 
 
 def _is_salary_finance_task(text: str) -> bool:
@@ -2364,6 +2584,7 @@ def _record_plan_step(
     resource_id: str,
     input_text: Any,
     output_text: Any,
+    duration_ms: int = 0,
 ) -> None:
     record_step(
         run_id=run_id,
@@ -2375,7 +2596,7 @@ def _record_plan_step(
         resource_id=resource_id,
         input_text=input_text,
         output_text=output_text,
-        duration_ms=0,
+        duration_ms=duration_ms,
         metadata={"workflow_id": CHAT_PLAN_EXECUTE_WORKFLOW_ID},
     )
 

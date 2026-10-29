@@ -5,12 +5,15 @@ from uuid import UUID
 
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
+from fastapi import HTTPException
 
 from app.config import settings
 from app.db import execute, fetch_all, fetch_one, transaction
 from app.json_utils import dumps_json
 from app.llm import chat_model
+from app.observability import request_id_var
 from app.services.external_action_gateway_service import build_execution_context_from_result
+from app.services.logging_service import write_audit_log
 
 
 summary_prompt = ChatPromptTemplate.from_messages([
@@ -118,7 +121,8 @@ def get_thread_state(thread_id: str) -> dict:
             approval_id,
             status,
             slots,
-            updated_at
+            updated_at,
+            context_version
         FROM chat_thread_state
         WHERE thread_id = %s;
         """,
@@ -136,6 +140,7 @@ def get_thread_state(thread_id: str) -> dict:
             "status": "active",
             "slots": {},
             "updated_at": None,
+            "context_version": 0,
         }
 
     return {
@@ -148,6 +153,7 @@ def get_thread_state(thread_id: str) -> dict:
         "status": row[6],
         "slots": row[7] or {},
         "updated_at": row[8],
+        "context_version": int(row[9]),
     }
 
 
@@ -160,8 +166,9 @@ def upsert_thread_state(
     approval_id: str | None = None,
     status: str = "active",
     slots: dict | None = None,
-) -> None:
-    execute(
+    expected_context_version: int = 0,
+) -> int:
+    row = fetch_one(
         """
         INSERT INTO chat_thread_state (
             thread_id,
@@ -171,19 +178,26 @@ def upsert_thread_state(
             risk_level,
             approval_id,
             status,
-            slots
+            slots,
+            context_version
         )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s::jsonb)
+        SELECT %s, %s, %s, %s, %s, %s, %s, %s::jsonb, 1
+        WHERE %s = 0 OR EXISTS (
+            SELECT 1 FROM chat_thread_state WHERE thread_id = %s AND context_version = %s
+        )
         ON CONFLICT (thread_id)
         DO UPDATE SET
             user_id = COALESCE(EXCLUDED.user_id, chat_thread_state.user_id),
             current_intent = COALESCE(EXCLUDED.current_intent, chat_thread_state.current_intent),
-            order_no = COALESCE(EXCLUDED.order_no, chat_thread_state.order_no),
+            order_no = EXCLUDED.order_no,
             risk_level = COALESCE(EXCLUDED.risk_level, chat_thread_state.risk_level),
             approval_id = COALESCE(EXCLUDED.approval_id, chat_thread_state.approval_id),
             status = EXCLUDED.status,
             slots = chat_thread_state.slots || EXCLUDED.slots,
-            updated_at = now();
+            context_version = chat_thread_state.context_version + 1,
+            updated_at = now()
+        WHERE chat_thread_state.context_version = %s
+        RETURNING context_version;
         """,
         (
             thread_id,
@@ -194,8 +208,15 @@ def upsert_thread_state(
             _normalize_uuid(approval_id),
             status,
             dumps_json(slots or {}),
+            expected_context_version,
+            thread_id,
+            expected_context_version,
+            expected_context_version,
         ),
     )
+    if row is None:
+        raise HTTPException(status_code=409, detail="会话上下文已更新，请刷新后重试")
+    return int(row[0])
 
 
 def list_recent_messages(thread_id: str, limit: int) -> list[dict]:
@@ -314,6 +335,7 @@ def update_context_after_turn(
     user_id: str,
     user_message: str,
     graph_result: dict,
+    expected_context_version: int,
 ) -> None:
     approval_id = _extract_approval_id(graph_result.get("approval_result"))
     pending_external_action = _extract_pending_external_action(graph_result, user_message)
@@ -325,11 +347,14 @@ def update_context_after_turn(
     slots = {
         "last_user_message": user_message,
         "last_answer": graph_result.get("answer"),
+        "order_no_source": graph_result.get("order_no_source") or (
+            "explicit" if graph_result.get("order_no") else "missing"
+        ),
         "pending_external_action": pending_external_action,
         "execution_context": execution_context,
     }
 
-    upsert_thread_state(
+    new_version = upsert_thread_state(
         thread_id=thread_id,
         user_id=user_id,
         current_intent=graph_result.get("intent"),
@@ -337,8 +362,21 @@ def update_context_after_turn(
         risk_level=graph_result.get("risk_level"),
         approval_id=approval_id,
         status="active",
-        slots={key: value for key, value in slots.items() if value},
+        slots=slots,
+        expected_context_version=expected_context_version,
     )
+    if graph_result.get("order_no_source") == "inherited":
+        write_audit_log(
+            user_id=user_id,
+            action="chat.order_inherited",
+            resource_type="thread",
+            resource_id=thread_id,
+            metadata={
+                "order_no": graph_result.get("order_no"),
+                "context_version": new_version,
+                "request_id": request_id_var.get(),
+            },
+        )
     maybe_update_thread_summary(thread_id)
     maybe_extract_user_memories(
         user_id=user_id,
@@ -366,7 +404,9 @@ def _extract_pending_external_action(graph_result: dict, user_message: str) -> d
             "active": True,
             "status": status,
             "status_label": approval_result.get("status_label") or automation.get("status_label"),
-            "source_message": user_message,
+            "source_message": plan.get("source_message") or user_message,
+            "effective_message": plan.get("effective_message") or user_message,
+            "artifact_id": plan.get("artifact_id"),
             "summary": plan.get("summary"),
             "external_action_type": plan.get("external_action_type"),
             "target_channel": plan.get("target_channel"),

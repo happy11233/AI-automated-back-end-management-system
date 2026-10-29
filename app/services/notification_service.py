@@ -115,6 +115,7 @@ def list_notifications(
     current_user: dict,
     status_value: str | None = None,
     limit: int = 80,
+    offset: int = 0,
 ) -> dict[str, Any]:
     if status_value and status_value not in NOTIFICATION_STATUSES:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="无效通知状态")
@@ -127,6 +128,7 @@ def list_notifications(
         params.append(status_value)
 
     params.append(max(1, min(limit, 200)))
+    params.append(max(0, offset))
     rows = fetch_all(
         f"""
         SELECT
@@ -134,18 +136,29 @@ def list_notifications(
             resource_id, metadata, read_at, created_at
         FROM notifications
         WHERE {" AND ".join(conditions)}
-        ORDER BY created_at DESC
-        LIMIT %s;
+        ORDER BY created_at DESC, id DESC
+        LIMIT %s OFFSET %s;
         """,
         tuple(params),
     )
-    unread_row = fetch_one(
-        "SELECT count(*) FROM notifications WHERE user_id = %s AND status = 'unread';",
+    summary_row = fetch_one(
+        """
+        SELECT
+            count(*),
+            count(*) FILTER (WHERE status = 'unread'),
+            count(*) FILTER (WHERE status = 'read'),
+            count(*) FILTER (WHERE NULLIF(resource_id, '') IS NOT NULL)
+        FROM notifications
+        WHERE user_id = %s;
+        """,
         (current_user["id"],),
     )
     return {
         "items": [_map_notification_row(row) for row in rows],
-        "unread_count": int(unread_row[0] or 0) if unread_row else 0,
+        "total_count": int(summary_row[0] or 0) if summary_row else 0,
+        "unread_count": int(summary_row[1] or 0) if summary_row else 0,
+        "read_count": int(summary_row[2] or 0) if summary_row else 0,
+        "resource_count": int(summary_row[3] or 0) if summary_row else 0,
     }
 
 

@@ -4,8 +4,10 @@ import json
 import os
 import sys
 import time
+import atexit
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 import psycopg
 import requests
@@ -15,6 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from app.json_utils import dumps_json
+from app.auth.security import hash_password
 
 
 API_BASE_URL = os.getenv("VERIFY_API_BASE_URL", "http://127.0.0.1:8001").rstrip("/")
@@ -28,6 +31,9 @@ def main() -> None:
     admin = login("admin_demo", "Admin123456")
     customer_service = login("employee_demo", "Employee123456")
     finance = login("finance_demo", "Finance123456")
+    reviewer_fixture = create_supervisor_reviewer()
+    atexit.register(cleanup_supervisor_reviewer, reviewer_fixture)
+    reviewer = login(reviewer_fixture["username"], reviewer_fixture["password"])
 
     marker = f"cs-refund-approval-{int(time.time())}"
     order_no = f"CS-REFUND-{int(time.time())}"
@@ -62,16 +68,25 @@ def main() -> None:
     )
     assert finance_list.status_code == 403, finance_list.text[:500]
 
+    self_review = requests.post(
+        f"{API_BASE_URL}/approvals/{approval_id}/review",
+        headers={**auth_headers(customer_service["access_token"]), "Content-Type": "application/json"},
+        json={"approved": True}, timeout=30,
+    )
+    assert self_review.status_code == 403, self_review.text[:500]
+
     reviewed = post_json(
-        customer_service["access_token"],
+        reviewer["access_token"],
         f"/approvals/{approval_id}/review",
         {"approved": True},
     )
     assert reviewed["status"] == "approved", reviewed
+    assert reviewed["refund_status"] == "succeeded", reviewed
     assert reviewed["refund_result"]["success"] is True, reviewed
 
     after_customer_approvals = get_json(customer_service["access_token"], "/approvals")["items"]
-    assert not any(item["id"] == approval_id for item in after_customer_approvals), after_customer_approvals[:5]
+    after = next((item for item in after_customer_approvals if item["id"] == approval_id), None)
+    assert after and after["status"] == "approved" and after["refund_status"] == "succeeded", after
 
     refund_row = read_refund_transaction(approval_id)
     assert refund_row and refund_row["status"] == "succeeded", refund_row
@@ -84,6 +99,7 @@ def main() -> None:
         "order_no": order_no,
         "summary_cn": summary,
         "admin_review_status": admin_review.status_code,
+        "self_review_status": self_review.status_code,
         "finance_list_status": finance_list.status_code,
         "customer_review_status": reviewed["status"],
         "refund_status": refund_row["status"],
@@ -103,6 +119,7 @@ def create_refund_approval(*, customer_user_id: str, marker: str, order_no: str)
             "amount_cents": 29900,
             "refundable": True,
         },
+        "risk_level": "high",
         "summary_cn": f"退款审批：需要管理员确认是否允许继续处理。订单：{order_no}。金额：299.00 元。",
         "summary_source": "legacy_cached",
     }
@@ -140,6 +157,35 @@ def create_refund_approval(*, customer_user_id: str, marker: str, order_no: str)
         conn.commit()
 
     return str(row[0])
+
+
+def create_supervisor_reviewer() -> dict[str, str]:
+    marker = uuid4().hex
+    user_id = str(uuid4())
+    team_id = str(uuid4())
+    username = f"refund_supervisor_{marker}"
+    password = f"Test-{marker}-Aa1!"
+    with psycopg.connect(DATABASE_URL) as conn:
+        conn.execute(
+            "INSERT INTO users(id,username,role,position,password_hash) VALUES (%s,%s,'employee','customer_service',%s)",
+            (user_id, username, hash_password(password)),
+        )
+        conn.execute(
+            "INSERT INTO rag_teams(id,team_key,name,position_scope,created_by) VALUES (%s,%s,'Refund verification','customer_service',%s)",
+            (team_id, f"refund-verification-{marker}", user_id),
+        )
+        conn.execute(
+            "INSERT INTO rag_team_memberships(team_id,user_id,member_role) VALUES (%s,%s,'supervisor')",
+            (team_id, user_id),
+        )
+    return {"id": user_id, "team_id": team_id, "username": username, "password": password}
+
+
+def cleanup_supervisor_reviewer(fixture: dict[str, str]) -> None:
+    with psycopg.connect(DATABASE_URL) as conn:
+        conn.execute('DELETE FROM rag_team_memberships WHERE team_id=%s', (fixture['team_id'],))
+        conn.execute('DELETE FROM rag_teams WHERE id=%s', (fixture['team_id'],))
+        conn.execute('DELETE FROM users WHERE id=%s', (fixture['id'],))
 
 
 def login(username: str, password: str) -> dict[str, Any]:

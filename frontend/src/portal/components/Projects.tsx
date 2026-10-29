@@ -5,7 +5,7 @@ import { content } from "../data/content";
 interface ProjectsProps {
   language: Language;
   isAuthenticated: boolean;
-  onProjectClick: (target: "automation" | "aiops" | "gateway") => void;
+  onProjectClick: (target: "automation" | "gateway") => void;
 }
 
 export function Projects({ language, isAuthenticated, onProjectClick }: ProjectsProps) {

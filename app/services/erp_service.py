@@ -19,6 +19,7 @@ def build_erp_candidates(
     user_input: str,
     current_user: dict,
     allowed_resources: list[str] | None = None,
+    preferred_resource: str | None = None,
 ) -> list[str]:
     if current_user.get("role") == "admin":
         scopes = all_erp_scopes()
@@ -31,6 +32,9 @@ def build_erp_candidates(
     if allowed_resources is not None:
         allowed_set = set(allowed_resources)
         scopes = [resource for resource in scopes if resource in allowed_set]
+
+    if preferred_resource is not None:
+        return [preferred_resource] if preferred_resource in scopes else []
 
     matched_resource = match_resource_by_keywords(user_input, scopes)
     if matched_resource:
@@ -61,6 +65,21 @@ def summarize_erp_items(resource: str, items: list[dict[str, Any]]) -> str:
             "customer_name",
             "item_name",
             "item_code",
+            "own_item_code",
+            "product_name",
+            "market",
+            "currency",
+            "price",
+            "selling_price",
+            "price_list_rate",
+            "paid_from_account_currency",
+            "order_no",
+            "expected_payout",
+            "actual_payout",
+            "difference",
+            "spend",
+            "acos",
+            "is_simulated",
             "po_no",
             "lr_no",
             "subject",
@@ -150,7 +169,7 @@ def extract_erp_lookup_query(resource: str, text: str) -> str:
     if tracking_no:
         return tracking_no.group(0).upper()
 
-    sku = re.search(r"\bAMZ-[A-Z0-9]+(?:-[A-Z0-9]+)+\b", text, re.I)
+    sku = re.search(r"\b(?:AMZ|CB)-[A-Z0-9]+(?:-[A-Z0-9]+)+\b", text, re.I)
     if sku:
         return sku.group(0).upper()
 
@@ -166,8 +185,10 @@ def query_erp_for_current_user(
     source: str = "chat",
     thread_id: str | None = None,
     allowed_resources: list[str] | None = None,
+    preferred_resource: str | None = None,
 ) -> dict[str, Any]:
-    candidates = build_erp_candidates(user_input, current_user, allowed_resources=allowed_resources)
+    candidates = build_erp_candidates(user_input, current_user, allowed_resources=allowed_resources,
+                                      preferred_resource=preferred_resource)
     if not candidates:
         scope_message = "你可以直接说明要查客户、订单、物流、工单、工资、发票里的哪一类。"
         if allowed_resources is not None:

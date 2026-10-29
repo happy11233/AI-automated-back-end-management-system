@@ -1,0 +1,69 @@
+.agentWorkspace { width: 100%; min-width: 0; }
+.agentHero { display: flex; justify-content: space-between; align-items: flex-start; gap: 24px; padding: 28px; border: 1px solid #dce5f3; border-radius: 16px; background: linear-gradient(115deg, #f0f6ff, #fff 72%); }
+.agentHeroCopy { min-width: 0; max-width: 780px; }
+.agentEyebrow { display: inline-flex; align-items: center; gap: 8px; color: #315ca8; font-size: 11px; font-weight: 700; letter-spacing: 1.4px; }
+.agentHero h2.ant-typography { margin: 14px 0 10px; font-size: 26px; line-height: 1.4; }
+.agentHero .ant-typography { overflow-wrap: anywhere; }
+.agentHero p { margin-bottom: 0; color: #526178; line-height: 1.8; }
+.agentHeroActions { flex-shrink: 0; }
+.agentMetricGrid { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 16px; }
+.agentMetric { cursor: pointer; text-align: left; display: grid; gap: 8px; min-width: 0; padding: 20px; border: 1px solid #e2e8f0; border-radius: 12px; background: #fff; font: inherit; color: #334155; transition: box-shadow .15s; }
+.agentMetric:hover, .agentMetric[aria-pressed=true] { box-shadow: 0 0 0 2px #d3e1fb; }
+.agentMetric:focus-visible { outline: 3px solid #2563eb; outline-offset: 3px; }
+.agentMetric span { display: flex; align-items: center; gap: 8px; }
+.agentMetric strong { font-size: 30px; font-variant-numeric: tabular-nums; line-height: 1.2; }
+.agentMetric small { color: #64748b; font-size: 12px; }
+.agentMetric-blue strong,.agentMetric-blue .anticon { color:#2563eb; }
+.agentMetric-green strong,.agentMetric-green .anticon { color:#047857; }
+.agentMetric-red strong,.agentMetric-red .anticon { color:#dc2626; }
+.agentMetric-amber strong,.agentMetric-amber .anticon { color:#b45309; }
+.agentMainGrid { display: grid; grid-template-columns: minmax(0,2fr) minmax(260px,1fr); gap: 20px; align-items: start; }
+.agentMainGrid > *, .agentChartGrid > *, .agentCatalogGrid > * { min-width: 0; }
+.agentWorkspace .ant-card { border-radius: 12px; border-color: #e2e8f0; }
+.agentWorkspace .ant-card-head { min-height: 56px; }
+.agentWorkspace .ant-card-head-title { white-space: normal; }
+.agentFlowSteps { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 12px; margin-bottom: 24px; }
+.agentFlowSteps > div { display: grid; align-content: start; gap: 10px; min-width: 0; }
+.agentFlowSteps > div > span:first-child { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; background: #edf3ff; color: #315ca8; font-weight: 600; }
+.agentFlowSteps > div > .ant-typography { width: auto; height: auto; background: none; color: #334155; line-height: 1.6; }
+.agentBusinessText, .agentResultText { line-height: 1.9; white-space: pre-wrap; overflow-wrap: anywhere; }
+.agentPolicy { margin-top: 20px; padding: 16px; background: #fffbeb; border-radius: 8px; border-left: 3px solid #d99b27; }
+.agentPolicy p { margin: 8px 0 0; }
+.agentInfoPair { display: grid; gap: 6px; padding-bottom: 18px; }
+.agentRecordFilters { margin-bottom: 16px; }
+.agentRecordFilters .ant-select { min-width: 150px; }
+.agentRunContent,.agentResultContent { width: 100%; min-width: 0; }
+.agentRunPreview { margin: 8px 0 !important; color: #526178; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.agentResultText { margin: 12px 0 !important; }
+.agentRuleGrid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 28px; margin: 20px 0; }
+.businessTaskFilters { margin-bottom: 16px; }
+.businessTaskFilters .ant-select { min-width: 180px; }
+.businessTaskPagination { margin-top: 20px; display: flex; justify-content: flex-end; }
+.businessTaskRow { gap: 16px; flex-wrap: wrap; }
+.businessTaskCopy { min-width: 0; flex: 1; overflow-wrap: anywhere; }
+.businessTaskForm { margin-top: 20px; }
+.businessTaskDetail { overflow-wrap: anywhere; }
+.businessTaskDetail .ant-alert { margin-top: 20px; }
+.businessTaskDetail .ant-typography { white-space: pre-wrap; }
+.agentCatalogFilters { display: flex; gap: 12px; flex-wrap: wrap; }
+.agentCatalogFilters .ant-input-search { max-width: 420px; }
+.agentCatalogFilters .ant-select { min-width: 140px; }
+.agentCatalogGrid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 20px; }
+.agentCatalogCard .ant-card-body { display: flex; flex-direction: column; height: 100%; }
+.agentCatalogIcon { display: grid; place-items: center; width: 42px; height: 42px; background: #eef2ff; color: #4f46e5; border-radius: 12px; font-size: 22px; margin-bottom: 16px; }
+.agentCatalogCard h4 { margin: 16px 0 10px; line-height: 1.6; }
+.agentCatalogDescription { color: #64748b; line-height: 1.85; }
+.agentCatalogFooter { margin-top: auto; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; padding-top: 16px; border-top: 1px solid #edf0f5; }
+.agentCatalogFooter .ant-btn { padding-right: 0; }
+.agentChartGrid { display: grid; grid-template-columns: minmax(0,2fr) minmax(260px,1fr); gap: 20px; }
+@media (max-width: 1200px) { .agentCatalogGrid { grid-template-columns: repeat(2,minmax(0,1fr)); } .agentHero { flex-direction: column; } }
+@media (max-width: 960px) { .agentMainGrid, .agentChartGrid { grid-template-columns: minmax(0,1fr); } .agentMetricGrid { grid-template-columns: repeat(2,minmax(0,1fr)); } }
+@media (max-width: 600px) { .agentHero { padding: 20px; gap: 16px; } .agentHero h2.ant-typography { font-size: 22px; } .agentCatalogGrid, .agentRuleGrid { grid-template-columns: minmax(0,1fr); } .agentMetricGrid { gap: 10px; } .agentMetric { padding: 16px; } .agentMetric strong { font-size: 26px; } .agentFlowSteps { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 20px; } .agentWorkspace .ant-card-head { padding: 0 16px; } .agentWorkspace .ant-card-body { padding: 16px; } .agentWorkspace .ant-card-head-wrapper { flex-wrap: wrap; gap: 8px; padding: 14px 0; } .agentWorkspace .ant-card-extra { margin-inline-start: 0; } }
+@media (max-width: 600px) {
+  .agentWorkspace .workspaceSectionTabs > .ant-tabs-nav .ant-tabs-nav-wrap { overflow: visible; }
+  .agentWorkspace .workspaceSectionTabs > .ant-tabs-nav .ant-tabs-nav-list { width: 100%; flex-wrap: wrap; transform: none !important; }
+  .agentWorkspace .workspaceSectionTabs > .ant-tabs-nav .ant-tabs-tab { margin: 0 !important; padding: 12px; }
+  .agentWorkspace .workspaceSectionTabs > .ant-tabs-nav .ant-tabs-nav-operations,
+  .agentWorkspace .workspaceSectionTabs > .ant-tabs-nav .ant-tabs-ink-bar { display: none; }
+  .agentWorkspace .workspaceSectionTabs > .ant-tabs-nav .ant-tabs-tab-active { background: #eef4ff; border-radius: 6px; }
+}

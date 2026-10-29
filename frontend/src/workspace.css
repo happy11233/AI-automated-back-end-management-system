@@ -1,0 +1,667 @@
+/* Shared authenticated-workspace layout; public portal remains independent. */
+.workspaceLayout {
+  --workspace-primary: #2563eb;
+  --workspace-bg: #f5f7fb;
+  --workspace-border: #e2e8f0;
+  --workspace-radius: 12px;
+  --workspace-muted: #64748b;
+  --workspace-text: #1e293b;
+}
+.workspaceLayout .ant-pro-layout-content {
+  min-width: 0;
+  padding: 28px 32px !important;
+}
+.workspaceLayout .workspacePageContainer {
+  width: 100%;
+  max-width: 1640px;
+  margin-inline: auto;
+}
+.workspaceLayout .ant-page-header {
+  padding-bottom: 24px !important;
+}
+.workspaceLayout .ant-page-header-heading-title {
+  font-size: 26px !important;
+  letter-spacing: 0;
+}
+.workspaceLayout .ant-page-header-heading-left {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+.workspaceLayout .ant-page-header-heading-sub-title {
+  margin: 0;
+  font-size: 14px !important;
+  color: var(--workspace-muted);
+}
+.workspaceLayout .pageStack {
+  gap: 24px !important;
+  width: 100%;
+  min-width: 0;
+}
+.workspaceLayout .pageStack > .ant-space-item {
+  min-width: 0;
+  max-width: 100%;
+}
+.workspaceLayout .ant-card,
+.workspaceLayout .ant-pro-card {
+  min-width: 0;
+  border-radius: 12px;
+}
+.workspaceLayout .ant-pro-card-header {
+  padding: 20px 24px;
+  gap: 12px;
+  align-items: center;
+}
+.workspaceLayout .ant-pro-card-title {
+  font-size: 16px;
+  line-height: 1.5;
+  white-space: normal;
+}
+.workspaceLayout .ant-pro-card-subtitle {
+  font-size: 12px;
+  color: var(--workspace-muted);
+  white-space: normal;
+}
+.workspaceLayout .ant-pro-card-body {
+  padding: 20px 24px;
+  min-width: 0;
+}
+.workspaceLayout .ant-pro-card-header + .ant-pro-card-body {
+  padding-top: 4px;
+}
+.workspaceLayout .ant-card-small > .ant-card-body {
+  padding: 20px;
+}
+.workspaceLayout .ant-pro-card-extra {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+}
+.workspaceLayout .ant-pro-card-extra > .ant-space {
+  flex-wrap: wrap;
+}
+.workspaceLayout .ant-typography {
+  overflow-wrap: anywhere;
+}
+.workspaceLayout .ant-table-wrapper {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+}
+.workspaceLayout .ant-table-container {
+  overflow: hidden;
+  border-radius: 8px;
+}
+.workspaceLayout .ant-table-thead > tr > th {
+  font-weight: 600;
+  color: #526078;
+  background: #f7f9fc;
+}
+.workspaceLayout .ant-table-cell {
+  font-size: 13px;
+  vertical-align: middle;
+}
+.workspaceLayout .ant-table-tbody > tr > td {
+  padding-block: 14px;
+}
+.workspaceLayout .ant-table-tbody > tr:hover > td {
+  background: #f8faff;
+}
+.workspaceLayout .ant-table-pagination {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.workspaceLayout .ant-select {
+  max-width: 100%;
+}
+.workspaceLayout .ant-form-item-label > label {
+  color: #526078;
+}
+.workspaceLayout .ant-form-item {
+  margin-bottom: 20px;
+}
+.workspaceLayout .ant-btn-primary {
+  box-shadow: none;
+}
+.workspaceLayout .ant-btn:focus-visible,
+.workspaceLayout a:focus-visible {
+  outline: 3px solid #93b4ff;
+  outline-offset: 3px;
+}
+.workspaceLayout .ant-menu-submenu-title {
+  font-size: 13px !important;
+}
+.workspaceLayout .ant-menu-sub .ant-menu-sub .ant-menu-item {
+  padding-inline-start: 36px !important;
+}
+.workspaceLayout .workspaceSectionTabs,
+.workspaceLayout .monitoringCenterTabs {
+  min-width: 0;
+  width: 100%;
+}
+.workspaceLayout .workspaceSectionTabs > .ant-tabs-nav,
+.workspaceLayout .monitoringCenterTabs > .ant-tabs-nav {
+  margin: 0 0 24px;
+  padding: 0 4px;
+}
+.workspaceLayout .workspaceSectionTabs > .ant-tabs-nav .ant-tabs-tab,
+.workspaceLayout .monitoringCenterTabs > .ant-tabs-nav .ant-tabs-tab {
+  padding: 12px 4px 14px;
+  font-size: 14px;
+}
+.workspaceLayout .workspaceSectionTabs .ant-tabs-content-holder,
+.workspaceLayout .workspaceSectionTabs .ant-tabs-content,
+.workspaceLayout .workspaceSectionTabs .ant-tabs-tabpane {
+  min-width: 0;
+}
+.workspaceLayout .workspaceFilterBar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.workspaceLayout .workspaceFilterBar > .ant-input,
+.workspaceLayout .workspaceFilterBar > .ant-input-affix-wrapper {
+  flex: 1 1 200px;
+  max-width: 360px;
+}
+.workspaceLayout .workspaceFilterBar > .ant-select {
+  min-width: 150px;
+  flex: 0 1 180px;
+}
+.workspaceLayout .workspaceFilterBar > .ant-btn {
+  min-height: 32px;
+}
+.workspaceLayout .workspaceAdvancedFilters {
+  margin: 12px 0 20px;
+  background: #f8fafc;
+  border-radius: 8px;
+}
+.workspaceLayout .workspaceAdvancedFilters .ant-collapse-header {
+  align-items: center;
+}
+.workspaceLayout .workspaceAdvancedGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+}
+.workspaceLayout .workspaceIdentity,
+.workspaceLayout .workspaceWelcome {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 24px;
+  border: 1px solid var(--workspace-border);
+  background: #fff;
+  border-radius: 12px;
+}
+.workspaceLayout .workspaceIdentity > div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+.workspaceLayout .workspaceIdentity .ant-typography:first-child {
+  font-size: 18px;
+}
+.workspaceLayout .workspaceWelcome {
+  justify-content: space-between;
+  background: linear-gradient(110deg, #edf3ff, #f4f1ff);
+  border-color: #dce5fb;
+}
+.workspaceLayout .workspaceWelcome h3 {
+  margin: 8px 0 0;
+  font-size: 22px;
+}
+.workspaceLayout .userSettingsForm {
+  max-width: 760px;
+}
+.workspaceLayout .workspaceAppDescription {
+  min-height: 44px;
+  margin: 0;
+  color: var(--workspace-muted);
+  line-height: 1.6;
+}
+.workspaceLayout .aiAppCardBody {
+  gap: 16px;
+}
+.workspaceLayout .aiAppHeader {
+  min-height: 44px;
+}
+.workspaceLayout .aiAppTitle {
+  font-size: 15px;
+}
+.workspaceLayout .aiAppMetaGrid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.workspaceLayout .aiAppSourceList {
+  max-height: 58px;
+  overflow: auto;
+}
+.workspaceLayout .aiAppFooter {
+  align-self: end;
+}
+.workspaceLayout .dashboardShortcutBody {
+  min-height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.workspaceLayout .dashboardShortcutTitle {
+  min-width: 0;
+}
+.workspaceLayout .dashboardShortcutTitleText {
+  font-size: 14px;
+}
+.workspaceLayout .dashboardMetricCardGrid {
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 20px;
+}
+.workspaceLayout .dashboardOverviewToolbar {
+  gap: 16px;
+  margin-bottom: 12px;
+}
+.workspaceLayout .effectPanelCard,
+.workspaceLayout .evaluationPanelCard,
+.workspaceLayout .monitoringPanelCard {
+  min-height: 0;
+}
+.workspaceLayout .metric-blue {
+  --metric-ink: #2563eb;
+  --metric-fill: #edf4ff;
+  --metric-border: #c8dcff;
+}
+.workspaceLayout .metric-green {
+  --metric-ink: #047857;
+  --metric-fill: #edf9f4;
+  --metric-border: #bce5d2;
+}
+.workspaceLayout .metric-amber {
+  --metric-ink: #b46908;
+  --metric-fill: #fff8e9;
+  --metric-border: #f4d89b;
+}
+.workspaceLayout .metric-purple {
+  --metric-ink: #7c3aed;
+  --metric-fill: #f5f0ff;
+  --metric-border: #ddd0ff;
+}
+.workspaceLayout .metric-red {
+  --metric-ink: #c03939;
+  --metric-fill: #fff1f1;
+  --metric-border: #f3caca;
+}
+.workspaceLayout
+  :is(.metric-blue, .metric-green, .metric-amber, .metric-purple, .metric-red) {
+  border: 1px solid var(--metric-border);
+  border-inline-start: 4px solid var(--metric-ink);
+  background: var(--metric-fill);
+}
+.workspaceLayout
+  :is(.metric-blue, .metric-green, .metric-amber, .metric-purple, .metric-red)
+  > .ant-card-body {
+  min-height: 132px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 8px;
+  padding: 20px 24px;
+}
+.workspaceLayout
+  :is(.metric-blue, .metric-green, .metric-amber, .metric-purple, .metric-red)
+  h3.ant-typography,
+.workspaceLayout
+  :is(.metric-blue, .metric-green, .metric-amber, .metric-purple, .metric-red)
+  .dashboardMetricValue {
+  margin: 0;
+  color: var(--metric-ink) !important;
+  font-size: 30px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+.workspaceLayout
+  :is(.metric-blue, .metric-green, .metric-amber, .metric-purple, .metric-red)
+  .ant-typography-secondary {
+  color: #596980;
+}
+.workspaceLayout .dashboardSummaryCard.metric-green,
+.workspaceLayout .dashboardSummaryCard.metric-purple {
+  background: var(--metric-fill);
+}
+.workspaceLayout .workspaceChart {
+  min-width: 0;
+  width: 100%;
+}
+.workspaceLayout .workspaceAppPagination {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 24px;
+}
+.workspaceLayout .workspaceStatusFilters {
+  margin-bottom: 20px;
+}
+.workspaceLayout .workspaceStatusFilters > .ant-segmented {
+  max-width: 100%;
+  overflow-x: auto;
+}
+.workspaceLayout .workspaceExecutorDrawer .platformExecutorFormGrid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.workspaceLayout .workspaceExecutorDrawer .platformExecutorWideField {
+  grid-column: 1 / -1;
+}
+.workspaceLayout .userCreateForm {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.workspaceLayout .workspaceUploadDrawer .ant-drawer-body {
+  padding: 20px;
+}
+.workspaceUploadDrawer .workspaceLayout {
+  background: transparent;
+}
+.workspaceLayout .ant-layout-sider-collapsed .sidebarBrand > span {
+  display: none !important;
+}
+.workspaceLayout .ant-layout-sider-collapsed .sidebarBrand {
+  padding: 18px 0;
+  justify-content: center;
+}
+.workspaceLayout .ant-layout-sider-collapsed .ant-menu-item-group-title {
+  display: none !important;
+}
+.workspaceLayout .ant-layout-sider-collapsed .ant-menu-title-content {
+  font-size: 0;
+}
+.workspaceLayout .ant-layout-sider-collapsed .ant-menu-title-content .anticon {
+  font-size: 16px;
+}
+.workspaceLayout .ant-layout-sider-collapsed .ant-menu-submenu-arrow {
+  display: none;
+}
+.workspaceLayout .workspaceChartToolbar {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.workspaceLayout .workspaceChartUnit {
+  font-size: 12px;
+  color: var(--workspace-muted);
+}
+.workspaceLayout .workspaceTrendSvg {
+  display: block;
+  width: 100%;
+  height: auto;
+  min-height: 190px;
+  overflow: visible;
+}
+.workspaceLayout .workspaceAxisText {
+  fill: #708096;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.workspaceLayout .workspaceChartPoint {
+  outline: none;
+}
+.workspaceLayout .workspaceChartPoint:focus-visible > rect:first-of-type {
+  fill: #dbeafe80;
+  stroke: #93b4ff;
+}
+.workspaceLayout .workspaceChartReadout {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  min-height: 40px;
+  font-size: 12px;
+  color: var(--workspace-muted);
+  margin-top: 8px;
+}
+.workspaceLayout .workspaceChartReadout strong {
+  color: #334155;
+}
+.workspaceLayout .workspaceChartReadout span,
+.workspaceLayout .workspaceChartLegend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.workspaceLayout .workspaceChartLegend {
+  display: flex;
+  justify-content: center;
+  gap: 20px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: #526078;
+  padding: 12px 0 0;
+}
+.workspaceLayout .workspaceChartLegend i,
+.workspaceLayout .workspaceChartReadout i,
+.workspaceLayout .workspaceDistributionLegend i {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+.workspaceLayout .workspaceRanking {
+  display: grid;
+  gap: 24px;
+  padding: 8px 0;
+}
+.workspaceLayout .workspaceRankingHeading {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: baseline;
+}
+.workspaceLayout .workspaceRankingLabel {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: #334155;
+}
+.workspaceLayout .workspaceRankingLabel small {
+  color: #94a3b8;
+  margin-right: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.workspaceLayout .workspaceRankingHeading strong {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  font-size: 15px;
+}
+.workspaceLayout .workspaceRankingTrack {
+  height: 10px;
+  background: #f0f3f8;
+  border-radius: 5px;
+  overflow: hidden;
+  margin-top: 10px;
+}
+.workspaceLayout .workspaceRankingTrack > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+}
+.workspaceLayout .workspaceRankingDetail {
+  color: var(--workspace-muted);
+  font-size: 12px;
+  margin-top: 6px;
+}
+.workspaceLayout .workspaceDistribution {
+  padding-block: 12px;
+}
+.workspaceLayout .workspaceDistributionTotal {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 24px;
+}
+.workspaceLayout .workspaceDistributionTotal strong {
+  font-size: 36px;
+  font-variant-numeric: tabular-nums;
+}
+.workspaceLayout .workspaceDistributionTotal > span {
+  color: var(--workspace-muted);
+  font-size: 12px;
+}
+.workspaceLayout .workspaceDistributionBar {
+  height: 20px;
+  border-radius: 6px;
+  display: flex;
+  overflow: hidden;
+  margin-bottom: 24px;
+}
+.workspaceLayout .workspaceDistributionBar > span {
+  display: block;
+  height: 100%;
+}
+.workspaceLayout .workspaceDistributionLegend {
+  display: grid;
+  gap: 16px;
+}
+.workspaceLayout .workspaceDistributionLegend > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto 56px;
+  align-items: center;
+  gap: 16px;
+}
+.workspaceLayout .workspaceDistributionLegend > div > span {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #526078;
+  font-size: 13px;
+}
+.workspaceLayout .workspaceDistributionLegend small {
+  color: var(--workspace-muted);
+  text-align: right;
+}
+.workspaceLayout .businessLoopTimelineWrap {
+  gap: 6px !important;
+}
+.workspaceLayout .businessLoopTimeline {
+  gap: 8px;
+}
+.workspaceLayout .businessLoopTimelineWrap .runRecordPreview {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  line-height: 1.5;
+  font-size: 12px;
+}
+@media (max-width: 1200px) {
+  .workspaceLayout .ant-pro-layout-content {
+    padding: 24px !important;
+  }
+  .workspaceLayout .ant-pro-card-header {
+    align-items: flex-start;
+  }
+  .workspaceLayout .ant-pro-card-extra {
+    margin-inline-start: 0;
+  }
+}
+@media (max-width: 768px) {
+  .workspaceLayout .ant-pro-layout-content {
+    padding: 20px 16px !important;
+  }
+  .workspaceLayout .pageStack {
+    gap: 20px !important;
+  }
+  .workspaceLayout .ant-pro-card-header {
+    padding: 18px 16px;
+  }
+  .workspaceLayout .ant-pro-card-body {
+    padding: 16px;
+  }
+  .workspaceLayout .ant-pro-card-extra {
+    width: 100%;
+  }
+  .workspaceLayout .ant-page-header-heading-title {
+    font-size: 23px !important;
+  }
+  .workspaceLayout .ant-page-header-heading-sub-title {
+    font-size: 13px !important;
+  }
+  .workspaceLayout .workspaceIdentity,
+  .workspaceLayout .workspaceWelcome {
+    padding: 20px 16px;
+    flex-wrap: wrap;
+  }
+  .workspaceLayout .workspaceWelcome h3 {
+    font-size: 20px;
+  }
+  .workspaceLayout
+    :is(.metric-blue, .metric-green, .metric-amber, .metric-purple, .metric-red)
+    > .ant-card-body {
+    min-height: 116px;
+    padding: 16px;
+  }
+  .workspaceLayout
+    :is(.metric-blue, .metric-green, .metric-amber, .metric-purple, .metric-red)
+    h3.ant-typography {
+    font-size: 28px;
+  }
+  .workspaceLayout .dashboardMetricCardGrid,
+  .workspaceLayout .dashboardMetricCardGrid.compact {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+  }
+  .workspaceLayout .workspaceFilterBar > .ant-input,
+  .workspaceLayout .workspaceFilterBar > .ant-input-affix-wrapper {
+    max-width: none;
+    flex-basis: 100%;
+  }
+  .workspaceLayout .workspaceFilterBar > .ant-select {
+    min-width: 0;
+    flex: 1 1 130px;
+  }
+  .workspaceLayout .workspaceAdvancedGrid {
+    grid-template-columns: 1fr;
+  }
+  .workspaceLayout .userCreateForm,
+  .workspaceLayout .workspaceExecutorDrawer .platformExecutorFormGrid {
+    grid-template-columns: 1fr;
+  }
+  .workspaceLayout .aiAppMetaGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .workspaceLayout .workspaceChartLegend {
+    gap: 12px;
+  }
+  .workspaceLayout .workspaceChartReadout {
+    min-height: 56px;
+  }
+  .workspaceLayout .workspaceTrendSvg {
+    min-height: 180px;
+  }
+  .workspaceLayout .ant-pro-card-extra .ant-space-item {
+    max-width: 100%;
+  }
+  .workspaceLayout .ant-pro-card-extra .ant-input {
+    max-width: 100%;
+  }
+  .workspaceLayout .ant-pagination-options {
+    display: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .workspaceLayout *,
+  .workspaceLayout *::before,
+  .workspaceLayout *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

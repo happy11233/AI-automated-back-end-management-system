@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from app.observability import submit_with_context
+
+from app.observability import observed
+
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import date
@@ -22,6 +26,7 @@ from app.services.external_action_gateway_service import (
     resolve_external_action_followup_intent,
     resolve_external_action_message,
 )
+from app.services.chat_intent_guard_service import is_information_request, knowledge_action_parts, is_action_negated, has_execution_request, is_unsupported_leave_action, is_social_request
 from app.services.finance_salary_service import FinanceSalaryExportResult, recognize_salary_export_intent
 from app.services.finance_salary_wechat_service import (
     FINANCE_WECHAT_STATUS_LABELS,
@@ -57,6 +62,12 @@ class AgentTaskRoute:
     complex_kind: str | None = None
     resume_run_id: str | None = None
 
+    def routing_contract(self) -> dict[str, Any]:
+        return {"route": "compound" if self.intent == "knowledge_then_action" else "automation" if self.requires_plan_execute else "react",
+                "user_goal": self.intent, "evidence_required": True,
+                "capability_id": self.workflow_id, "missing_fields": [],
+                "confidence": self.confidence, "reason": self.reason}
+
 
 @dataclass(frozen=True)
 class AgentPlanStep:
@@ -85,6 +96,20 @@ def classify_agent_task(
     attachments: list[dict[str, Any]] | None = None,
 ) -> AgentTaskRoute:
     raw_text = " ".join((message or "").strip().split())
+    if is_information_request(raw_text) or is_unsupported_leave_action(raw_text) or is_social_request(raw_text) or (is_action_negated(raw_text) and not has_execution_request(raw_text)):
+        return AgentTaskRoute(
+            mode="react",
+            workflow_id=None,
+            intent="simple_react_task",
+            reason="用户在询问信息，交由 ReAct 判断知识库或业务数据查询。",
+            confidence=0.94,
+            estimated_step_count=1,
+            requires_plan_execute=False,
+        )
+    if knowledge_action_parts(raw_text):
+        return AgentTaskRoute(mode="plan_execute", workflow_id=CHAT_PLAN_EXECUTE_WORKFLOW_ID,
+            intent="knowledge_then_action", reason="先检索知识，再准备用户明确要求的后续动作。",
+            confidence=0.96, estimated_step_count=4, requires_plan_execute=True, complex_kind="knowledge_then_action")
     text, pending_external_action = resolve_external_action_message(raw_text, thread_id)
     if pending_external_action and pending_external_action.get("active"):
         pending_plan = resolve_external_action_followup_intent(raw_text, thread_id, attachments or [])
@@ -234,6 +259,7 @@ def build_finance_monthly_package_plan(message: str) -> list[dict[str, Any]]:
     ]
 
 
+@observed('agent.finance_package', 'chain')
 def execute_finance_monthly_package_wechat(
     *,
     message: str,
@@ -599,7 +625,7 @@ def build_monthly_finance_report_workbook(
     resource_summary_map: dict[str, dict[str, Any]] = {}
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         future_map = {
-            executor.submit(
+            submit_with_context(executor,
                 _query_finance_resource_summary,
                 resource=resource,
                 provider_id=provider.provider_id,
@@ -751,6 +777,8 @@ def _looks_like_resume_request(text: str) -> bool:
 
 
 def _looks_like_generic_complex_task(text: str, attachments: list[dict[str, Any]]) -> dict[str, Any] | None:
+    if not has_execution_request(text):
+        return None
     lowered = text.lower()
     complex_markers = [
         "然后",

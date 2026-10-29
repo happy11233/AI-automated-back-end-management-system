@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import json
 import sys
-import tempfile
 from pathlib import Path
+from unittest.mock import patch
+from uuid import uuid4
 
 from fastapi import HTTPException
 
@@ -21,6 +22,7 @@ from app.services.finance_salary_wechat_service import (  # noqa: E402
     run_record_status_for_salary_wechat,
 )
 from app.config import settings  # noqa: E402
+from app.artifact_storage import put_artifact, delete_artifact  # noqa: E402
 from app.db import close_pool, open_pool  # noqa: E402
 from app.skills.executor import validate_skill_access  # noqa: E402
 from app.skills.registry import get_skill  # noqa: E402
@@ -124,10 +126,7 @@ def main() -> None:
         assert confirmation_card["message_body"] == "", confirmation_card
         assert confirmation_card["artifact"]["artifact_id"] == "artifact-demo", confirmation_card
         assert confirmation_card["recipient_search"]["items"][0]["phone_last4"] == "1234", confirmation_card
-        assert any(
-            item["tool_id"] == "file_center.get_generated_file_download_path"
-            for item in confirmation_execution["mcp_tool_calls"]
-        ), confirmation_execution
+        assert confirmation_execution["mcp_tool_calls"] == [], confirmation_execution
 
         manual_execution = dispatch_salary_wechat_send_task(
             dispatch=dispatch,
@@ -138,34 +137,36 @@ def main() -> None:
         assert manual_execution["status"] == "waiting_manual_send", manual_execution
         assert manual_execution["download_path"] == "/files/artifact-demo/download", manual_execution
         assert manual_execution["payload"]["safety"]["auto_click_send_allowed"] is False
-        assert any(
-            item["tool_id"] == "file_center.get_generated_file_download_path"
-            for item in manual_execution["mcp_tool_calls"]
-        ), manual_execution
+        assert manual_execution["mcp_tool_calls"] == [], manual_execution
         assert run_record_status_for_salary_wechat(manual_execution["status"]) == "blocked"
 
         original_real_send_enabled = settings.message_sender_real_send_enabled
         original_storage_lookup = service.get_generated_file_storage_reference
-        with tempfile.NamedTemporaryFile(suffix=".xlsx") as temp_file:
-            temp_file.write(b"demo")
-            temp_file.flush()
+        artifact_path = put_artifact(
+            f"verify_salary_wechat_{uuid4().hex}.xlsx", b"demo",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        try:
             service.get_generated_file_storage_reference = lambda artifact_id, current_user: {
-                "storage_path": temp_file.name,
+                "storage_path": artifact_path,
                 "filename": "salary-demo.xlsx",
                 "mime_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             }
             settings.message_sender_real_send_enabled = False
-            enterprise_execution = dispatch_enterprise_wechat_file_send_task(
-                artifact_id="artifact-demo",
-                recipient_candidate_id=selected_recipient["id"],
-                recipient=selected_recipient,
-                recipient_name="张三",
-                current_user=finance_user,
-            )
+            with patch.object(service, "send_enterprise_wechat_file", return_value={"status": "not_configured", "sent": False}):
+                enterprise_execution = dispatch_enterprise_wechat_file_send_task(
+                    artifact_id="artifact-demo",
+                    recipient_candidate_id=selected_recipient["id"],
+                    recipient=selected_recipient,
+                    recipient_name="张三",
+                    current_user=finance_user,
+                )
             assert enterprise_execution["status"] == "waiting_executor", enterprise_execution
             assert enterprise_execution["message_body"] == "", enterprise_execution
             assert enterprise_execution["send_result"]["sent"] is False, enterprise_execution
             assert enterprise_execution["recipient"]["phone_last4"] == "1234", enterprise_execution
+        finally:
+            delete_artifact(artifact_path)
         service.get_generated_file_storage_reference = original_storage_lookup
         settings.message_sender_real_send_enabled = original_real_send_enabled
 
@@ -189,7 +190,7 @@ def main() -> None:
         "post_file_confirmation_checked": True,
         "confirmation_card_checked": True,
         "message_body_empty_checked": True,
-        "mcp_file_center_trace_checked": True,
+        "mcp_before_confirmation_blocked": True,
     }, ensure_ascii=False, indent=2))
 
 

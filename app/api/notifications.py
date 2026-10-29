@@ -34,6 +34,9 @@ class NotificationItem(BaseModel):
 class NotificationsResponse(BaseModel):
     items: list[NotificationItem]
     unread_count: int
+    read_count: int
+    total_count: int
+    resource_count: int
 
 
 class NotificationResponse(BaseModel):
@@ -48,12 +51,14 @@ class NotificationReadAllResponse(BaseModel):
 def get_notifications(
     status_value: str | None = Query(default=None, alias="status", pattern="^(unread|read)$"),
     limit: int = Query(default=80, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
     current_user: dict = Depends(get_current_user),
 ):
     return list_notifications(
         current_user=current_user,
         status_value=status_value,
         limit=limit,
+        offset=offset,
     )
 
 

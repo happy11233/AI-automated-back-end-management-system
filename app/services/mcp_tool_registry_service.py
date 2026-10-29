@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -262,12 +264,12 @@ MCP_TOOL_DEFINITIONS: tuple[ManagedMcpToolDefinition, ...] = (
         tool_id="message_sender.send_confirmed_email",
         server_name="message_sender",
         tool_name="send_confirmed_email",
-        label="发送已确认邮件",
+        label="受控邮件确认入口",
         category="消息发送",
-        description="用户确认接收人和敏感数据后，通过 SMTP 发送业务邮件和附件。",
+        description="独立 MCP 进程不发送邮件；已登录用户通过后端确认卡发送。",
         risk_level="high",
         position_scopes=("finance", "platform"),
-        execution_mode="external_send_confirmed",
+        execution_mode="confirmation_api_only",
         enabled_by_default=True,
         requires_approval=True,
         supports_real_health_check=True,
@@ -283,7 +285,7 @@ MCP_TOOL_DEFINITIONS: tuple[ManagedMcpToolDefinition, ...] = (
         safety_rules=(
             "不能由大模型直接调用。",
             "必须确认接收人、正文和敏感数据。",
-            "默认真实发送开关关闭。",
+            "MCP 直接发送始终关闭，必须使用认证确认接口。",
             "附件本机路径只允许读取生成文件目录。",
         ),
         example="财务确认月报和工资附件后，后端通过 SMTP 发送给指定邮箱。",
@@ -548,6 +550,7 @@ def execute_managed_mcp_tool(
     arguments: dict[str, Any] | None,
     current_user: dict,
     source: str,
+    approval_id: str | None = None,
     trace_collector: list[dict[str, Any]] | None = None,
 ) -> Any:
     started_ms = now_ms()
@@ -559,11 +562,23 @@ def execute_managed_mcp_tool(
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"MCP 工具已暂停：{definition.label}")
 
         _ensure_position_allowed(definition=definition, current_user=current_user)
-        if definition.risk_level == "high" and source in {"llm", "llm_direct", "chat_direct", "react_only"}:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="高风险 MCP 工具不能由大模型直接调用，必须通过后端 Skill Executor。",
-            )
+        if definition.requires_approval:
+            approved = None
+            if approval_id and source not in {"llm", "llm_direct", "chat_direct", "react_only", "chat_plan_execute"}:
+                approved = fetch_one("""
+                    UPDATE mcp_execution_approvals SET status = 'used', used_at = now()
+                    WHERE id = %s AND tool_id = %s AND user_id = %s AND source = %s
+                      AND arguments_hash = %s AND status = 'issued' AND expires_at > now()
+                    RETURNING id;
+                """, (approval_id, tool_id, current_user.get("id"), source, _arguments_hash(arguments or {})))
+            if approved is None:
+                write_audit_log(
+                    user_id=current_user.get("id"), action="mcp_tool.approval_denied",
+                    resource_type="mcp_tool", resource_id=tool_id,
+                    metadata={"source": source, "reason": "missing_or_invalid_approval"},
+                )
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
+                                    detail="此 MCP 工具需要服务端签发的有效审批。")
 
         result = call_mcp_tool(definition.server_name, definition.tool_name, arguments or {})
         duration_ms = elapsed_ms(started_ms)
@@ -600,6 +615,35 @@ def execute_managed_mcp_tool(
                 error_message=str(error),
             ))
         raise
+
+
+def issue_managed_mcp_approval(
+    *, tool_id: str, arguments: dict[str, Any], current_user: dict, source: str,
+) -> str:
+    """Issue a short-lived, single-use grant from a backend confirmation workflow."""
+    definition = get_mcp_tool_definition(tool_id)
+    allowed_tools = {
+        "finance_salary_wechat_send": {"desktop_rpa.prepare_wechat_attachment", "n8n.dispatch_workflow"},
+        "operations_listing_amazon_upload": {"playwright_amazon.prepare_seller_central_listing"},
+    }
+    if not definition.requires_approval or tool_id not in allowed_tools.get(source, set()):
+        raise HTTPException(status_code=403, detail="此入口不能签发 MCP 审批。")
+    _ensure_position_allowed(definition=definition, current_user=current_user)
+    row = fetch_one("""
+        INSERT INTO mcp_execution_approvals (tool_id, user_id, source, arguments_hash)
+        VALUES (%s, %s, %s, %s) RETURNING id;
+    """, (tool_id, current_user.get("id"), source, _arguments_hash(arguments)))
+    write_audit_log(
+        user_id=current_user.get("id"), action="mcp_tool.approval_issued",
+        resource_type="mcp_tool", resource_id=tool_id,
+        metadata={"source": source, "approval_id": str(row[0])},
+    )
+    return str(row[0])
+
+
+def _arguments_hash(arguments: dict[str, Any]) -> str:
+    canonical = json.dumps(arguments, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 def _tool_settings_by_id() -> dict[str, dict[str, Any]]:

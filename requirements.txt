@@ -1,4 +1,5 @@
 fastapi
+httpx>=0.27,<1
 uvicorn[standard]
 python-dotenv
 pydantic
@@ -25,3 +26,8 @@ unstructured[xlsx]
 rank-bm25
 jieba
 mineru
+celery>=5.6,<5.7
+langsmith>=0.10,<1
+redis>=5,<7
+boto3>=1.35,<2
+prometheus-client>=0.21,<1

@@ -14,6 +14,7 @@ from openpyxl.utils import get_column_letter
 from app.erp.base import ERPProviderError
 from app.erp.providers import get_active_provider
 from app.erp.resources import provider_fields_for, provider_resource_for
+from app.services.chat_intent_guard_service import is_information_request, has_execution_request, instruction_text
 
 
 MAX_SALARY_ROWS = 500
@@ -44,7 +45,7 @@ class FinanceSalaryExportResult:
 
 def recognize_salary_export_intent(message: str, today: date | None = None) -> SalaryExportIntent:
     normalized = (message or "").strip()
-    lowered = normalized.lower()
+    lowered = instruction_text(normalized).lower()
     current_day = today or date.today()
     matched_keywords: list[str] = []
 
@@ -70,7 +71,7 @@ def recognize_salary_export_intent(message: str, today: date | None = None) -> S
         confidence += 0.05
 
     return SalaryExportIntent(
-        intent="finance_salary_export" if has_salary else "unknown",
+        intent="finance_salary_export" if has_salary and has_execution_request(normalized) and not is_information_request(normalized) else "unknown",
         period_label=period_label,
         start_date=start_date,
         end_date=end_date,

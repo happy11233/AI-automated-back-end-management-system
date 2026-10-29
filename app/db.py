@@ -6,8 +6,9 @@ from app.config import settings
 
 pool = ConnectionPool(
     conninfo=settings.database_url,
-    min_size=1,
-    max_size=5,
+    min_size=settings.db_pool_min_size,
+    max_size=settings.db_pool_max_size,
+    timeout=settings.db_pool_timeout_seconds,
     open=False,
 )
 

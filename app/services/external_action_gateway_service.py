@@ -5,6 +5,8 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from typing import Any
 
+from app.services.chat_intent_guard_service import is_information_request, is_action_negated, has_execution_request, is_social_request, is_unsupported_leave_action, instruction_text
+
 @dataclass(frozen=True)
 class ExternalActionIntent:
     external_action_type: str
@@ -67,6 +69,9 @@ def recognize_external_action_intent(
     text = " ".join((message or "").strip().split())
     if not text:
         return None
+    if is_information_request(text) or is_action_negated(text) or is_unsupported_leave_action(text):
+        return None
+    text = instruction_text(text)
     lowered = text.lower()
     attachment_list = attachments or []
 
@@ -120,7 +125,8 @@ def get_pending_external_action(thread_id: str | None) -> dict[str, Any] | None:
     if isinstance(pending, dict) and pending.get("active"):
         return _enrich_pending_action_from_recent_messages(thread_id, pending)
     execution_context = slots.get("execution_context") if isinstance(slots, dict) else None
-    if isinstance(execution_context, dict) and execution_context.get("active"):
+    if (isinstance(execution_context, dict) and execution_context.get("active")
+            and execution_context.get("external_action_type") and execution_context.get("target_channel")):
         return _enrich_pending_action_from_recent_messages(thread_id, execution_context)
     return None
 
@@ -174,7 +180,7 @@ def build_execution_context_from_result(graph_result: dict, user_message: str) -
     history_list = history_list[-8:]
     status_normalized = status or "active"
     return {
-        "active": status_normalized not in {"completed", "succeeded", "cancelled"},
+        "active": status_normalized.startswith("waiting_") or (status_normalized == "failed" and bool(target_channel)),
         "status": status_normalized,
         "status_label": approval_result.get("status_label") or automation.get("status_label"),
         "source_message": source_message,
@@ -193,12 +199,13 @@ def build_execution_context_from_result(graph_result: dict, user_message: str) -
         "last_error": _error_text_from_result(graph_result),
         "last_user_message": user_message,
         "conversation_fragments": history_list,
+        "artifact_id": plan.get("artifact_id"),
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
 
 
 def should_resume_external_action_with_message(message: str, pending_action: dict[str, Any] | None) -> bool:
-    if not isinstance(pending_action, dict) or not pending_action.get("active"):
+    if not isinstance(pending_action, dict) or not pending_action.get("active") or pending_action.get("status") in {"completed", "succeeded", "cancelled"}:
         return False
     text = " ".join((message or "").strip().split())
     if not text:
@@ -207,23 +214,48 @@ def should_resume_external_action_with_message(message: str, pending_action: dic
     lowered = text.lower()
     if any(keyword in lowered for keyword in ["取消", "算了", "不用了", "不发了", "停止", "终止"]):
         return False
+    if is_information_request(text) or is_social_request(text) or is_action_negated(text):
+        return False
 
-    target_markers = ENTERPRISE_WECHAT_TARGETS + EMAIL_TARGETS + AMAZON_TARGETS + ["企业微信", "微信", "邮箱", "邮件", "amazon", "亚马逊", "seller central", "sellercentral"]
-    if len(text) <= 20 and any(keyword.lower() in lowered for keyword in target_markers):
+    if lowered in {"继续", "继续上一任务", "继续刚才的任务", "按刚才的继续", "按上一步继续"}:
         return True
 
-    if len(text) <= 30 and any(keyword.lower() in lowered for keyword in PERIOD_MARKERS):
+    channel, _ = _detect_target_channel(lowered)
+    if channel and lowered in {item.lower() for item in (
+        ENTERPRISE_WECHAT_TARGETS + EMAIL_TARGETS + AMAZON_TARGETS
+    )}:
         return True
 
-    if len(text) <= 40 and _extract_recipient(text, str(pending_action.get("target_channel") or "")):
+    # Explicit slot edits on the same task are continuations.
+    if re.fullmatch(r"(?:发给|发送给|收件人[：:]?)\s*[\w\-\u4e00-\u9fff]{2,20}", text):
+        return True
+    if (pending_action.get("business_object") == "salary_table" and
+            re.fullmatch(r"(?:生成|改成|改为)(?:这个月|本月|上个月|上月|下个月|下月)的?工资表", text)):
+        return True
+    # A new command is routed independently; it cannot inherit old recipients.
+    if has_execution_request(text):
+        return False
+    target_channel = str(channel or pending_action.get("target_channel") or "")
+    if (pending_action.get("business_object") in {"salary_table", "finance_package", "finance_report"}
+            and re.fullmatch(r"(?:改成|改为|用|期间是)?(?:这个月|本月|上个月|上月|下个月|下月|last month|next month)", lowered)):
+        return True
+    if target_channel == "email":
+        return bool(_EMAIL_RE.fullmatch(text) or re.fullmatch(
+            r"(?:收件邮箱|邮箱|收件人)\s*[:：]?\s*" + _EMAIL_RE.pattern,
+            text,
+            re.I,
+        ))
+
+    if len(text) <= 40 and _extract_recipient(text, target_channel):
         return True
 
-    if len(text) <= 40 and any(keyword.lower() in lowered for keyword in FOLLOWUP_WINDOW_MARKERS):
+    if (not pending_action.get("recipient_name")
+            and (pending_action.get("status") == "waiting_recipient_selection" or
+                 (pending_action.get("status") == "waiting_clarification" and
+                  any(word in str(pending_action.get("question") or "") for word in ("接收对象", "收件人", "联系人", "接收人"))))
+            and re.fullmatch(r"[\u4e00-\u9fff]{2,4}|[A-Za-z][A-Za-z0-9_\-]{1,19}", text)
+            and not any(word in text for word in ("请假", "流程", "规则", "政策", "工资", "文件", "报表"))):
         return True
-
-    if len(text) <= 12 and not any(keyword in lowered for keyword in SEND_ACTIONS + FILL_ACTIONS + UPLOAD_ACTIONS + OPEN_ACTIONS):
-        return True
-
     return False
 
 
@@ -244,6 +276,8 @@ def resolve_external_action_message(
     thread_id: str | None = None,
 ) -> tuple[str, dict[str, Any] | None]:
     pending_action = get_pending_external_action(thread_id)
+    if not should_resume_external_action_with_message(message, pending_action):
+        return message, None
     merged_message = merge_external_action_followup_message(message, pending_action)
     return merged_message, pending_action
 
@@ -257,41 +291,26 @@ def resolve_external_action_followup_intent(
     if not should_resume_external_action_with_message(message, pending_action):
         return None
 
-    merged_message = merge_external_action_followup_message(message, pending_action)
-    intent = recognize_external_action_intent(merged_message, attachments or [])
-    if intent is not None:
-        intent = _merge_intent_with_pending(intent, pending_action)
-        if pending_action and pending_action.get("recipient_name") and not intent.recipient_name:
-            intent = ExternalActionIntent(
-                **{
-                    **intent.to_dict(),
-                    "recipient_name": str(pending_action.get("recipient_name")),
-                }
-            )
-        return intent
-
-    if not pending_action:
-        return None
-
-    target_channel = str(_detect_target_channel((message or "").lower())[0] or pending_action.get("target_channel") or "")
-    if target_channel == "unknown_message_channel":
-        detected_channel = _detect_target_channel(merged_message.lower())[0]
-        if detected_channel:
-            target_channel = detected_channel
-    recipient_name = (
-        _extract_recipient(merged_message, target_channel)
-        or str(pending_action.get("recipient_name") or "").strip()
-        or None
-    )
+    # Keep persisted slots authoritative; parse only this reply for new slots.
+    target_channel = str(_detect_target_channel((message or "").lower())[0] or pending_action.get("target_channel") or "unknown_message_channel")
+    recipient_name = _extract_recipient(message, target_channel)
+    previous_channel = str(pending_action.get("target_channel") or "")
+    if not recipient_name and (target_channel == previous_channel or (previous_channel == "unknown_message_channel" and target_channel == "enterprise_wechat")):
+        recipient_name = str(pending_action.get("recipient_name") or "").strip() or None
+    if (not recipient_name and target_channel != "email"
+            and str(pending_action.get("status") or "") in {"waiting_recipient_selection", "waiting_clarification"}
+            and re.fullmatch(r"[\u4e00-\u9fffA-Za-z][\u4e00-\u9fffA-Za-z0-9_\-]{1,19}", message.strip())
+            and not _detect_target_channel(message.lower())[0]):
+        recipient_name = message.strip()
     return ExternalActionIntent(
         external_action_type=str(pending_action.get("external_action_type") or "send_file"),
-        target_channel=target_channel or "unknown_message_channel",
+        target_channel=target_channel,
         business_object=str(pending_action.get("business_object") or "latest_file"),
         data_source=str(pending_action.get("data_source") or "latest_generated_file"),
         recipient_name=recipient_name,
         confidence=0.9,
         matched_actions=list(pending_action.get("matched_actions") or ["发送"]),
-        matched_targets=list(pending_action.get("matched_targets") or ([target_channel] if target_channel else ["接收人"])),
+        matched_targets=[target_channel],
         requires_confirmation=True,
         reason="续接上一轮待确认的外部动作。",
     )
@@ -402,13 +421,15 @@ def _detect_data_source(
 def _looks_like_send_to_recipient(text: str) -> bool:
     if _EMAIL_RE.search(text):
         return True
-    return bool(re.search(r"(?:发送给|发给|传给|转发给|发到)\s*[\w\-\u4e00-\u9fff@.]{2,64}", text, re.I))
+    return bool(re.search(r"(?:发送给|发给|传给|转发给|发到)\s*[\w\-\u4e00-\u9fff@.]{1,64}", text, re.I))
 
 
 def _extract_recipient(text: str, target_channel: str) -> str | None:
     email_match = _EMAIL_RE.search(text)
     if email_match:
         return email_match.group(0)
+    if target_channel == "email":
+        return None
     if target_channel == "amazon_seller_central":
         return None
     patterns = [
@@ -430,6 +451,8 @@ def _extract_recipient(text: str, target_channel: str) -> str | None:
 def _clean_recipient(value: str) -> str | None:
     text = re.sub(r"[，,。；;！!？?].*$", "", value or "").strip()
     text = re.sub(r"(企业微信|微信|邮箱|邮件|发送|发给|文件|表格|确认|草稿)$", "", text).strip()
+    if any(marker in text for marker in ("谁", "什么", "怎么", "如何", "哪", "是否", "请假", "流程", "规则")):
+        return None
     return text or None
 
 
@@ -508,6 +531,8 @@ def _looks_like_execution_context(
     business_object: str,
     user_message: str,
 ) -> bool:
+    if intent_name in {"policy", "rag_query", "erp", "order", "refund", "ask_clarification", "permission_denied", "chitchat", "document_qa"}:
+        return False
     haystack = f"{intent_name} {status} {target_channel} {business_object} {user_message}".lower()
     if any(keyword in haystack for keyword in ["rag", "document_qa", "chitchat", "闲聊"]):
         return False
@@ -538,51 +563,11 @@ def _error_text_from_result(graph_result: dict[str, Any]) -> str:
 
 
 def _enrich_pending_action_from_recent_messages(thread_id: str, pending: dict[str, Any]) -> dict[str, Any]:
-    try:
-        from app.services.context_service import list_recent_messages
+    """Persisted execution slots already contain accepted follow-ups.
 
-        recent_messages = list_recent_messages(thread_id=thread_id, limit=8)
-    except Exception:
-        return pending
-
-    user_fragments = [
-        str(item.get("content") or "").strip()
-        for item in recent_messages
-        if isinstance(item, dict) and item.get("role") == "user" and str(item.get("content") or "").strip()
-    ]
-    if not user_fragments:
-        return pending
-
-    source_message = str(pending.get("source_message") or "").strip()
-    if not source_message:
-        source_message = _pick_source_message(user_fragments)
-    merged = " ".join(_dedupe([source_message, *user_fragments])).strip()
-    target_channel = _first_nonempty(
-        _detect_target_channel(merged.lower())[0],
-        pending.get("target_channel"),
-    )
-    recipient_name = _first_nonempty(
-        _extract_recipient(merged, target_channel),
-        pending.get("recipient_name"),
-    )
-    business_object = _first_nonempty(
-        _detect_business_object(merged.lower(), target_channel),
-        pending.get("business_object"),
-    )
-    data_source = _first_nonempty(pending.get("data_source"), _data_source_for_object(business_object))
-    return {
-        **pending,
-        "source_message": source_message or pending.get("source_message"),
-        "effective_message": merged or pending.get("effective_message") or pending.get("source_message"),
-        "target_channel": target_channel or pending.get("target_channel"),
-        "recipient_name": recipient_name or pending.get("recipient_name"),
-        "business_object": business_object or pending.get("business_object"),
-        "data_source": data_source or pending.get("data_source"),
-        "conversation_fragments": [
-            {"role": "user", "content": item}
-            for item in user_fragments[-8:]
-        ],
-    }
+    Never infer recipients/channels by replaying unrelated conversation history.
+    """
+    return dict(pending)
 
 
 def _pick_source_message(user_fragments: list[str]) -> str:

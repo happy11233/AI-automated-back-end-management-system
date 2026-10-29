@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from app.services.refund_service import execute_refund_for_approval
 from app.auth.security import get_current_user, require_admin
-from app.services.approval_service import list_pending_approvals, review_approval
+from app.services.approval_service import authorize_refund_retry, list_pending_approvals, review_approval
 from app.services.logging_service import save_approval_message, write_audit_log
 
 
@@ -59,6 +59,19 @@ def admin_review(
     )
 
 
+@router.post("/approvals/{approval_id}/refund/retry")
+def retry_refund(approval_id: str, current_user: dict = Depends(get_current_user)):
+    approval = authorize_refund_retry(approval_id, current_user)
+    refund_result = execute_refund_for_approval(approval_id)
+    write_audit_log(
+        user_id=current_user["id"], action="refund.retry",
+        resource_type="approval", resource_id=approval_id,
+        metadata={"refund_result": refund_result},
+    )
+    return {**approval, "refund_status": refund_result.get("refund_status"),
+            "refund_result": refund_result}
+
+
 def _review_approval(
     approval_id: str,
     request: ReviewApprovalRequest,
@@ -70,6 +83,9 @@ def _review_approval(
         approved=request.approved,
     )
 
+    if result.get("forbidden"):
+        raise HTTPException(status_code=403, detail=result["message"])
+
     if not result["found"]:
         raise HTTPException(
             status_code=404,
@@ -80,6 +96,7 @@ def _review_approval(
 
     if request.approved and result["action_type"] in {"refund", "customer_service_refund"}:
         refund_result = execute_refund_for_approval(approval_id)
+        result["refund_status"] = refund_result.get("refund_status")
 
     save_approval_message(
         thread_id=result["thread_id"],

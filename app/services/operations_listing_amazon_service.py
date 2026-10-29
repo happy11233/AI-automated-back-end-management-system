@@ -17,7 +17,7 @@ from app.llm import chat, chat_model
 from app.permissions import ensure_erp_resource_allowed
 from app.services.generated_file_service import get_generated_file_storage_reference, save_generated_file
 from app.services.logging_service import write_audit_log
-from app.services.mcp_tool_registry_service import execute_managed_mcp_tool
+from app.services.mcp_tool_registry_service import execute_managed_mcp_tool, issue_managed_mcp_approval
 from app.services.platform_draft_service import (
     create_platform_action_execution,
     create_platform_draft,
@@ -422,9 +422,7 @@ def confirm_and_prepare_amazon_listing_upload(
 
     mcp_tool_calls: list[dict[str, Any]] = []
     try:
-        mcp_result = execute_managed_mcp_tool(
-            tool_id="playwright_amazon.prepare_seller_central_listing",
-            arguments={
+        mcp_arguments = {
                 "listing": listing_payload,
                 "target_marketplace": marketplace,
                 "sku": content.get("sku"),
@@ -433,9 +431,18 @@ def confirm_and_prepare_amazon_listing_upload(
                 "stop_before_publish": True,
                 "upload_mode": upload_mode,
                 "selector_profile": active_amazon_field_mapping_profile(),
-            },
+        }
+        approval_id = issue_managed_mcp_approval(
+            tool_id="playwright_amazon.prepare_seller_central_listing",
+            arguments=mcp_arguments, current_user=current_user,
+            source="operations_listing_amazon_upload",
+        )
+        mcp_result = execute_managed_mcp_tool(
+            tool_id="playwright_amazon.prepare_seller_central_listing",
+            arguments=mcp_arguments,
             current_user=current_user,
             source="operations_listing_amazon_upload",
+            approval_id=approval_id,
             trace_collector=mcp_tool_calls,
         )
     except Exception as error:

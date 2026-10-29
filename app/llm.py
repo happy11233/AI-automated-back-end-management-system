@@ -7,6 +7,7 @@ from langchain_core.embeddings import Embeddings
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 
 from app.config import settings
+from app.cache import cache_get, cache_set
 
 
 chat_model = ChatOpenAI(
@@ -50,7 +51,8 @@ class CachedEmbeddings(Embeddings):
     def embed_query(self, text: str) -> list[float]:
         if settings.rag_embedding_cache_ttl_seconds <= 0 or settings.rag_embedding_cache_max_entries <= 0:
             return self.inner.embed_query(text)
-        key = sha256(text.encode("utf-8")).hexdigest()
+        identity = f'{settings.bailian_base_url}:{settings.bailian_embedding_model}:{settings.bailian_embedding_dimensions}:{text}'
+        key = sha256(identity.encode('utf-8')).hexdigest()
         now = time.monotonic()
         with self._lock:
             cached = self._cache.get(key)
@@ -60,7 +62,11 @@ class CachedEmbeddings(Embeddings):
             if cached:
                 self._cache.pop(key, None)
 
-        vector = self.inner.embed_query(text)
+        vector = cache_get('query-embedding', identity)
+        if not (isinstance(vector, list) and len(vector) == settings.bailian_embedding_dimensions
+                and all(isinstance(x, (float, int)) for x in vector)):
+            vector = self.inner.embed_query(text)
+            cache_set('query-embedding', identity, vector, settings.rag_embedding_cache_ttl_seconds)
         with self._lock:
             self._cache[key] = (now, list(vector))
             self._cache.move_to_end(key)

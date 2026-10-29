@@ -43,7 +43,7 @@ export interface Project {
   year: string;
   description: LocalizedText;
   tags: string[];
-  target: "automation" | "aiops" | "gateway";
+  target: "automation" | "gateway";
 }
 
 export interface ContactMethod {
@@ -194,17 +194,6 @@ export const content: LanguageContent = {
         tags: ["React", "FastAPI", "MySQL", "Docker"],
         target: "gateway"
       },
-      {
-        number: "03",
-        title: { zh: "AIOps 运维中心", en: "AIOps Operations Center" },
-        year: "2026",
-        description: {
-          zh: "围绕请求量、延迟、错误率和异常事件的监控与诊断中心，支持问题详情、修复动作和运行指标追踪。",
-          en: "A monitoring and diagnosis center for traffic, latency, error rates and incidents, with repair actions and live operational metrics."
-        },
-        tags: ["AIOps", "Observability", "FastAPI", "React"],
-        target: "aiops"
-      }
     ]
   },
   contact: {

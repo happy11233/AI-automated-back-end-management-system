@@ -110,6 +110,7 @@ def main() -> None:
                 "bullet_points": ["Keeps drinks warm", "Leak resistant"],
                 "description": "Demo listing content for verification.",
                 "keywords": "tumbler insulated cup",
+                "category_path": "Home & Kitchen > Kitchen & Dining > Drinkware",
                 "price": "19.99",
                 "inventory": 20,
             },

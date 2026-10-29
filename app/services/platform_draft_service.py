@@ -365,11 +365,12 @@ def update_platform_draft_writeback(
     writeback_status: str,
     writeback_message: str | None,
     metadata: dict[str, Any] | None = None,
+    conn: Any | None = None,
 ) -> dict[str, Any]:
     if writeback_status not in WRITEBACK_STATUSES:
         raise ValueError("无效写回状态")
 
-    row = fetch_one(
+    query = (
         """
         UPDATE platform_drafts
         SET
@@ -383,14 +384,15 @@ def update_platform_draft_writeback(
             owner_user_id, source_run_id, source_resource_type, source_resource_id,
             content, writeback_status, writeback_message, metadata,
             created_at, updated_at;
-        """,
-        (
+        """
+    )
+    params = (
             writeback_status,
             writeback_message,
             dumps_json(sanitize_metadata(metadata or {})),
             draft_id,
-        ),
     )
+    row = conn.execute(query, params).fetchone() if conn else fetch_one(query, params)
     if row is None:
         raise ValueError("平台草稿不存在")
     return _map_draft_row(row)
@@ -577,7 +579,7 @@ def create_platform_execution_task(
             draft_id,
             action_type,
             target,
-            dumps_json(sanitize_metadata(request_payload)),
+            dumps_json(_execution_request_for_storage(request_payload)),
             requested_by,
             max(1, min(max_attempts, 10)),
             dumps_json(sanitize_metadata(metadata or {})),
@@ -607,7 +609,7 @@ def update_platform_execution_task_payload(
             completed_at, metadata, created_at, updated_at;
         """,
         (
-            dumps_json(sanitize_metadata(request_payload)),
+            dumps_json(_execution_request_for_storage(request_payload)),
             dumps_json(sanitize_metadata(metadata or {})),
             task_id,
         ),
@@ -617,11 +619,24 @@ def update_platform_execution_task_payload(
     return _map_task_row(row)
 
 
+def _execution_request_for_storage(payload: dict[str, Any]) -> dict[str, Any]:
+    sanitized = sanitize_metadata(payload)
+    content = payload.get("content") or {}
+    if payload.get("draft_type") == "customer_reply" and content.get("reply_parse_status") == "validated":
+        body = content.get("reply_draft")
+        if isinstance(body, str):
+            # This is the executable request, not a log preview. Retry must keep
+            # the complete reviewed customer text. Continue redacting secrets.
+            sanitized["content"]["reply_draft"] = sanitize_text(body)
+    return sanitized
+
+
 def mark_platform_execution_task_dispatching(
     *,
     task_id: str,
     latest_execution_id: str,
     target: str,
+    rotate_callback_token: bool = False,
 ) -> dict[str, Any]:
     row = fetch_one(
         """
@@ -629,19 +644,22 @@ def mark_platform_execution_task_dispatching(
         SET
             latest_execution_id = %s,
             target = %s,
+            callback_token = CASE WHEN %s THEN encode(gen_random_bytes(24), 'hex') ELSE callback_token END,
             status = 'dispatching',
             attempt_count = attempt_count + 1,
             last_error = NULL,
             completed_at = NULL,
+            metadata = metadata - 'callback_received_at' - 'callback_effects_completed_at'
+                                - 'dispatch_processing_at' - 'dispatch_effects_completed_at',
             updated_at = now()
-        WHERE id = %s
+        WHERE id = %s AND status IN ('queued', 'failed')
         RETURNING
             id, draft_id, latest_execution_id, action_type, target, status,
             request_payload, response_payload, external_reference, callback_token,
             attempt_count, max_attempts, last_error, requested_by, next_attempt_at,
             completed_at, metadata, created_at, updated_at;
         """,
-        (latest_execution_id, target, task_id),
+        (latest_execution_id, target, rotate_callback_token, task_id),
     )
     if row is None:
         raise ValueError("平台执行任务不存在")
@@ -685,10 +703,13 @@ def mark_platform_execution_task_waiting_executor(
 def mark_platform_execution_task_waiting_callback(
     *,
     task_id: str,
+    latest_execution_id: str,
+    attempt_count: int,
     response_payload: dict[str, Any],
     external_reference: str | None = None,
-) -> dict[str, Any]:
-    row = fetch_one(
+    conn: Any | None = None,
+) -> dict[str, Any] | None:
+    query = (
         """
         UPDATE platform_execution_tasks
         SET
@@ -696,22 +717,24 @@ def mark_platform_execution_task_waiting_callback(
             response_payload = %s::jsonb,
             external_reference = COALESCE(%s, external_reference),
             updated_at = now()
-        WHERE id = %s
+        WHERE id = %s AND latest_execution_id = %s AND attempt_count = %s
+          AND status = 'dispatching'
         RETURNING
             id, draft_id, latest_execution_id, action_type, target, status,
             request_payload, response_payload, external_reference, callback_token,
             attempt_count, max_attempts, last_error, requested_by, next_attempt_at,
             completed_at, metadata, created_at, updated_at;
-        """,
-        (
+        """
+    )
+    params = (
             dumps_json(sanitize_metadata(response_payload)),
             external_reference,
             task_id,
-        ),
+            latest_execution_id,
+            attempt_count,
     )
-    if row is None:
-        raise ValueError("平台执行任务不存在")
-    return _map_task_row(row)
+    row = conn.execute(query, params).fetchone() if conn else fetch_one(query, params)
+    return _map_task_row(row) if row else None
 
 
 def finish_platform_execution_task(
@@ -722,7 +745,9 @@ def finish_platform_execution_task(
     external_reference: str | None = None,
     error_message: str | None = None,
     metadata: dict[str, Any] | None = None,
-) -> dict[str, Any]:
+    expected_status: str | None = None,
+    expected_execution_id: str | None = None,
+) -> dict[str, Any] | None:
     if status_value not in {"succeeded", "failed", "cancelled"}:
         raise ValueError("无效任务完成状态")
 
@@ -737,7 +762,8 @@ def finish_platform_execution_task(
             completed_at = now(),
             metadata = metadata || %s::jsonb,
             updated_at = now()
-        WHERE id = %s
+        WHERE id = %s AND (%s::text IS NULL OR status = %s)
+          AND (%s::uuid IS NULL OR latest_execution_id = %s::uuid)
         RETURNING
             id, draft_id, latest_execution_id, action_type, target, status,
             request_payload, response_payload, external_reference, callback_token,
@@ -751,11 +777,44 @@ def finish_platform_execution_task(
             error_message,
             dumps_json(sanitize_metadata(metadata or {})),
             task_id,
+            expected_status,
+            expected_status,
+            expected_execution_id,
+            expected_execution_id,
         ),
     )
     if row is None:
+        if expected_status is not None or expected_execution_id is not None:
+            return None
         raise ValueError("平台执行任务不存在")
     return _map_task_row(row)
+
+
+def claim_platform_execution_callback(
+    *, task_id: str, callback_token: str, attempt_count: int, execution_id: str,
+    status_value: str, response_payload: dict[str, Any], external_reference: str | None,
+    error_message: str | None,
+) -> dict[str, Any] | None:
+    row = fetch_one(
+        """
+        UPDATE platform_execution_tasks
+        SET status = %s, response_payload = %s::jsonb,
+            external_reference = COALESCE(%s, external_reference),
+            last_error = %s, completed_at = now(),
+            metadata = metadata || jsonb_build_object('callback_received_at', now()),
+            updated_at = now()
+        WHERE id = %s AND callback_token = %s AND attempt_count = %s
+          AND latest_execution_id = %s AND status IN ('dispatching', 'waiting_callback')
+        RETURNING
+            id, draft_id, latest_execution_id, action_type, target, status,
+            request_payload, response_payload, external_reference, callback_token,
+            attempt_count, max_attempts, last_error, requested_by, next_attempt_at,
+            completed_at, metadata, created_at, updated_at;
+        """,
+        (status_value, dumps_json(sanitize_metadata(response_payload)), external_reference,
+         error_message, task_id, callback_token, attempt_count, execution_id),
+    )
+    return _map_task_row(row) if row else None
 
 
 def list_platform_execution_tasks(
@@ -1041,6 +1100,8 @@ def customer_reply_content_from_message(item: dict[str, Any]) -> dict[str, Any]:
         "risk_level": item.get("risk_level"),
         "automation_decision": item.get("automation_decision"),
         "reply_draft": item.get("reply_draft"),
+        "reply_parse_status": item.get("reply_parse_status", "legacy_unstructured"),
+        "needs_human_review": item.get("needs_human_review", True),
         "handoff_reason": item.get("handoff_reason"),
         "review_required": True,
         "send_policy": "AI 已保存客服回复草稿，低风险可由正式客服渠道发送，高风险必须人工审核。",

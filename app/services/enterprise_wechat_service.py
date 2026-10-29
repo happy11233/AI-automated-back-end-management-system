@@ -13,6 +13,8 @@ from urllib.request import Request, urlopen
 from uuid import uuid4
 
 from app.config import settings
+from app.artifact_storage import read_artifact
+from app.cache import cache_get, cache_set
 from app.db import execute, fetch_all, fetch_one
 from app.json_utils import dumps_json
 from app.services.run_record_service import sanitize_metadata
@@ -851,7 +853,7 @@ def attachment_from_storage_reference(storage_reference: dict[str, Any]) -> Ente
     path = Path(str(storage_reference["storage_path"]))
     return EnterpriseWechatAttachment(
         filename=str(storage_reference.get("filename") or path.name),
-        content=path.read_bytes(),
+        content=read_artifact(str(storage_reference['storage_path'])),
         mime_type=str(storage_reference.get("mime_type") or mimetypes.guess_type(path.name)[0] or "application/octet-stream"),
     )
 
@@ -1240,6 +1242,9 @@ def _access_token() -> str:
     effective_settings = get_enterprise_wechat_effective_settings()
     cache_key = f"{effective_settings['corp_id']}:{effective_settings['secret']}"
     now = time.time()
+    shared_token = cache_get('wechat-access-token', cache_key)
+    if isinstance(shared_token, str) and shared_token:
+        return shared_token
     if _ACCESS_TOKEN and _ACCESS_TOKEN_CACHE_KEY == cache_key and now < _ACCESS_TOKEN_EXPIRES_AT - 60:
         return _ACCESS_TOKEN
     if not effective_settings["configured"]:
@@ -1326,6 +1331,8 @@ def _access_token() -> str:
     _ACCESS_TOKEN = str(token)
     _ACCESS_TOKEN_CACHE_KEY = cache_key
     _ACCESS_TOKEN_EXPIRES_AT = now + int(result.get("expires_in", 7200) or 7200)
+    cache_set('wechat-access-token', cache_key, _ACCESS_TOKEN,
+              max(1, int(result.get('expires_in', 7200) or 7200) - 60))
     return _ACCESS_TOKEN
 
 

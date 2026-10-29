@@ -1,15 +1,12 @@
+from app.observability import observed
 from langchain.agents import create_agent
 from langchain_core.tools import tool
-from langgraph.checkpoint.memory import InMemorySaver
 
 from app.llm import chat_model
 from app.rag.qa import answer_question
 from app.services.context_service import format_context_for_prompt
 from app.services.erp_service import query_erp_for_current_user, summarize_erp_items
 from app.tools.order_tool import query_order_status_for_user
-
-
-agent_checkpointer = InMemorySaver()
 
 
 def build_user_tools(current_user: dict, thread_id: str | None = None):
@@ -60,6 +57,7 @@ def build_user_tools(current_user: dict, thread_id: str | None = None):
     ]
 
 
+@observed('agent.low_risk', 'chain')
 def run_low_risk_agent(
     message: str,
     thread_id: str,
@@ -83,7 +81,6 @@ def run_low_risk_agent(
 不要执行任何操作，只回答：该请求需要走公司审批流程。
 不要编造工具没有返回的信息。
 """.strip(),
-        checkpointer=agent_checkpointer,
     )
 
     result = agent.invoke(

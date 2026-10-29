@@ -1,15 +1,17 @@
 from typing import Literal
+import re
 from langgraph.graph import END, START, StateGraph
 from app.graph.state import AgentState
 from app.tools.order_tool import query_order_status_for_user
 from uuid import uuid4
 from app.tools.approval_tool import submit_approval_request
 from app.graph.intent import classify_user_intent
-from app.graph.extractors import extract_order_no_from_text
+from app.graph.extractors import extract_order_no_by_rules, extract_order_no_from_text
 from app.tools.kb_tool import search_knowledge_base
 from app.services.context_service import format_context_for_prompt
 from app.services.erp_service import query_erp_for_current_user, summarize_erp_items
 from app.llm import chat_model
+from app.services.chat_intent_guard_service import refund_case_kind
 
 
 CHITCHAT_SYSTEM_PROMPT = """
@@ -30,13 +32,25 @@ def classify_intent(state: AgentState) -> dict:
     return {"intent": intent}
 
 def extract_order_no(state: AgentState) -> dict:
-    order_no = extract_order_no_from_text(state["user_input"])
+    order_no = extract_order_no_by_rules(state["user_input"])
     state_order_no = state.get("context", {}).get("state", {}).get("order_no")
+    if order_no:
+        return {"order_no": order_no, "order_no_source": "explicit"}
+    if state_order_no and _refers_to_previous_order(state["user_input"]):
+        return {"order_no": state_order_no, "order_no_source": "inherited"}
+    order_no = extract_order_no_from_text(state["user_input"])
+    if order_no:
+        return {"order_no": order_no, "order_no_source": "explicit"}
+    return {"order_no": None, "order_no_source": "missing"}
 
-    if not order_no:
-        return {"order_no": state_order_no} if state_order_no else {}
 
-    return {"order_no": order_no}
+def _refers_to_previous_order(message: str) -> bool:
+    return bool(re.search(
+        r"(?:这个|这笔|该|刚才(?:说的|的)?|上(?:一个|一笔|次)(?:的)?)订单"
+        r"|(?:这单|刚才那单|上一单)"
+        r"|\b(?:this|that|previous|last|same)\s+order\b",
+        message, re.IGNORECASE,
+    ))
 
 def query_order(state: AgentState) -> dict:
     order_no = state.get("order_no")
@@ -125,6 +139,9 @@ def risk_check(state: AgentState) -> dict:
     if state.get("intent") != "refund":
         return {"risk_level": "low"}
 
+    if refund_case_kind(state.get("user_input") or "") == "eligibility":
+        return {"risk_level": "low"}
+
     order_result = state.get("order_result", {})
 
     if not order_result.get("found"):
@@ -204,9 +221,11 @@ def prepare_context(state: AgentState) -> dict:
 
 def _build_contextual_query(state: AgentState) -> str:
     context_state = state.get("context", {}).get("state", {})
-    order_no = state.get("order_no") or context_state.get("order_no")
+    order_no = state.get("order_no") or extract_order_no_from_text(state["user_input"])
+    if not order_no and _refers_to_previous_order(state["user_input"]):
+        order_no = context_state.get("order_no")
 
-    if not order_no:
+    if not order_no or state.get("intent") == "policy":
         return state["user_input"]
 
     return f"{state['user_input']}\n当前订单号：{order_no}"

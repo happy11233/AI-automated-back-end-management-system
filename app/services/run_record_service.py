@@ -10,6 +10,7 @@ from typing import Any
 from fastapi import HTTPException, status
 
 from app.db import execute, fetch_all, fetch_one
+from app.observability import trace_metadata
 from app.json_utils import dumps_json
 
 
@@ -81,6 +82,7 @@ def start_run(
     flow = _normalize_flow_reference(flow_reference)
     input_preview = preview_text(input_text)
     input_hash = hash_text(input_text)
+    metadata = {**(metadata or {}), **trace_metadata()}
     row = fetch_one(
         """
         INSERT INTO automation_runs (
@@ -158,6 +160,38 @@ def finish_run(
     )
 
 
+def finish_run_if_running(
+    run_id: str | None,
+    *,
+    status_value: str,
+    error_message: Any = None,
+    duration_ms: int | None = None,
+    metadata: dict[str, Any] | None = None,
+) -> bool:
+    if not run_id or status_value not in {"succeeded", "failed", "blocked"}:
+        return False
+    row = fetch_one(
+        """
+        UPDATE automation_runs
+        SET status = %s,
+            error_message = COALESCE(%s, error_message),
+            duration_ms = COALESCE(%s, duration_ms),
+            metadata = metadata || %s::jsonb,
+            finished_at = now()
+        WHERE id = %s AND status = 'running'
+        RETURNING id;
+        """,
+        (
+            status_value,
+            preview_text(error_message, limit=ERROR_LIMIT),
+            duration_ms,
+            dumps_json(sanitize_metadata(metadata or {})),
+            run_id,
+        ),
+    )
+    return row is not None
+
+
 def record_step(
     *,
     run_id: str | None,
@@ -186,7 +220,7 @@ def record_step(
         VALUES (
             %s, %s, %s, %s, %s, %s,
             %s, %s, %s, %s,
-            %s, %s::jsonb, now(), now()
+            %s, %s::jsonb, now(), CASE WHEN %s = 'running' THEN NULL ELSE now() END
         )
         RETURNING id;
         """,
@@ -203,9 +237,61 @@ def record_step(
             preview_text(error_message, limit=ERROR_LIMIT),
             duration_ms,
             dumps_json(sanitize_metadata(metadata or {})),
+            status_value,
         ),
     )
     return str(row[0])
+
+
+def finish_step(
+    step_id: str,
+    *,
+    status_value: str,
+    output_text: Any = None,
+    error_message: Any = None,
+    duration_ms: int | None = None,
+    metadata: dict[str, Any] | None = None,
+) -> bool:
+    if status_value not in {"succeeded", "failed", "blocked"}:
+        raise ValueError("步骤终态无效")
+    row = fetch_one(
+        """
+        UPDATE automation_run_steps
+        SET status = %s,
+            output_preview = COALESCE(%s, output_preview),
+            error_message = COALESCE(%s, error_message),
+            duration_ms = COALESCE(%s, duration_ms),
+            metadata = metadata || %s::jsonb,
+            finished_at = now()
+        WHERE id = %s AND status = 'running'
+        RETURNING id;
+        """,
+        (
+            status_value,
+            preview_text(output_text),
+            preview_text(error_message, limit=ERROR_LIMIT),
+            duration_ms,
+            dumps_json(sanitize_metadata(metadata or {})),
+            step_id,
+        ),
+    )
+    return row is not None
+
+
+def finish_running_steps(run_id: str | None, *, error_message: Any) -> int:
+    if not run_id:
+        return 0
+    rows = fetch_all(
+        """
+        UPDATE automation_run_steps
+        SET status = 'failed', error_message = %s, finished_at = now(),
+            metadata = metadata || '{"execution_outcome_unknown":true}'::jsonb
+        WHERE run_id = %s AND status = 'running'
+        RETURNING id;
+        """,
+        (preview_text(error_message, limit=ERROR_LIMIT), run_id),
+    )
+    return len(rows)
 
 
 def record_artifact(

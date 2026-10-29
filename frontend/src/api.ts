@@ -43,6 +43,14 @@ export type ChatAttachment = {
   metadata?: Record<string, unknown>;
 };
 
+export type ProductSceneResponse = {
+  artifact_id: string;
+  filename: string;
+  mime_type: string;
+  model: string;
+  run_id: string;
+};
+
 export type BusinessProgressPayload = {
   thread_id?: string;
   workflow_id?: string;
@@ -97,6 +105,9 @@ export type CustomerServiceMessageItem = {
   status: string;
   automation_decision: string | null;
   reply_draft: string | null;
+  internal_note?: string | null;
+  needs_human_review?: boolean;
+  reply_parse_status?: string;
   handoff_reason: string | null;
   erp_summary: string | null;
   rag_summary: string | null;
@@ -177,6 +188,9 @@ export type ApprovalItem = {
   summary_cn?: string;
   summary_source?: string;
   status: string;
+  refund_status?: 'pending' | 'succeeded' | 'failed' | null;
+  ticket_status?: 'pending' | 'dispatching' | 'succeeded' | 'failed' | 'uncertain' | null;
+  external_ticket_id?: string | null;
   created_at: string;
 };
 
@@ -738,6 +752,80 @@ export type AiWorkflowsResponse = {
   items: AiWorkflowItem[];
 };
 
+export type AgentReadiness = {
+  state: "webhook_available" | "event_available" | "requires_source";
+  label: string;
+  trigger_label: string;
+  description: string;
+  requirements: string[];
+  webhook_secret_configured?: boolean;
+  event_type?: string;
+};
+
+export type AgentActivity = {
+  summary: { total: number; running: number; succeeded: number; failed: number; blocked: number };
+  agents: Array<{ id: string; readiness: AgentReadiness }>;
+  recent: Array<{ id: string; app_id: string; name: string; status: string; output: string | null; error: string | null; started_at: string | null; finished_at: string | null }>;
+  trend: Array<{ date: string; total: number; failed: number }>;
+  as_of: string;
+  scope: string;
+};
+
+export async function listAgentActivity(token: string, workflowId?: string, status?: string) {
+  const params = new URLSearchParams();
+  if (workflowId) params.set("workflow_id", workflowId);
+  if (status) params.set("status", status);
+  return requestJson<AgentActivity>(`/ai-workflows/activity?${params}`, {}, token);
+}
+
+export type BusinessTaskStatus = "draft" | "awaiting_input" | "queued" | "running" | "awaiting_approval" | "awaiting_external" | "partially_completed" | "succeeded" | "failed" | "cancelled";
+
+export type TaskStore = {
+  id: string; platform: string; external_store_id: string; marketplace: string; name: string; active?: boolean;
+};
+
+export type BusinessTask = {
+  id: string; owner_user_id: string; position: Position; workflow_id: string; app_id: string;
+  title: string; goal: string; status: BusinessTaskStatus; source: string; thread_id: string | null;
+  store_id: string | null; expected_outputs: string[]; completion_criteria: string[];
+  policy_snapshot: { requires_approval: boolean; approval_policy: string; external_execution_enabled: boolean };
+  created_at: string; updated_at: string;
+};
+
+export type BusinessTaskInput = {
+  workflow_id: string; goal: string; store_id?: string;
+  expected_outputs?: string[]; completion_criteria?: string[];
+};
+
+export type BusinessTaskDetail = {
+  item: BusinessTask; store: TaskStore | null;
+  objects: Array<{ id: string; object_type: string; external_id: string; line_id: string }>;
+  runs: Array<{ id: string; app_name: string; status: string; attempt_number: number; output_preview: string | null; error_message: string | null; started_at: string; finished_at: string | null }>;
+  steps: Array<{ id: string; run_id: string; step_order: number; step_name: string; status: string; duration_ms: number; output_preview: string | null; error_message: string | null }>;
+  artifacts: Array<{ id: string; run_id: string; name: string; mime_type: string; size_bytes: number; downloadable: boolean; expires_at: string | null }>;
+};
+
+export async function listBusinessTasks(token: string, options: { workflowId?: string; status?: BusinessTaskStatus; page?: number } = {}) {
+  const params = new URLSearchParams({ limit: "10", offset: String(((options.page || 1) - 1) * 10) });
+  if (options.workflowId) params.set("workflow_id", options.workflowId);
+  if (options.status) params.set("status", options.status);
+  return requestJson<{ items: BusinessTask[]; total: number; limit: number; offset: number }>("/agent-tasks?" + params, {}, token);
+}
+
+export async function listTaskStores(token: string) {
+  return requestJson<{ items: TaskStore[] }>("/agent-tasks/stores", {}, token);
+}
+
+export async function createBusinessTask(token: string, input: BusinessTaskInput, idempotencyKey: string) {
+  return requestJson<{ item: BusinessTask; reused: boolean; message: string }>("/agent-tasks", {
+    method: "POST", headers: { "Content-Type": "application/json", "Idempotency-Key": idempotencyKey }, body: JSON.stringify(input),
+  }, token);
+}
+
+export async function getBusinessTask(token: string, id: string) {
+  return requestJson<BusinessTaskDetail>("/agent-tasks/" + encodeURIComponent(id), {}, token);
+}
+
 export type AiWorkflowDetailResponse = {
   item: AiWorkflowItem;
 };
@@ -943,9 +1031,15 @@ export type NotificationItem = {
   read_at?: string | null;
 };
 
-export type NotificationsResponse = {
-  items: NotificationItem[];
+export type NotificationSummary = {
   unread_count: number;
+  read_count: number;
+  total_count: number;
+  resource_count: number;
+};
+
+export type NotificationsResponse = NotificationSummary & {
+  items: NotificationItem[];
 };
 
 export type NotificationMutationResponse = {
@@ -2193,6 +2287,24 @@ export type EnterpriseWechatFileSendConfirmResponse = {
   execution: Record<string, unknown>;
 };
 
+export type EmailFileSendConfirmPayload = {
+  confirmation_id: string;
+  recipient: string;
+  artifact_ids: string[];
+  recipient_confirmed: boolean;
+  sensitive_data_confirmed: boolean;
+};
+
+export type EmailFileSendConfirmResponse = {
+  confirmation_id: string;
+  status: "sent" | "failed" | "unknown";
+  status_label: string;
+  recipient: string;
+  artifact_ids: string[];
+  message_id: string | null;
+  error: string | null;
+};
+
 type JsonValue = Record<string, unknown> | Array<unknown> | string | number | boolean | null;
 
 const AUTH_EXPIRED_EVENT = "company-rag-auth-expired";
@@ -2206,8 +2318,34 @@ export class AuthExpiredError extends Error {
   }
 }
 
-export function isAuthExpiredError(error: unknown): error is AuthExpiredError {
-  return error instanceof AuthExpiredError;
+export class SessionChangedError extends Error {
+  constructor() {
+    super("请求所属的登录会话已结束");
+    this.name = "SessionChangedError";
+  }
+}
+
+export function isAuthExpiredError(error: unknown): error is AuthExpiredError | SessionChangedError {
+  // Both paths should silently abandon results from an ended session.
+  return error instanceof AuthExpiredError || error instanceof SessionChangedError;
+}
+
+function assertCurrentSession(token: string) {
+  if (token && localStorage.getItem("access_token") !== token) {
+    throw new SessionChangedError();
+  }
+}
+
+async function fetchForSession(token: string, input: RequestInfo | URL, init?: RequestInit) {
+  assertCurrentSession(token);
+  try {
+    const response = await fetch(input, init);
+    assertCurrentSession(token);
+    return response;
+  } catch (error) {
+    assertCurrentSession(token);
+    throw error;
+  }
 }
 
 async function requestJson<T>(
@@ -2215,28 +2353,33 @@ async function requestJson<T>(
   options: RequestInit = {},
   token = "",
 ): Promise<T> {
+  assertCurrentSession(token);
   const headers = new Headers(options.headers);
 
   if (token) {
     headers.set("Authorization", `Bearer ${token}`);
   }
 
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+  const response = await fetchForSession(token, `${API_BASE_URL}${path}`, {
     ...options,
     headers,
   });
 
+  assertCurrentSession(token);
   if (!response.ok) {
-    throw await buildRequestError(response, Boolean(token));
+    throw await buildRequestError(response, token);
   }
 
-  return response.json();
+  const result = await response.json();
+  assertCurrentSession(token);
+  return result;
 }
 
-async function buildRequestError(response: Response, authenticatedRequest: boolean) {
+async function buildRequestError(response: Response, token: string) {
   const message = await readErrorMessage(response);
+  assertCurrentSession(token);
 
-  if (authenticatedRequest && response.status === 401) {
+  if (token && response.status === 401) {
     emitAuthExpired(message);
     return new AuthExpiredError(message || "登录失效，需要重新登录");
   }
@@ -2374,7 +2517,7 @@ export async function sendChatStream(
   attachments: ChatAttachment[] = [],
   signal?: AbortSignal,
 ) {
-  const response = await fetch(`${API_BASE_URL}/chat/stream`, {
+  const response = await fetchForSession(token, `${API_BASE_URL}/chat/stream`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${token}`,
@@ -2389,7 +2532,7 @@ export async function sendChatStream(
   });
 
   if (!response.ok) {
-    throw await buildRequestError(response, true);
+    throw await buildRequestError(response, token);
   }
 
   if (!response.body) {
@@ -2403,6 +2546,7 @@ export async function sendChatStream(
   try {
     while (true) {
       const { done, value } = await reader.read();
+      assertCurrentSession(token);
 
       if (done) {
         break;
@@ -2422,6 +2566,9 @@ export async function sendChatStream(
     if (buffer.trim()) {
       dispatchStreamEvent(buffer, handlers);
     }
+  } catch (error) {
+    assertCurrentSession(token);
+    throw error;
   } finally {
     try {
       await reader.cancel();
@@ -2444,6 +2591,17 @@ export async function confirmEnterpriseWechatFileSend(
       },
       body: JSON.stringify(payload),
     },
+    token,
+  );
+}
+
+export async function confirmEmailFileSend(
+  token: string,
+  payload: EmailFileSendConfirmPayload,
+): Promise<EmailFileSendConfirmResponse> {
+  return requestJson<EmailFileSendConfirmResponse>(
+    "/automation/files/email-send/confirm",
+    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) },
     token,
   );
 }
@@ -2745,6 +2903,12 @@ export async function reviewApproval(token: string, approvalId: string, approved
       body: JSON.stringify({ approved }),
     },
     token,
+  );
+}
+
+export async function retryRefundApproval(token: string, approvalId: string) {
+  return requestJson<Record<string, unknown>>(
+    `/approvals/${approvalId}/refund/retry`, { method: "POST" }, token,
   );
 }
 
@@ -3063,6 +3227,30 @@ export async function rollbackAutomationFlowPublication(
   );
 }
 
+export type CompetitorProduct = {
+  sku: string; name: string; specification: string; currency: string;
+  own_price_cents: number; lowest_competitor_cents: number; gap_cents: number; gap_percent: number;
+  competitors: { id: string; name: string; price_cents: number; heat_score: number; source_label: string; source_url: string | null }[];
+};
+export type CompetitorSnapshot = {
+  id: string; run_id: string; trigger_type: 'manual' | 'schedule'; scheduled_for: string | null; captured_at: string;
+  provider: 'mock'; is_mock: boolean; currency: string; marketplace: string; products: CompetitorProduct[];
+  summary: { product_count: number; competitor_count: number; above_lowest_count: number }; notice: string;
+};
+export type CompetitorMonitorData = {
+  provider: 'mock'; latest: CompetitorSnapshot | null; history: CompetitorSnapshot[];
+  schedule: { timezone: string; times: string[]; next_run_at: string | null; completed_today: number; scheduler_healthy: boolean; status_label: string };
+  official_api: { status: 'not_connected'; label: string };
+};
+
+export function getCompetitorMonitor(token: string) {
+  return requestJson<CompetitorMonitorData>('/competitor-monitor', {}, token);
+}
+
+export function analyzeCompetitorPrices(token: string) {
+  return requestJson<CompetitorSnapshot>('/competitor-monitor/analyze', { method: 'POST' }, token);
+}
+
 export async function listAiWorkflows(token: string) {
   return requestJson<AiWorkflowsResponse>("/ai-workflows", {}, token);
 }
@@ -3221,7 +3409,7 @@ export async function retryPlatformExecutionTask(token: string, taskId: string) 
 
 export async function listNotifications(
   token: string,
-  filters: { status?: NotificationStatus | "all" | string; limit?: number } = {},
+  filters: { status?: NotificationStatus | "all" | string; limit?: number; offset?: number } = {},
 ) {
   const params = new URLSearchParams();
 
@@ -3229,6 +3417,7 @@ export async function listNotifications(
     params.set("status", filters.status);
   }
   params.set("limit", String(filters.limit || 80));
+  params.set("offset", String(filters.offset ?? 0));
 
   return requestJson<NotificationsResponse>(`/notifications?${params}`, {}, token);
 }
@@ -3488,17 +3677,18 @@ export async function transformFinanceExcel(
   const headers = new Headers();
   headers.set("Authorization", `Bearer ${token}`);
 
-  const response = await fetch(`${API_BASE_URL}/automation/finance/excel-transform`, {
+  const response = await fetchForSession(token, `${API_BASE_URL}/automation/finance/excel-transform`, {
     method: "POST",
     headers,
     body: formData,
   });
 
   if (!response.ok) {
-    throw await buildRequestError(response, true);
+    throw await buildRequestError(response, token);
   }
 
   const blob = await response.blob();
+  assertCurrentSession(token);
   const disposition = response.headers.get("content-disposition") || "";
 
   return {
@@ -3524,17 +3714,18 @@ export async function analyzeFinanceReport(
   const headers = new Headers();
   headers.set("Authorization", `Bearer ${token}`);
 
-  const response = await fetch(`${API_BASE_URL}/automation/finance/report-analysis`, {
+  const response = await fetchForSession(token, `${API_BASE_URL}/automation/finance/report-analysis`, {
     method: "POST",
     headers,
     body: formData,
   });
 
   if (!response.ok) {
-    throw await buildRequestError(response, true);
+    throw await buildRequestError(response, token);
   }
 
   const blob = await response.blob();
+  assertCurrentSession(token);
   const disposition = response.headers.get("content-disposition") || "";
   const fallback = outputFormat === "word" ? "finance_report_analysis.docx" : "finance_report_analysis.xlsx";
 
@@ -3549,7 +3740,7 @@ export async function exportFinanceSalary(
   token: string,
   messageText: string,
 ) {
-  const response = await fetch(`${API_BASE_URL}/automation/finance/salary-export`, {
+  const response = await fetchForSession(token, `${API_BASE_URL}/automation/finance/salary-export`, {
     method: "POST",
     headers: {
       "Authorization": `Bearer ${token}`,
@@ -3561,10 +3752,11 @@ export async function exportFinanceSalary(
   });
 
   if (!response.ok) {
-    throw await buildRequestError(response, true);
+    throw await buildRequestError(response, token);
   }
 
   const blob = await response.blob();
+  assertCurrentSession(token);
   const disposition = response.headers.get("content-disposition") || "";
 
   return {
@@ -3590,18 +3782,26 @@ export async function listGeneratedFiles(
   return requestJson<GeneratedFilesResponse>(`/files?${params}`, {}, token);
 }
 
+export async function generateProductScene(token: string, file: File, prompt: string): Promise<ProductSceneResponse> {
+  const body = new FormData();
+  body.append("file", file);
+  body.append("prompt", prompt);
+  return requestJson<ProductSceneResponse>("/operations/images/generate", { method: "POST", body }, token);
+}
+
 export async function downloadGeneratedFile(token: string, artifactId: string) {
-  const response = await fetch(`${API_BASE_URL}/files/${encodeURIComponent(artifactId)}/download`, {
+  const response = await fetchForSession(token, `${API_BASE_URL}/files/${encodeURIComponent(artifactId)}/download`, {
     headers: {
       Authorization: `Bearer ${token}`,
     },
   });
 
   if (!response.ok) {
-    throw await buildRequestError(response, true);
+    throw await buildRequestError(response, token);
   }
 
   const blob = await response.blob();
+  assertCurrentSession(token);
   const disposition = response.headers.get("content-disposition") || "";
   return {
     blob,
@@ -3618,22 +3818,46 @@ export function getDesktopReleaseDownloadUrl(platform: DesktopPlatform) {
 }
 
 export async function downloadDesktopRelease(token: string, platform: DesktopPlatform) {
-  const response = await fetch(`${API_BASE_URL}/desktop-downloads/${encodeURIComponent(platform)}/download`, {
+  const response = await fetchForSession(token, `${API_BASE_URL}/desktop-downloads/${encodeURIComponent(platform)}/download`, {
     headers: {
       Authorization: `Bearer ${token}`,
     },
   });
 
   if (!response.ok) {
-    throw await buildRequestError(response, true);
+    throw await buildRequestError(response, token);
   }
 
   const blob = await response.blob();
+  assertCurrentSession(token);
   const disposition = response.headers.get("content-disposition") || "";
   return {
     blob,
     filename: parseDownloadFilename(disposition) || `enterprise-internal-workbench-${platform}`,
   };
+}
+
+export type BackgroundJob = {
+  id: string; kind: string; status: 'queued' | 'running' | 'succeeded' | 'failed';
+  result: { artifact_id?: string; run_id?: string }; error_code: string | null;
+  attempt_count: number; max_attempts: number; next_attempt_at: string | null;
+  created_at: string; started_at: string | null; finished_at: string | null;
+};
+
+export async function listBackgroundJobs(token: string, signal?: AbortSignal) {
+  return requestJson<{ items: BackgroundJob[] }>("/jobs?limit=50", { signal }, token);
+}
+
+export async function submitFinanceReconciliationJob(
+  token: string, files: File[], instruction: string, baseCurrency: string, idempotencyKey: string,
+) {
+  const body = new FormData();
+  files.forEach((file) => body.append('files', file));
+  body.append('instruction', instruction.trim());
+  body.append('base_currency', baseCurrency);
+  return requestJson<{ id: string; status: BackgroundJob['status']; reused: boolean }>(
+    '/jobs/finance-reconciliation', { method: 'POST', headers: { 'Idempotency-Key': idempotencyKey }, body }, token,
+  );
 }
 
 export async function reconcileFinanceFiles(
@@ -3653,17 +3877,18 @@ export async function reconcileFinanceFiles(
   const headers = new Headers();
   headers.set("Authorization", `Bearer ${token}`);
 
-  const response = await fetch(`${API_BASE_URL}/automation/finance/reconciliation`, {
+  const response = await fetchForSession(token, `${API_BASE_URL}/automation/finance/reconciliation`, {
     method: "POST",
     headers,
     body: formData,
   });
 
   if (!response.ok) {
-    throw await buildRequestError(response, true);
+    throw await buildRequestError(response, token);
   }
 
   const blob = await response.blob();
+  assertCurrentSession(token);
   const disposition = response.headers.get("content-disposition") || "";
 
   return {

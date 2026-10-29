@@ -1,0 +1,13 @@
+# Apply after docker-compose.yml and docker-compose.local.yml.
+services:
+  rabbitmq:
+    environment:
+      RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: "+S 2:2"
+  api:
+    image: company-rag-agent-api:crossborder-local
+  worker:
+    image: company-rag-agent-api:crossborder-local
+    environment:
+      CELERY_WORKER_CONCURRENCY: "1"
+  beat:
+    image: company-rag-agent-api:crossborder-local

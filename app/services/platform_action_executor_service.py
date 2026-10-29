@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import time
 from datetime import datetime, timezone
 from typing import Any
 from urllib.error import HTTPError, URLError
@@ -11,13 +12,15 @@ from urllib.request import Request
 from fastapi import HTTPException, status
 
 from app.config import settings
-from app.db import execute, fetch_one
+from app.db import execute, fetch_one, transaction
 from app.json_utils import dumps_json
 from app.services.logging_service import write_audit_log
+from app.services.customer_reply_contract import customer_reply_external_content
 from app.services.notification_service import notify_user_and_admins
 from app.services.platform_action_executor_config_service import resolve_platform_action_executor
 from app.services.platform_action_security_service import open_platform_action_request
 from app.services.platform_draft_service import (
+    claim_platform_execution_callback,
     create_platform_action_execution,
     create_platform_execution_task,
     finish_platform_action_execution,
@@ -221,6 +224,13 @@ def execute_platform_draft_action(
             latest_execution_id=execution["id"],
             target=executor_config["webhook_url"],
         )
+        payload["execution_task"] = {
+            **(payload.get("execution_task") or {}),
+            "callback_token": task["callback_token"],
+            "attempt_count": task["attempt_count"],
+            "execution_id": execution["id"],
+        }
+        task = update_platform_execution_task_payload(task_id=task["id"], request_payload=payload)
         record_step(
             run_id=run_id,
             step_name="webhook_prepare_payload",
@@ -237,27 +247,18 @@ def execute_platform_draft_action(
         webhook_started_ms = now_ms()
         response_payload = _post_executor_webhook(payload, executor_config=executor_config)
         if _is_async_executor_response(response_payload):
-            task = mark_platform_execution_task_waiting_callback(
-                task_id=task["id"],
-                response_payload=response_payload,
-                external_reference=_external_reference(response_payload),
+            task, updated_draft, message = _record_async_dispatch(
+                task=task, draft=draft, execution=execution,
+                response_payload=response_payload, action_type=action_type,
+                final_publish=final_publish, executor_config=executor_config,
             )
-            message = _waiting_callback_message(draft, response_payload, action_type=action_type)
-            updated_draft = update_platform_draft_writeback(
-                draft_id=draft_id,
-                writeback_status="rpa_ready",
-                writeback_message=message,
-                metadata={
-                    "latest_execution_id": execution["id"],
-                    "latest_execution_status": execution["status"],
-                    "latest_action_type": action_type,
-                    "latest_execution_task_id": task["id"],
-                    "latest_execution_task_status": task["status"],
-                    "executor_configured": True,
-                    "external_reference": task["external_reference"],
-                    **_publication_metadata(execution, final_publish=final_publish, status_text="waiting_callback"),
-                },
-            )
+            if task is None:
+                return _completed_dispatch_result(
+                    task_id=payload["execution_task"]["id"],
+                    callback_token=payload["execution_task"]["callback_token"],
+                    run_id=run_id,
+                    current_user=current_user,
+                )
             record_step(
                 run_id=run_id,
                 step_name="webhook_dispatch_waiting_callback",
@@ -298,16 +299,25 @@ def execute_platform_draft_action(
                 "message": message,
             }
 
-        execution = finish_platform_action_execution(
-            execution_id=execution["id"],
-            status_value="succeeded",
-            response_payload=response_payload,
-        )
         task = finish_platform_execution_task(
             task_id=task["id"],
             status_value="succeeded",
             response_payload=response_payload,
             external_reference=_external_reference(response_payload),
+            expected_status="dispatching",
+            expected_execution_id=execution["id"],
+            metadata={"dispatch_processing_at": _now_iso()},
+        )
+        if task is None:
+            return _completed_dispatch_result(
+                task_id=payload["execution_task"]["id"],
+                callback_token=payload["execution_task"]["callback_token"],
+                run_id=run_id, current_user=current_user,
+            )
+        execution = finish_platform_action_execution(
+            execution_id=execution["id"],
+            status_value="succeeded",
+            response_payload=response_payload,
         )
         updated_draft = update_platform_draft_writeback(
             draft_id=draft_id,
@@ -385,6 +395,7 @@ def execute_platform_draft_action(
             title=_success_notification_title(action_type),
             body=updated_draft["writeback_message"] or _success_message(draft, response_payload, action_type=action_type),
         )
+        _mark_dispatch_effects_completed(task)
         return {
             "draft": updated_draft,
             "execution": _without_callback_token(execution, current_user=current_user),
@@ -392,10 +403,13 @@ def execute_platform_draft_action(
             "run_id": run_id,
             "message": updated_draft["writeback_message"],
         }
+    except HTTPException:
+        raise
     except Exception as error:
+        if task.get("status") in {"succeeded", "waiting_callback"}:
+            raise HTTPException(status_code=503, detail="外部执行已接受或完成，但本地收尾未完成，请核查任务") from error
         message = sanitize_text(str(error))
-        execution = finish_platform_action_execution(
-            execution_id=execution["id"] if "execution" in locals() else create_platform_action_execution(
+        execution_id = execution["id"] if "execution" in locals() else create_platform_action_execution(
                 draft_id=draft_id,
                 action_type=action_type,
                 executor_type=str(executor_config["executor_type"]),
@@ -405,18 +419,28 @@ def execute_platform_draft_action(
                 response_payload={},
                 run_id=run_id,
                 triggered_by=current_user.get("id"),
-            )["id"],
-            status_value="failed",
-            response_payload={},
-            error_message=message,
-        )
+            )["id"]
         if "task" in locals():
-            task = finish_platform_execution_task(
+            finished_task = finish_platform_execution_task(
                 task_id=task["id"],
                 status_value="failed",
                 response_payload={},
                 error_message=message,
+                expected_status=task["status"],
+                expected_execution_id=task.get("latest_execution_id"),
+                metadata={"dispatch_processing_at": _now_iso()},
             )
+            if finished_task is None:
+                return _completed_dispatch_result(
+                    task_id=payload["execution_task"]["id"],
+                    callback_token=payload["execution_task"]["callback_token"],
+                    run_id=run_id, current_user=current_user,
+                )
+            task = finished_task
+        execution = finish_platform_action_execution(
+            execution_id=execution_id, status_value="failed",
+            response_payload={}, error_message=message,
+        )
         updated_draft = update_platform_draft_writeback(
             draft_id=draft_id,
             writeback_status="failed",
@@ -460,6 +484,7 @@ def execute_platform_draft_action(
                 title="外部执行任务失败",
                 body=updated_draft["writeback_message"] or f"外部执行失败：{message}",
             )
+            _mark_dispatch_effects_completed(task)
         return {
             "draft": updated_draft,
             "execution": _without_callback_token(execution, current_user=current_user),
@@ -590,6 +615,9 @@ def handle_platform_execution_callback(
     *,
     task_id: str,
     callback_token: str,
+    attempt_count: int,
+    execution_id: str,
+    external_event_id: str,
     status_value: str,
     response_payload: dict[str, Any] | None = None,
     external_reference: str | None = None,
@@ -608,9 +636,14 @@ def handle_platform_execution_callback(
     )
     task = get_platform_execution_task_by_token(task_id=task_id, callback_token=callback_token)
     if task is None:
+        _audit_rejected_callback(task_id=task_id, reason="invalid_or_stale_token")
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="执行任务不存在或回调 token 无效")
-    if task["status"] not in {"dispatching", "waiting_callback"}:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="执行任务当前状态不接受回调")
+    if task["attempt_count"] != attempt_count or task["latest_execution_id"] != execution_id:
+        _audit_rejected_callback(task_id=task_id, reason="stale_attempt_or_execution", task=task)
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="回调 attempt 或 execution ID 已失效")
+    if task["status"] in {"queued", "cancelled"}:
+        _audit_rejected_callback(task_id=task_id, reason="task_not_callback_ready", task=task)
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="执行任务当前状态不接受回调")
 
     normalized_status = status_value.strip().lower()
     if normalized_status not in {"succeeded", "failed"}:
@@ -618,23 +651,56 @@ def handle_platform_execution_callback(
 
     payload = response_payload or {}
     external_ref = external_reference or _external_reference(payload)
+    event_body = {
+        "callback_token": callback_token,
+        "attempt_count": attempt_count,
+        "execution_id": execution_id,
+        "external_event_id": external_event_id,
+        "status": normalized_status,
+        "response_payload": payload,
+        "external_reference": external_ref,
+        "message": message,
+    }
+    body_hash = hashlib.sha256(
+        json.dumps(event_body, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    ).hexdigest()
+    event = fetch_one(
+        """
+        INSERT INTO platform_execution_callback_events
+            (task_id, attempt_count, external_event_id, body_hash)
+        VALUES (%s, %s, %s, %s)
+        ON CONFLICT (task_id, attempt_count, external_event_id)
+        DO UPDATE SET body_hash = platform_execution_callback_events.body_hash
+        RETURNING id, body_hash, outcome;
+        """,
+        (task_id, attempt_count, external_event_id, body_hash),
+    )
+    if event[1] != body_hash:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="回调事件 ID 对应不同请求体")
+
+    task = claim_platform_execution_callback(
+        task_id=task_id,
+        callback_token=callback_token,
+        attempt_count=attempt_count,
+        execution_id=execution_id,
+        status_value=normalized_status,
+        response_payload=payload,
+        external_reference=external_ref,
+        error_message=sanitize_text(message) if normalized_status == "failed" and message else None,
+    )
+    if task is None:
+        execute("UPDATE platform_execution_callback_events SET outcome = 'ignored' WHERE id = %s AND outcome = 'received'", (event[0],))
+        return _completed_callback_result(task_id=task_id, callback_token=callback_token)
+
     execution = None
-    if task.get("latest_execution_id"):
+    if execution_id:
         execution = finish_platform_action_execution(
-            execution_id=task["latest_execution_id"],
+            execution_id=execution_id,
             status_value=normalized_status,
             response_payload=payload,
             error_message=sanitize_text(message) if normalized_status == "failed" and message else None,
         )
 
-    task = finish_platform_execution_task(
-        task_id=task_id,
-        status_value=normalized_status,
-        response_payload=payload,
-        external_reference=external_ref,
-        error_message=sanitize_text(message) if normalized_status == "failed" and message else None,
-        metadata={"callback_received_at": _now_iso()},
-    )
     system_user = {
         "id": task.get("requested_by"),
         "username": "external_executor_callback",
@@ -715,12 +781,119 @@ def handle_platform_execution_callback(
             "external_reference": external_ref,
         },
     )
+    execute(
+        """
+        UPDATE platform_execution_tasks
+        SET metadata = metadata || jsonb_build_object('callback_effects_completed_at', now())
+        WHERE id = %s AND callback_token = %s AND attempt_count = %s
+          AND latest_execution_id = %s;
+        """,
+        (task_id, callback_token, attempt_count, execution_id),
+    )
+    execute("UPDATE platform_execution_callback_events SET outcome = 'applied' WHERE id = %s", (event[0],))
+    task = get_platform_execution_task_by_token(task_id=task_id, callback_token=callback_token)
     return {
         "task": _without_callback_token(task, current_user={"role": "system"}),
         "draft": updated_draft,
         "execution": _without_callback_token(execution, current_user={"role": "system"}) if execution else None,
         "message": updated_draft["writeback_message"],
     }
+
+
+def _completed_callback_result(*, task_id: str, callback_token: str) -> dict[str, Any]:
+    deadline = time.monotonic() + 3
+    while True:
+        task = get_platform_execution_task_by_token(task_id=task_id, callback_token=callback_token)
+        if task is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="回调 token 已失效")
+        metadata = task.get("metadata") or {}
+        if task["status"] in {"succeeded", "failed"} and (
+            metadata.get("callback_effects_completed_at")
+            or metadata.get("dispatch_effects_completed_at")
+            or not (metadata.get("callback_received_at") or metadata.get("dispatch_processing_at"))
+        ):
+            draft = get_platform_draft(draft_id=task["draft_id"], current_user={"role": "admin"})
+            if draft is None:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="平台草稿不存在")
+            executions = list_platform_action_executions(
+                draft_id=task["draft_id"], current_user={"role": "admin"}, limit=100,
+            )
+            execution = next((item for item in executions if item["id"] == task["latest_execution_id"]), None)
+            return {
+                "task": _without_callback_token(task, current_user={"role": "system"}),
+                "draft": draft,
+                "execution": _without_callback_token(execution, current_user={"role": "system"}),
+                "message": draft.get("writeback_message"),
+            }
+        if time.monotonic() >= deadline:
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="回调结果仍在处理，请稍后重试")
+        time.sleep(0.05)
+
+
+def _completed_dispatch_result(
+    *, task_id: str, callback_token: str, run_id: str, current_user: dict,
+) -> dict[str, Any]:
+    result = _completed_callback_result(task_id=task_id, callback_token=callback_token)
+    return _public_execution_result({**result, "run_id": run_id, "current_user": current_user})
+
+
+def _mark_dispatch_effects_completed(task: dict[str, Any]) -> None:
+    execute(
+        """
+        UPDATE platform_execution_tasks
+        SET metadata = metadata || jsonb_build_object('dispatch_effects_completed_at', now())
+        WHERE id = %s AND callback_token = %s AND attempt_count = %s AND status = %s;
+        """,
+        (task["id"], task["callback_token"], task["attempt_count"], task["status"]),
+    )
+
+
+def _record_async_dispatch(
+    *, task: dict[str, Any], draft: dict[str, Any], execution: dict[str, Any],
+    response_payload: dict[str, Any], action_type: str, final_publish: bool,
+    executor_config: dict[str, Any],
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None, str | None]:
+    # Hold the task row lock through the draft writeback. An early callback
+    # either waits for this commit or wins before this transaction begins.
+    with transaction() as conn:
+        waiting_task = mark_platform_execution_task_waiting_callback(
+            task_id=task["id"], latest_execution_id=execution["id"],
+            attempt_count=task["attempt_count"], response_payload=response_payload,
+            external_reference=_external_reference(response_payload), conn=conn,
+        )
+        if waiting_task is None:
+            return None, None, None
+        message = _waiting_callback_message(draft, response_payload, action_type=action_type)
+        updated_draft = update_platform_draft_writeback(
+            draft_id=draft["id"], writeback_status="rpa_ready",
+            writeback_message=message,
+            metadata={
+                "latest_execution_id": execution["id"],
+                "latest_execution_status": execution["status"],
+                "latest_action_type": action_type,
+                "latest_execution_task_id": waiting_task["id"],
+                "latest_execution_task_status": waiting_task["status"],
+                "executor_configured": True,
+                "executor_id": executor_config.get("id"),
+                "executor_name": executor_config.get("name"),
+                "external_reference": waiting_task["external_reference"],
+                **_publication_metadata(execution, final_publish=final_publish, status_text="waiting_callback"),
+            },
+            conn=conn,
+        )
+        return waiting_task, updated_draft, message
+
+
+def _audit_rejected_callback(*, task_id: str, reason: str, task: dict[str, Any] | None = None) -> None:
+    task = task or get_platform_execution_task(task_id=task_id, current_user={"role": "admin"})
+    if task:
+        write_audit_log(
+            user_id=task.get("requested_by"),
+            action="platform_execution.callback_rejected",
+            resource_type="platform_execution_task",
+            resource_id=task_id,
+            metadata={"reason": reason, "attempt_count": task.get("attempt_count")},
+        )
 
 
 def latest_platform_action_executions(
@@ -756,6 +929,9 @@ def _dispatch_platform_execution_task(
             "executor_name": (executor_config or {}).get("name"),
         },
     }
+    if draft["draft_type"] == "customer_reply":
+        # Validate the saved content, preserving the approved version on retry.
+        payload = _customer_reply_executor_payload(payload)
     started_ms = now_ms()
     run_id = start_run(
         run_type="platform_publish_execution" if final_publish else "platform_action_execution",
@@ -865,32 +1041,29 @@ def _dispatch_platform_execution_task(
             task_id=task["id"],
             latest_execution_id=execution["id"],
             target=executor_config["webhook_url"],
+            rotate_callback_token=trigger_source == "retry",
         )
+        payload["execution_task"] = {
+            **(payload.get("execution_task") or {}),
+            "callback_token": task["callback_token"],
+            "attempt_count": task["attempt_count"],
+            "execution_id": execution["id"],
+        }
+        task = update_platform_execution_task_payload(task_id=task["id"], request_payload=payload)
         response_payload = _post_executor_webhook(payload, executor_config=executor_config)
         if _is_async_executor_response(response_payload):
-            task = mark_platform_execution_task_waiting_callback(
-                task_id=task["id"],
-                response_payload=response_payload,
-                external_reference=_external_reference(response_payload),
+            task, updated_draft, message = _record_async_dispatch(
+                task=task, draft=draft, execution=execution,
+                response_payload=response_payload, action_type=action_type,
+                final_publish=final_publish, executor_config=executor_config,
             )
-            message = _waiting_callback_message(draft, response_payload, action_type=action_type)
-            updated_draft = update_platform_draft_writeback(
-                draft_id=draft["id"],
-                writeback_status="rpa_ready",
-                writeback_message=message,
-                metadata={
-                    "latest_execution_id": execution["id"],
-                    "latest_execution_status": execution["status"],
-                    "latest_action_type": action_type,
-                    "latest_execution_task_id": task["id"],
-                    "latest_execution_task_status": task["status"],
-                    "executor_configured": True,
-                    "executor_id": executor_config["id"],
-                    "executor_name": executor_config["name"],
-                    "external_reference": task["external_reference"],
-                    **_publication_metadata(execution, final_publish=final_publish, status_text="waiting_callback"),
-                },
-            )
+            if task is None:
+                return _completed_dispatch_result(
+                    task_id=payload["execution_task"]["id"],
+                    callback_token=payload["execution_task"]["callback_token"],
+                    run_id=run_id,
+                    current_user=current_user,
+                )
             record_step(
                 run_id=run_id,
                 step_name="webhook_dispatch_waiting_callback",
@@ -928,16 +1101,25 @@ def _dispatch_platform_execution_task(
                 "current_user": current_user,
             })
 
-        execution = finish_platform_action_execution(
-            execution_id=execution["id"],
-            status_value="succeeded",
-            response_payload=response_payload,
-        )
         task = finish_platform_execution_task(
             task_id=task["id"],
             status_value="succeeded",
             response_payload=response_payload,
             external_reference=_external_reference(response_payload),
+            expected_status="dispatching",
+            expected_execution_id=execution["id"],
+            metadata={"dispatch_processing_at": _now_iso()},
+        )
+        if task is None:
+            return _completed_dispatch_result(
+                task_id=payload["execution_task"]["id"],
+                callback_token=payload["execution_task"]["callback_token"],
+                run_id=run_id, current_user=current_user,
+            )
+        execution = finish_platform_action_execution(
+            execution_id=execution["id"],
+            status_value="succeeded",
+            response_payload=response_payload,
         )
         updated_draft = update_platform_draft_writeback(
             draft_id=draft["id"],
@@ -998,6 +1180,7 @@ def _dispatch_platform_execution_task(
             title=_success_notification_title(action_type),
             body=updated_draft["writeback_message"] or "外部执行任务已完成。",
         )
+        _mark_dispatch_effects_completed(task)
         return _public_execution_result({
             "draft": updated_draft,
             "execution": execution,
@@ -1006,10 +1189,13 @@ def _dispatch_platform_execution_task(
             "message": updated_draft["writeback_message"],
             "current_user": current_user,
         })
+    except HTTPException:
+        raise
     except Exception as error:
+        if task.get("status") in {"succeeded", "waiting_callback"}:
+            raise HTTPException(status_code=503, detail="外部执行已接受或完成，但本地收尾未完成，请核查任务") from error
         message = sanitize_text(str(error))
-        execution = finish_platform_action_execution(
-            execution_id=execution["id"] if "execution" in locals() else create_platform_action_execution(
+        execution_id = execution["id"] if "execution" in locals() else create_platform_action_execution(
                 draft_id=draft["id"],
                 action_type=action_type,
                 executor_type=str(executor_config["executor_type"]),
@@ -1019,16 +1205,26 @@ def _dispatch_platform_execution_task(
                 response_payload={},
                 run_id=run_id,
                 triggered_by=current_user.get("id"),
-            )["id"],
-            status_value="failed",
-            response_payload={},
-            error_message=message,
-        )
-        task = finish_platform_execution_task(
+            )["id"]
+        finished_task = finish_platform_execution_task(
             task_id=task["id"],
             status_value="failed",
             response_payload={},
             error_message=message,
+            expected_status=task["status"],
+            expected_execution_id=task.get("latest_execution_id"),
+            metadata={"dispatch_processing_at": _now_iso()},
+        )
+        if finished_task is None:
+            return _completed_dispatch_result(
+                task_id=payload["execution_task"]["id"],
+                callback_token=payload["execution_task"]["callback_token"],
+                run_id=run_id, current_user=current_user,
+            )
+        task = finished_task
+        execution = finish_platform_action_execution(
+            execution_id=execution_id, status_value="failed",
+            response_payload={}, error_message=message,
         )
         updated_draft = update_platform_draft_writeback(
             draft_id=draft["id"],
@@ -1072,6 +1268,7 @@ def _dispatch_platform_execution_task(
             title="外部执行任务重试失败",
             body=updated_draft["writeback_message"] or f"外部执行任务重试失败：{message}",
         )
+        _mark_dispatch_effects_completed(task)
         return _public_execution_result({
             "draft": updated_draft,
             "execution": execution,
@@ -1158,29 +1355,8 @@ def _verify_callback_signature(
     expected = "sha256=" + hmac.new(secret.encode("utf-8"), signing_text.encode("utf-8"), hashlib.sha256).hexdigest()
     if not hmac.compare_digest(expected, signature.strip()):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="回调签名无效")
-    _remember_callback_nonce(task_id=task_id, nonce=nonce)
-
-
-def _remember_callback_nonce(*, task_id: str, nonce: str) -> None:
-    if not nonce or len(nonce) > 160:
+    if len(nonce) > 160:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="回调 nonce 无效")
-    row = fetch_one(
-        """
-        UPDATE platform_execution_tasks
-        SET
-            metadata = metadata || jsonb_build_object(
-                'callback_nonces',
-                COALESCE(metadata->'callback_nonces', '[]'::jsonb) || to_jsonb(%s::text)
-            ),
-            updated_at = now()
-        WHERE id = %s
-          AND NOT (COALESCE(metadata->'callback_nonces', '[]'::jsonb) ? %s)
-        RETURNING id;
-        """,
-        (nonce, task_id, nonce),
-    )
-    if row is None:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="回调 nonce 已使用或任务不存在")
 
 
 def _build_executor_payload(
@@ -1190,7 +1366,7 @@ def _build_executor_payload(
     current_user: dict,
     final_publish: bool,
 ) -> dict[str, Any]:
-    return {
+    payload = {
         "action_type": action_type,
         "action_phase": "publish_or_send" if final_publish else "draft_writeback",
         "draft_id": draft["id"],
@@ -1210,6 +1386,19 @@ def _build_executor_payload(
             "position": current_user.get("position"),
         },
     }
+    return _customer_reply_executor_payload(payload) if draft["draft_type"] == "customer_reply" else payload
+
+
+def _customer_reply_executor_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    try:
+        content = customer_reply_external_content(payload.get("content") or {})
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(error)) from error
+    keys = ("action_type", "action_phase", "draft_id", "draft_type", "platform",
+            "external_target", "position", "status", "writeback_status",
+            "triggered_by", "execution_task", "retry")
+    return {**{key: payload[key] for key in keys if key in payload},
+            "content": content, "metadata": {}, "title": "客服回复"}
 
 
 def _action_type_for_draft(draft: dict[str, Any], *, final_publish: bool = False) -> str:

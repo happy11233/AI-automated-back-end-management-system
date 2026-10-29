@@ -1,3 +1,4 @@
+from app.observability import observed
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 
@@ -80,6 +81,7 @@ def build_citations(chunks: list[dict]) -> list[dict]:
     return citations
 
 
+@observed('rag.answer', 'chain')
 def answer_question(
     question: str,
     role: str,

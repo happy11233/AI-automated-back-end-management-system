@@ -4,6 +4,7 @@ import re
 from pydantic import BaseModel, Field
 from langchain_core.prompts import ChatPromptTemplate
 from app.llm import chat_model
+from app.services.chat_intent_guard_service import is_policy_information_request, is_data_query, is_social_request, refund_case_kind
 
 
 class IntentResult(BaseModel):
@@ -69,6 +70,14 @@ def _classify_by_rules(user_input: str) -> str | None:
     text = user_input.strip().lower()
     if not text:
         return None
+    if is_policy_information_request(text):
+        return "policy"
+    if is_social_request(text):
+        return "chitchat"
+    if refund_case_kind(text):
+        return "refund"
+    if is_data_query(text):
+        return "order" if "订单" in text and not any(word in text for word in ("销售订单", "订单列表", "所有订单")) else "erp"
 
     refund_phrases = [
         "申请退款",

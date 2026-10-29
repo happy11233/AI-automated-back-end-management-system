@@ -1,0 +1,79 @@
+name: Production foundations
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  backend-contracts:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci-only-service-password
+          POSTGRES_DB: company_rag_verification
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U ci -d company_rag_verification"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: --health-cmd "redis-cli ping" --health-interval 5s --health-timeout 3s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+      - run: >-
+          pip install fastapi uvicorn pydantic pydantic-settings python-dotenv
+          'psycopg[binary,pool]' 'langsmith>=0.10,<1' 'redis>=5,<7'
+          'celery>=5.6,<5.7' 'boto3>=1.35,<2' 'prometheus-client>=0.21,<1'
+      - name: Compile, validate migrations and production primitives
+        env:
+          DATABASE_URL: postgresql://ci:ci-only-service-password@localhost:5432/company_rag_verification
+          VECTOR_DATABASE_URL: postgresql+psycopg://ci:ci-only-service-password@localhost:5432/company_rag_verification
+          REDIS_URL: redis://localhost:6379/0
+          REDIS_KEY_PREFIX: ci-verification
+          DASHSCOPE_API_KEY: unused-ci
+          JWT_SECRET_KEY: ci-only-do-not-deploy-this-key
+          LANGSMITH_TRACING: 'false'
+        run: |
+          python -m compileall -q app scripts
+          python - <<'PY'
+          import os, psycopg
+          with psycopg.connect(os.environ['DATABASE_URL']) as conn:
+              conn.execute('CREATE EXTENSION IF NOT EXISTS vector')
+              conn.execute('CREATE EXTENSION IF NOT EXISTS pgcrypto')
+          PY
+          python scripts/verify_sql_migrations.py --mode all
+          python scripts/verify_production_foundations.py --redis
+          bash -n scripts/backup_database.sh
+      - name: Validate production Compose
+        env:
+          RABBITMQ_PASSWORD: ci-only-url-safe-password
+          POSTGRES_PASSWORD: ci-only-url-safe-database-password
+          JWT_SECRET_KEY: ci-only-secret-with-at-least-thirty-two-characters
+          METRICS_TOKEN: ci-only-metrics-token-with-at-least-thirty-two-characters
+          PLATFORM_ACTION_EXECUTION_CALLBACK_SECRET: ci-only-callback-secret-with-at-least-thirty-two-characters
+        run: |
+          cp .env.example .env
+          docker compose -f docker-compose.yml -f docker-compose.production.yml config --quiet
+  frontend-build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run build
+      - name: Verify lazy entry boundaries and bundle budgets
+        working-directory: .
+        run: node scripts/verify_frontend_bundle.mjs

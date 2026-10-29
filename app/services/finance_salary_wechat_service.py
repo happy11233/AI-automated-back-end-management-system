@@ -21,7 +21,7 @@ from app.services.finance_salary_service import (
     SalaryExportIntent,
     recognize_salary_export_intent,
 )
-from app.services.mcp_tool_registry_service import execute_managed_mcp_tool
+from app.services.mcp_tool_registry_service import execute_managed_mcp_tool, issue_managed_mcp_approval
 
 
 FINANCE_WECHAT_BUSINESS_STATUSES = {
@@ -964,23 +964,30 @@ def _waiting_for_tagui_mac(base: dict[str, Any], *, current_user: dict) -> dict[
                 str(artifact_id),
                 current_user=current_user,
             )
-            local_file_path = storage_reference["storage_path"]
+            from app.artifact_storage import materialize_artifact
+            local_file_path = materialize_artifact(storage_reference['storage_path'])
         except Exception as error:
             return _failed_dispatch(base, logs, f"读取微信附件本机路径失败：{error}", executor_type="tagui_mac")
 
     try:
-        rpa_result = execute_managed_mcp_tool(
-            tool_id="desktop_rpa.prepare_wechat_attachment",
-            arguments={
+        mcp_arguments = {
                 "recipient_name": recipient.get("name") or base.get("recipient_name"),
                 "artifact_id": salary_file.get("artifact_id"),
                 "filename": salary_file.get("filename"),
                 "download_path": salary_file.get("download_path"),
                 "local_file_path": local_file_path,
                 "platform_name": "mac",
-            },
+        }
+        approval_id = issue_managed_mcp_approval(
+            tool_id="desktop_rpa.prepare_wechat_attachment", arguments=mcp_arguments,
+            current_user=current_user, source="finance_salary_wechat_send",
+        )
+        rpa_result = execute_managed_mcp_tool(
+            tool_id="desktop_rpa.prepare_wechat_attachment",
+            arguments=mcp_arguments,
             current_user=current_user,
             source="finance_salary_wechat_send",
+            approval_id=approval_id,
             trace_collector=base.get("mcp_tool_calls") if isinstance(base.get("mcp_tool_calls"), list) else None,
         )
     except Exception as error:
@@ -1012,14 +1019,20 @@ def _dispatch_to_n8n(base: dict[str, Any], *, current_user: dict) -> dict[str, A
     logs = list(base.get("logs") or [])
     payload = base.get("payload") if isinstance(base.get("payload"), dict) else {}
     try:
-        dispatch_result = execute_managed_mcp_tool(
-            tool_id="n8n.dispatch_workflow",
-            arguments={
+        mcp_arguments = {
                 "workflow_type": "finance_salary_wechat_send",
                 "payload": payload,
-            },
+        }
+        approval_id = issue_managed_mcp_approval(
+            tool_id="n8n.dispatch_workflow", arguments=mcp_arguments,
+            current_user=current_user, source="finance_salary_wechat_send",
+        )
+        dispatch_result = execute_managed_mcp_tool(
+            tool_id="n8n.dispatch_workflow",
+            arguments=mcp_arguments,
             current_user=current_user,
             source="finance_salary_wechat_send",
+            approval_id=approval_id,
             trace_collector=base.get("mcp_tool_calls") if isinstance(base.get("mcp_tool_calls"), list) else None,
         )
     except Exception as error:

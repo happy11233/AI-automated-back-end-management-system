@@ -176,6 +176,51 @@ def test_amazon_fill_stops_before_publish() -> None:
     assert plan["requires_confirmation"] is True
 
 
+def test_pending_send_does_not_capture_new_questions() -> None:
+    from app.services import external_action_gateway_service as gateway
+    from app.services.chat_react_decision_service import decide_chat_action
+    from unittest.mock import patch
+
+    pending = {
+        "active": True, "status": "waiting_clarification", "target_channel": "email",
+        "source_message": "把工资表发到邮箱", "business_object": "salary_table",
+        "external_action_type": "send_file", "data_source": "erp_resource",
+    }
+    with patch.object(gateway, "get_pending_external_action", return_value=pending):
+        for message in ["请假找谁请", "请假流程是什么？", "工资表应该发给谁？", "你好", "谢谢"]:
+            assert gateway.should_resume_external_action_with_message(message, pending) is False, message
+            assert gateway.resolve_external_action_followup_intent(message, "pending-thread") is None, message
+            assert classify_agent_task(message, FINANCE_USER, thread_id="pending-thread").requires_plan_execute is False, message
+        assert decide_chat_action("请假找谁请", FINANCE_USER).action == "rag_query"
+
+
+def test_information_questions_do_not_trigger_external_actions() -> None:
+    for message in [
+        "工资表应该发送给谁？", "这个文件怎么发送到企业微信？", "请假申请需要发邮件吗？",
+        "如何填写 Amazon Seller Central 草稿？", "帮我看看工资表应该发给谁？",
+    ]:
+        assert recognize_external_action_intent(message) is None, message
+        assert classify_agent_task(message, FINANCE_USER).requires_plan_execute is False, message
+    for message in ["把工资表发送到邮箱 demo@example.com", "请问把文件发送到企业微信给张三可以吗？"]:
+        assert recognize_external_action_intent(message) is not None, message
+
+
+def test_email_recipient_is_an_address_and_followup_is_current_message_only() -> None:
+    from app.services import external_action_gateway_service as gateway
+    from unittest.mock import patch
+
+    pending = {
+        "active": True, "status": "waiting_clarification", "target_channel": "email",
+        "source_message": "把工资表发到邮箱", "business_object": "salary_table",
+        "external_action_type": "send_file", "data_source": "erp_resource",
+    }
+    assert recognize_external_action_intent("把工资表发到邮箱给张三").recipient_name is None
+    with patch.object(gateway, "get_pending_external_action", return_value=pending):
+        intent = gateway.resolve_external_action_followup_intent("demo@example.com", "pending-thread")
+        assert intent is not None and intent.recipient_name == "demo@example.com"
+        assert gateway.resolve_external_action_followup_intent("张三", "pending-thread") is None
+
+
 def main() -> None:
     test_salary_wechat_uses_external_action_gateway()
     test_employee_table_send_uses_gateway_instead_of_salary_route()
@@ -184,6 +229,9 @@ def main() -> None:
     test_salary_wechat_followup_keeps_channel_period_and_recipient()
     test_finance_clarification_does_not_expose_amazon_terms()
     test_amazon_fill_stops_before_publish()
+    test_pending_send_does_not_capture_new_questions()
+    test_information_questions_do_not_trigger_external_actions()
+    test_email_recipient_is_an_address_and_followup_is_current_message_only()
     print("external_action_gateway_spec: ok")
 
 

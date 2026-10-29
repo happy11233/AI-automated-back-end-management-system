@@ -6,6 +6,7 @@ from app.services.automation_service import AUTOMATION_TASKS
 
 
 SPECIAL_POSITION_APPS: dict[str, list[str]] = {
+    "operations": ["operations-product-scene"],
     "finance": [
         "finance-excel-transform",
         "finance-reconciliation",
@@ -22,6 +23,7 @@ ADMIN_PLATFORM_APPS = [
 ]
 
 SPECIAL_APP_LABELS: dict[str, tuple[str, str]] = {
+    "operations-product-scene": ("商品场景图生成", "运营创意"),
     "finance-excel-transform": ("财务 Excel 生成", "文件自动化"),
     "finance-reconciliation": ("财务对账自动化", "财务对账"),
     "customer-service-refund-approvals": ("退款审批", "客服售后"),

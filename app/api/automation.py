@@ -1,10 +1,12 @@
 import json
 from typing import Any
 from urllib.parse import quote
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field
+from starlette.concurrency import run_in_threadpool
 
 from app.auth.security import get_current_user
 from app.erp.base import ERPProviderError
@@ -43,6 +45,7 @@ from app.services.finance_report_service import (
     analyze_finance_report_files,
 )
 from app.services.finance_salary_service import recognize_salary_export_intent
+from app.services.email_confirmation_service import confirm_email_send
 from app.services.finance_salary_wechat_service import (
     build_salary_wechat_plan,
     build_wechat_prepare_confirmation_task,
@@ -218,6 +221,14 @@ class FinanceEnterpriseWechatFileSendConfirmRequest(BaseModel):
     source_message_id: str | None = Field(default=None, max_length=80)
     source_workflow_id: str | None = Field(default=None, max_length=120)
     thread_id: str | None = Field(default=None, max_length=160)
+    recipient_confirmed: bool = False
+    sensitive_data_confirmed: bool = False
+
+
+class EmailFileSendConfirmRequest(BaseModel):
+    confirmation_id: UUID
+    recipient: str = Field(min_length=1, max_length=320)
+    artifact_ids: list[str] = Field(min_length=1)
     recipient_confirmed: bool = False
     sensitive_data_confirmed: bool = False
 
@@ -662,7 +673,7 @@ async def analyze_finance_report(
 
     try:
         step_started_ms = now_ms()
-        result = analyze_finance_report_files(
+        result = await run_in_threadpool(analyze_finance_report_files,
             files=input_files,
             instruction=instruction,
             output_format=output_format,
@@ -1176,6 +1187,19 @@ def confirm_enterprise_wechat_file_send(
     current_user: dict = Depends(get_current_user),
 ):
     return _confirm_enterprise_wechat_file_send(request, current_user, legacy_finance_endpoint=False)
+
+
+@router.post("/files/email-send/confirm")
+def confirm_email_file_send(
+    request: EmailFileSendConfirmRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    if not request.recipient_confirmed or not request.sensitive_data_confirmed:
+        raise HTTPException(status_code=400, detail="请先确认收件人、附件和敏感数据。")
+    return confirm_email_send(
+        confirmation_id=str(request.confirmation_id), recipient=request.recipient,
+        artifact_ids=request.artifact_ids, current_user=current_user,
+    )
 
 
 @router.post("/finance/enterprise-wechat-file-send/confirm", response_model=FinanceEnterpriseWechatFileSendConfirmResponse)
@@ -2103,7 +2127,7 @@ async def transform_finance_excel_file(
     started_ms = now_ms()
 
     try:
-        erp_context = _query_finance_excel_erp_context(selected_erp_resources)
+        erp_context = await run_in_threadpool(_query_finance_excel_erp_context, selected_erp_resources)
         if selected_erp_resources:
             record_step(
                 run_id=run_id,
@@ -2131,7 +2155,7 @@ async def transform_finance_excel_file(
                 },
             )
         step_started_ms = now_ms()
-        skill_result = execute_skill(
+        skill_result = await run_in_threadpool(execute_skill,
             skill_id="finance_excel_settlement",
             payload={
                 "source_filename": source_filename,
@@ -2500,7 +2524,7 @@ async def reconcile_finance_files(
 
     try:
         step_started_ms = now_ms()
-        skill_result = execute_skill(
+        skill_result = await run_in_threadpool(execute_skill,
             skill_id="finance_reconciliation",
             payload={
                 "files": [

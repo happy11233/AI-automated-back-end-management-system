@@ -3,6 +3,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import ValidationError
 from pydantic import BaseModel, Field
+from starlette.concurrency import run_in_threadpool
 
 from app.auth.security import get_current_user
 from app.config import settings
@@ -64,6 +65,9 @@ class PlatformExecutionRetryResponse(BaseModel):
 
 class PlatformExecutionCallbackRequest(BaseModel):
     callback_token: str
+    attempt_count: int = Field(ge=1)
+    execution_id: str
+    external_event_id: str = Field(min_length=1, max_length=160)
     status: str
     response_payload: dict[str, Any] = Field(default_factory=dict)
     external_reference: str | None = None
@@ -126,9 +130,13 @@ async def platform_execution_task_callback(
     except ValidationError as error:
         raise HTTPException(status_code=422, detail=error.errors()) from error
 
-    return handle_platform_execution_callback(
+    return await run_in_threadpool(
+        handle_platform_execution_callback,
         task_id=task_id,
         callback_token=payload.callback_token,
+        attempt_count=payload.attempt_count,
+        execution_id=payload.execution_id,
+        external_event_id=payload.external_event_id,
         status_value=payload.status,
         response_payload=payload.response_payload,
         external_reference=payload.external_reference,

@@ -39,6 +39,9 @@ class CustomerServiceMessageItem(BaseModel):
     status: str
     automation_decision: str | None
     reply_draft: str | None
+    internal_note: str | None = None
+    needs_human_review: bool = True
+    reply_parse_status: str = "legacy_unstructured"
     handoff_reason: str | None
     erp_summary: str | None
     rag_summary: str | None

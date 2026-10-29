@@ -1,0 +1,29 @@
+.productScene { width: 100%; display: grid; gap: 24px; }
+.productSceneIntro { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; padding: 22px 28px; border: 1px solid #e2e8f0; border-radius: 18px; background: linear-gradient(116deg,#f9fbff,#eef4ff 68%,#f4f0ff); }
+.productSceneIntro h3 { margin: 8px 0 6px !important; font-size: 23px; }
+.productSceneEyebrow { color:#4757ba; font-size:11px; font-weight:700; letter-spacing:1.5px; }
+.productSceneGrid { display:grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap:22px; }
+.productSceneCard { min-width:0; display:flex; flex-direction:column; gap:17px; padding:23px; background:#fff; border:1px solid #e2e8f0; border-radius:18px; box-shadow:0 6px 28px rgba(23,42,75,.035); }
+.productSceneCardHeading { display:flex; align-items:center; gap:12px; }
+.productSceneCardHeading div { display:grid; gap:3px; }
+.productSceneCardHeading strong { font-size:17px; color:#16213a; }
+.productSceneCardHeading small { color:#69788e; }
+.productSceneStep { width:36px; height:36px; display:grid; place-items:center; border-radius:11px; background:#ecf0ff; color:#4355bb; font-weight:800; }
+.productSceneStep.result { background:#e8f7f2; color:#087e59; }
+.productSceneDrop,.productSceneOutput { width:100%; min-height:280px; height:clamp(280px,27vw,410px); display:grid; place-items:center; overflow:hidden; border:1px dashed #c8d3e9; border-radius:15px; background:#f8faff; }
+.productSceneDrop { padding:0; cursor:pointer; }
+.productSceneDrop.hasImage { background:#fff; border-style:solid; }
+.productSceneOutput { border-color:#d9e7e3; background:#f8fbfa; }
+.productSceneOutput.hasImage { border-style:solid; background:#fff; }
+.productSceneDrop img,.productSceneOutput img { display:block; width:100%; height:100%; object-fit:contain; }
+.productSceneEmpty { display:grid; justify-items:center; gap:10px; padding:24px; text-align:center; color:#55657d; }
+.productSceneEmpty .anticon { font-size:34px; color:#8394c3; }
+.productSceneEmpty strong { font-size:14px; color:#344360; }
+.productSceneEmpty span { font-size:12px; color:#8591a3; }
+.productSceneFileMeta,.productSceneOutputFooter { min-height:32px; display:flex; align-items:center; justify-content:space-between; gap:12px; overflow:hidden; }
+.productSceneFileMeta .ant-typography { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.productSceneLabel { color:#2d3d57; font-weight:650; margin-top:4px; }
+.productSceneGenerate { align-self:flex-start; min-width:190px; margin-top:4px; }
+.productSceneTip { margin-top:auto; border-radius:10px; background:#f3f6fb; padding:12px 14px; color:#66768e; font-size:12px; }
+.productSceneTip .anticon { margin-right:7px; }
+@media (max-width:900px) { .productSceneGrid { grid-template-columns:1fr; } .productSceneIntro { flex-direction:column; } }
